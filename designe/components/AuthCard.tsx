@@ -5,6 +5,7 @@ import { Eye, EyeOff, Loader2, Settings, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SettingsModal } from './SettingsModal';
 import { useLanguage } from '../context/LanguageContext';
+import { API_URL } from '../config';
 
 interface AuthCardProps {
   className?: string;
@@ -28,7 +29,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
 
     try {
       const endpoint = activeTab === 'login' ? '/auth/login' : '/auth/register';
-      const res = await fetch(`http://localhost:3001${endpoint}`, {
+      const res = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

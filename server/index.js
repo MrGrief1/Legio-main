@@ -14,9 +14,14 @@ try { rateLimit = require('express-rate-limit'); } catch (e) { }
 try { compression = require('compression'); } catch (e) { }
 
 const app = express();
+
+// Enable trust proxy for Railway and other reverse proxies
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0'; // Listen on all interfaces
-const SECRET_KEY = process.env.SECRET_KEY || "supersecretkey"; // In production, use environment variable
+const HOST = process.env.HOST || '0.0.0.0';
+const SECRET_KEY = process.env.SECRET_KEY || "supersecretkey";
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Middleware
 if (helmet) {
@@ -35,22 +40,39 @@ if (compression) {
     app.use(compression());
 }
 
-// Настройка CORS
+// CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3000', 'http://localhost:5173'];
+
 app.use(cors({
-    origin: '*',
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
 
-// Middleware для настройки заголовков безопасности
+// Content Security Policy for production
 app.use((req, res, next) => {
+    const cspOrigins = process.env.CSP_CONNECT_ORIGINS
+        ? process.env.CSP_CONNECT_ORIGINS
+        : "'self' http://localhost:3000 http://localhost:5173";
+
     res.setHeader('Content-Security-Policy',
         "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
-        "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
-        "img-src 'self' data:; " +
-        "font-src 'self' data:; " +
-        "connect-src 'self' http://localhost:3000;"
+        "script-src 'self' 'unsafe-inline' https://aistudiocdn.com; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src 'self' data: https://fonts.gstatic.com; " +
+        "img-src 'self' data: https:; " +
+        `connect-src ${cspOrigins};`
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
