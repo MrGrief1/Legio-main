@@ -1,0 +1,46 @@
+# Игнорируем node_modules
+node_modules
+
+# Игнорируем скрытые файлы и папки
+.*
+!.gitignore
+
+# Игнорируем логи
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Игнорируем временные файлы
+.temp
+.tmp
+
+# Игнорируем IDE файлы
+.idea
+.vscode
+*.sublime-*
+
+# Игнорируем файлы окружения, кроме .env.production
+.env*
+!.env.production
+
+# Игнорируем собранные файлы
+/dist
+/build
+
+# Игнорируем базы данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Игнорируем загруженные файлы
+/uploads
+
+# Игнорируем кэш
+.cache
+.parcel-cache
+.vite
+
+# Игнорируем тесты
+__tests__
+*.test.js
+*.spec.js
