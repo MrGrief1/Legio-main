@@ -4,13 +4,14 @@ import { AuthCard } from './AuthCard';
 import { Trophy, Crown } from 'lucide-react';
 import { User } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { API_URL } from '../config';
 
 export const RightPanel: React.FC = () => {
   const { t } = useLanguage();
   const [leaders, setLeaders] = useState<User[]>([]);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/leaders')
+    fetch(`${API_URL}/leaders`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch');
         return res.json();

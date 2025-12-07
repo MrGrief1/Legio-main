@@ -9,9 +9,9 @@ const fs = require('fs');
 
 // Fallback for missing packages
 let helmet, rateLimit, compression;
-try { helmet = require('helmet'); } catch (e) {}
-try { rateLimit = require('express-rate-limit'); } catch (e) {}
-try { compression = require('compression'); } catch (e) {}
+try { helmet = require('helmet'); } catch (e) { }
+try { rateLimit = require('express-rate-limit'); } catch (e) { }
+try { compression = require('compression'); } catch (e) { }
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,7 +44,7 @@ app.use(cors({
 
 // Middleware для настройки заголовков безопасности
 app.use((req, res, next) => {
-    res.setHeader('Content-Security-Policy', 
+    res.setHeader('Content-Security-Policy',
         "default-src 'self'; " +
         "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
         "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
@@ -63,26 +63,7 @@ app.use(express.json({ limit: '10mb' }));
 // Serve uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Serve static files from the public directory
-const publicPath = path.join(__dirname, 'public');
-console.log(`Serving static files from: ${publicPath}`);
-app.use(express.static(publicPath, {
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    // Set cache control for assets
-    if (path.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-  }
-}));
-
-// SPA fallback - serve index.html for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
+// Note: Static files and SPA fallback are configured at the end of the file after all API routes
 
 // Rate Limiting
 if (rateLimit) {
@@ -93,7 +74,7 @@ if (rateLimit) {
         legacyHeaders: false,
     });
     app.use('/api/', limiter);
-    
+
     const authLimiter = rateLimit({
         windowMs: 60 * 60 * 1000,
         max: 10,
@@ -159,7 +140,7 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Only images are allowed'));
 };
 
-const upload = multer({ 
+const upload = multer({
     storage,
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter
@@ -217,7 +198,7 @@ const getUserIdFromToken = (req) => {
 app.post('/auth/register', async (req, res) => {
     let { username, password, role } = req.body;
     if (username) username = username.trim();
-    
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
     // Default name to username
@@ -1068,22 +1049,22 @@ app.get('/api/chats/:id/messages', authenticateToken, (req, res) => {
 
         // Safety limit for initial load (if afterId is 0, maybe limit to 100? But for now let's keep full history to not break UI expectations unless it's huge)
         // If we limit, we need frontend pagination. For now, incremental update is the big win.
-        
+
         db.all(query, params, async (err, messages) => {
-                if (err) return res.status(500).json({ error: err.message });
+            if (err) return res.status(500).json({ error: err.message });
 
-                // Fetch attachments for each message
-                const messagesWithAttachments = await Promise.all(messages.map(async (msg) => {
-                    const attachments = await new Promise((resolve) => {
-                        db.all("SELECT * FROM message_attachments WHERE message_id = ?", [msg.id], (err, rows) => {
-                            resolve(rows || []);
-                        });
+            // Fetch attachments for each message
+            const messagesWithAttachments = await Promise.all(messages.map(async (msg) => {
+                const attachments = await new Promise((resolve) => {
+                    db.all("SELECT * FROM message_attachments WHERE message_id = ?", [msg.id], (err, rows) => {
+                        resolve(rows || []);
                     });
-                    return { ...msg, attachments };
-                }));
+                });
+                return { ...msg, attachments };
+            }));
 
-                res.json(messagesWithAttachments);
-            }
+            res.json(messagesWithAttachments);
+        }
         );
     });
 });

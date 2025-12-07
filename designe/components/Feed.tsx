@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NewsItem } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { NewsCard } from './FeedComponents';
+import { API_URL } from '../config';
 
 export const Feed: React.FC<{ category?: string; search?: string }> = ({ category = 'all', search = '' }) => {
   const [news, setNews] = useState<NewsItem[]>([]);
@@ -14,7 +15,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
     const token = localStorage.getItem('token');
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    let url = `http://localhost:3001/api/feed?category=${category}`;
+    let url = `${API_URL}/feed?category=${category}`;
     if (search) {
       url += `&search=${encodeURIComponent(search)}`;
     }
@@ -45,7 +46,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
     const token = localStorage.getItem('token');
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    let url = `http://localhost:3001/api/feed?category=${category}`;
+    let url = `${API_URL}/feed?category=${category}`;
     if (search) {
       url += `&search=${encodeURIComponent(search)}`;
     }
@@ -72,7 +73,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
     // Track visit once per session
     const visited = sessionStorage.getItem('visited');
     if (!visited) {
-      fetch('http://localhost:3001/api/visit', { method: 'POST' })
+      fetch(`${API_URL}/visit`, { method: 'POST' })
         .then(() => sessionStorage.setItem('visited', 'true'))
         .catch(console.error);
     }
