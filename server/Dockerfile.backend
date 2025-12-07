@@ -1,0 +1,25 @@
+# Используем официальный образ Node.js
+FROM node:18-slim
+
+# Создаем рабочую директорию
+WORKDIR /app
+
+# Устанавливаем зависимости
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Копируем исходный код
+COPY . .
+
+# Создаем необходимые директории
+RUN mkdir -p /app/uploads
+
+# Устанавливаем правильные права доступа
+RUN chown -R node:node /app
+USER node
+
+# Порт, который будет слушать приложение
+EXPOSE 3001
+
+# Команда для запуска приложения
+CMD ["node", "index.js"]

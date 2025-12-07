@@ -1,20 +1,42 @@
 version: '3.8'
 
 services:
-  app:
+  frontend:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ./designe
+      dockerfile: Dockerfile.frontend
     ports:
-      - "3000:3000"
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3001
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - legio-network
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.backend
+    ports:
+      - "3001:3001"
     environment:
       - NODE_ENV=production
+      - PORT=3001
+      - CORS_ORIGIN=http://localhost:3000
     volumes:
       - ./server/legio.db:/app/legio.db
       - ./server/uploads:/app/uploads
     restart: unless-stopped
+    networks:
+      - legio-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+networks:
+  legio-network:
+    driver: bridge

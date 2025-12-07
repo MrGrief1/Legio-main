@@ -35,8 +35,31 @@ if (compression) {
     app.use(compression());
 }
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Limit body size
+// Настройка CORS
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Middleware для настройки заголовков безопасности
+app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
+        "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
+        "img-src 'self' data:; " +
+        "font-src 'self' data:; " +
+        "connect-src 'self' http://localhost:3000;"
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    next();
+});
+
+app.use(express.json({ limit: '10mb' }));
+
 // Serve uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
