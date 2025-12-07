@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useDialog } from '../context/DialogContext';
 import { Button } from './UI';
 import { getApiUrl } from '../config';
