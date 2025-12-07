@@ -1,7 +1,14 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
-const dbPath = path.resolve(__dirname, 'database.sqlite');
+// Check if Railway volume exists at /app/data
+const dataDir = '/app/data';
+const isRailwayVolume = fs.existsSync(dataDir);
+const dbPath = isRailwayVolume
+  ? path.join(dataDir, 'database.sqlite')
+  : path.resolve(__dirname, 'database.sqlite');
+
 console.log('Database path:', dbPath); // Log the database path
 
 const db = new sqlite3.Database(dbPath, (err) => {

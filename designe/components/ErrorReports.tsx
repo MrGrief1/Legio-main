@@ -50,7 +50,7 @@ export const ErrorReports: React.FC = () => {
     const handleStatusChange = async (reportId: number, newStatus: 'pending' | 'resolved') => {
         try {
             const res = await fetch(getApiUrl(`/api/admin/reports/${reportId}/status`), {
-                method: 'POST',
+                method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${localStorage.getItem('token')}`

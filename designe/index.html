@@ -20,6 +20,16 @@
   }
 }
     </script>
+  <script>
+    const originalDefine = customElements.define;
+    customElements.define = function (name, constructor, options) {
+      if (customElements.get(name)) {
+        console.warn(`Custom element ${name} has already been defined.`);
+        return;
+      }
+      originalDefine.call(customElements, name, constructor, options);
+    };
+  </script>
 </head>
 
 <body class="bg-gray-100">
