@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, Calendar, Trophy, User, Shield, Clock } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { Avatar } from './Avatar';
 
 interface UserProfileModalProps {
     isOpen: boolean;
@@ -50,7 +51,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 <div className="px-6 pb-6 -mt-12 relative">
                     <div className="flex flex-col items-center">
                         <div className="w-24 h-24 rounded-full border-4 border-white dark:border-[#121212] overflow-hidden shadow-lg bg-zinc-100 dark:bg-zinc-800">
-                            <img src={user.avatar} alt={user.username} className="w-full h-full object-cover" />
+                            <Avatar src={user.avatar} alt={user.username} size={96} className="w-full h-full object-cover" fallbackText={user.name || user.username} />
                         </div>
 
                         <h2 className="mt-3 text-xl font-bold text-zinc-900 dark:text-white">
@@ -60,8 +61,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
 
                         {user.role !== 'user' && (
                             <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${user.role === 'admin'
-                                    ? 'bg-red-500/10 text-red-500 border border-red-500/20'
-                                    : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
                                 }`}>
                                 {user.role}
                             </span>

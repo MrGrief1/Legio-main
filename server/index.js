@@ -199,13 +199,20 @@ const authenticateToken = (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin') return res.sendStatus(403);
-    next();
+    // Check DB for current role to avoid stale token issues
+    db.get("SELECT role FROM users WHERE id = ?", [req.user.id], (err, user) => {
+        if (err) return res.sendStatus(500);
+        if (!user || user.role !== 'admin') return res.sendStatus(403);
+        next();
+    });
 };
 
 const requireCreatorOrAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'creator') return res.sendStatus(403);
-    next();
+    db.get("SELECT role FROM users WHERE id = ?", [req.user.id], (err, user) => {
+        if (err) return res.sendStatus(500);
+        if (!user || (user.role !== 'admin' && user.role !== 'creator')) return res.sendStatus(403);
+        next();
+    });
 };
 
 const getUserFromToken = (req) => {

@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { NewsModal } from './NewsModal';
 import { ReportModal } from './ReportModal';
 import { UserProfileModal } from './UserProfileModal';
+import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
 
 interface PollProps {
@@ -97,7 +98,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
   const isAdmin = user && user.role === 'admin';
 
   return (
-    <div 
+    <div
       className={`bg-zinc-50 dark:bg-zinc-900/50 rounded-[24px] p-5 lg:p-6 mb-6 border ${pollData.is_resolved ? 'border-green-500/20 dark:border-green-500/20' : 'border-zinc-100 dark:border-zinc-800'}`}
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
@@ -187,11 +188,11 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
                         setSelectedUser(voter);
                       }}
                     >
-                      <img
+                      <Avatar
                         src={voter.avatar}
                         alt={voter.username}
-                        className="w-5 h-5 rounded-full object-cover"
-                        loading="lazy"
+                        size={20}
+                        fallbackText={voter.name || voter.username}
                       />
                       <span className="text-xs text-zinc-600 dark:text-zinc-300 font-medium max-w-[100px] truncate">
                         {voter.name || voter.username}
@@ -344,7 +345,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
             </p>
 
             {item.poll && (
-              <div 
+              <div
                 onClick={e => e.stopPropagation()}
                 onMouseDown={e => e.stopPropagation()}
                 onPointerDown={e => e.stopPropagation()}

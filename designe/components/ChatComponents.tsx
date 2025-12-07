@@ -1,5 +1,6 @@
 import React from 'react';
 import { MessageCircle, Trash2, Check, CheckCheck, FileText } from 'lucide-react';
+import { Avatar } from './Avatar';
 
 interface Attachment {
     id: number;
@@ -53,11 +54,12 @@ export const ChatContactItem = React.memo(({ contact, isActive, onClick, formatT
                 }`}
         >
             <div className="relative flex-shrink-0">
-                <img 
-                    src={contact.avatar} 
-                    alt={contact.name} 
+                <Avatar
+                    src={contact.avatar}
+                    alt={contact.name}
+                    size={56}
                     className="w-14 h-14 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900 shadow-sm"
-                    loading="lazy"
+                    fallbackText={contact.name}
                 />
                 {contact.online && (
                     <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-zinc-900 rounded-full" />
@@ -109,8 +111,8 @@ export const ChatMessageItem = React.memo(({ msg, isMe, onDelete, formatTime }: 
         <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} group animate-in slide-in-from-bottom-2 duration-300`}>
             <div
                 className={`max-w-[85%] sm:max-w-[70%] px-5 py-3.5 rounded-[24px] relative shadow-md group-hover:shadow-lg transition-all ${isMe
-                        ? 'bg-blue-600 text-white rounded-br-none'
-                        : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-none'
+                    ? 'bg-blue-600 text-white rounded-br-none'
+                    : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-none'
                     }`}
             >
                 {isMe && (

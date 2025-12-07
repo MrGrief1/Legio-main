@@ -3,6 +3,7 @@ import { getApiUrl } from '../config';
 import { Trophy, Crown } from 'lucide-react';
 import { User } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { Avatar } from './Avatar';
 
 export const Leaderboard: React.FC = () => {
     const { t } = useLanguage();
@@ -36,12 +37,12 @@ export const Leaderboard: React.FC = () => {
                     <div
                         key={user.id}
                         className={`relative group flex items-center gap-3 lg:gap-4 p-3 lg:p-4 rounded-2xl transition-all duration-300 border ${index === 0
-                                ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-500/10 dark:to-orange-500/10 border-yellow-200 dark:border-yellow-500/20 shadow-lg shadow-yellow-500/5'
-                                : index === 1
-                                    ? 'bg-gradient-to-r from-zinc-50 to-slate-50 dark:from-zinc-800/40 dark:to-slate-800/40 border-zinc-200 dark:border-zinc-700'
-                                    : index === 2
-                                        ? 'bg-gradient-to-r from-orange-50 to-rose-50 dark:from-orange-900/10 dark:to-red-900/10 border-orange-200 dark:border-orange-800/30'
-                                        : 'bg-white/50 dark:bg-zinc-900/30 border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                            ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-500/10 dark:to-orange-500/10 border-yellow-200 dark:border-yellow-500/20 shadow-lg shadow-yellow-500/5'
+                            : index === 1
+                                ? 'bg-gradient-to-r from-zinc-50 to-slate-50 dark:from-zinc-800/40 dark:to-slate-800/40 border-zinc-200 dark:border-zinc-700'
+                                : index === 2
+                                    ? 'bg-gradient-to-r from-orange-50 to-rose-50 dark:from-orange-900/10 dark:to-red-900/10 border-orange-200 dark:border-orange-800/30'
+                                    : 'bg-white/50 dark:bg-zinc-900/30 border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
                             }`}
                     >
                         {/* Rank Badge */}
@@ -57,10 +58,12 @@ export const Leaderboard: React.FC = () => {
 
                         {/* Avatar */}
                         <div className="relative flex-shrink-0">
-                            <img
+                            <Avatar
                                 src={user.avatar}
                                 alt={user.name || user.username}
-                                className="w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-zinc-200 dark:bg-zinc-800 object-cover ring-2 ring-white dark:ring-zinc-900"
+                                size={index < 3 ? 48 : 40}
+                                className={`rounded-full bg-zinc-200 dark:bg-zinc-800 object-cover ring-2 ring-white dark:ring-zinc-900`}
+                                fallbackText={user.name || user.username}
                             />
                             {index < 3 && (
                                 <div className="absolute -bottom-1 -right-1 flex items-center justify-center w-5 h-5 bg-white dark:bg-zinc-900 rounded-full shadow-sm text-[10px]">

@@ -83,13 +83,13 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center sm:p-4">
         <div
           className="absolute inset-0 bg-black/70"
           onClick={onClose}
         />
 
-        <div className="relative bg-white dark:bg-[#121212] w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col">
+        <div className="relative bg-white dark:bg-[#121212] w-full h-[100dvh] sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col">
 
           {/* Header / Image */}
           <div className="relative h-64 shrink-0">

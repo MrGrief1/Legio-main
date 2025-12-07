@@ -3,6 +3,7 @@ import { getApiUrl } from '../config';
 import { createPortal } from 'react-dom';
 import { X, Upload, Lock, User as UserIcon, Mail, Camera, Loader2, ChevronDown, FileText, Calendar } from 'lucide-react';
 import { Button, Input } from './UI';
+import { Avatar } from './Avatar';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../context/ToastContext';
@@ -236,7 +237,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             <div className="flex flex-col items-center gap-4">
                                 <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                                     <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-zinc-100 dark:ring-zinc-800">
-                                        <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
+                                        <Avatar src={avatarPreview} alt="Avatar" size={96} className="w-full h-full object-cover" fallbackText={user?.name || user?.username} />
                                     </div>
                                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
                                         <Camera className="text-white" size={24} />

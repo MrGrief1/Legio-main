@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AuthCard } from './AuthCard';
+import { Avatar } from './Avatar';
 import { Trophy, Crown } from 'lucide-react';
 import { User } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -52,7 +53,7 @@ export const RightPanel: React.FC = () => {
           <h3 className="text-[11px] font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest mb-4 px-2">{t.rightPanel.topLeader}</h3>
           <div className="bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-[24px] p-4 flex items-center gap-4 shadow-sm dark:shadow-none">
             <div className="relative">
-              <img src={winner.avatar} alt={winner.username} className="w-12 h-12 rounded-full ring-2 ring-zinc-200 dark:ring-zinc-800" />
+              <Avatar src={winner.avatar} alt={winner.username} size={48} className="w-12 h-12 rounded-full ring-2 ring-zinc-200 dark:ring-zinc-800" fallbackText={winner.name || winner.username} />
               <div className="absolute -bottom-1 -right-1 bg-zinc-900 dark:bg-white text-white dark:text-black p-0.5 rounded-full shadow-sm">
                 <Crown size={10} fill="currentColor" />
               </div>
@@ -77,7 +78,7 @@ export const RightPanel: React.FC = () => {
                 <div className="w-6 text-center font-mono text-sm text-zinc-400 dark:text-zinc-600 font-bold">
                   {user.rank}
                 </div>
-                <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt={user.username} className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                <Avatar src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt={user.username} size={36} className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-800" fallbackText={user.name || user.username} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">
                     {user.name || user.username}
