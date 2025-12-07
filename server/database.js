@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 const dbPath = path.resolve(__dirname, 'database.sqlite');
+console.log('Database path:', dbPath); // Log the database path
 
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
@@ -165,20 +166,20 @@ function initDb() {
 
     // Add bio and birthdate to users if missing
     db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, (err) => {
-       // Ignore if exists
+      // Ignore if exists
     });
     db.run(`ALTER TABLE users ADD COLUMN birthdate TEXT`, (err) => {
-       // Ignore if exists
+      // Ignore if exists
     });
 
     // Add last_seen column to users
     db.run(`ALTER TABLE users ADD COLUMN last_seen DATETIME`, (err) => {
-       // Ignore if exists
+      // Ignore if exists
     });
 
     // Ensure name is unique
     db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(name)`, (err) => {
-       if (err) console.error('Error creating unique index on name:', err.message);
+      if (err) console.error('Error creating unique index on name:', err.message);
     });
 
     // Visits table
