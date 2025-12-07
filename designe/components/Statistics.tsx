@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Loader2, Users, FileText, Activity, ChevronDown, ArrowUpRight, Calendar } from 'lucide-react';
+import { getApiUrl } from '../config';
 
 interface Statistics {
     totalUsers: number;
@@ -54,7 +55,7 @@ export const Statistics: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`http://localhost:3001/api/admin/statistics?period=${period}`, {
+            const res = await fetch(getApiUrl(`/api/admin/statistics?period=${period}`), {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }

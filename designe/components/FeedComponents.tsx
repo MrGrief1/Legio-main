@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { NewsModal } from './NewsModal';
 import { ReportModal } from './ReportModal';
 import { UserProfileModal } from './UserProfileModal';
+import { getApiUrl } from '../config';
 
 interface PollProps {
   data: PollData;
@@ -36,7 +37,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
     setIsVoting(true);
 
     try {
-      const res = await fetch(`http://localhost:3001/api/polls/${data.id}/vote`, {
+      const res = await fetch(getApiUrl(`/api/polls/${data.id}/vote`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,7 +75,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/polls/${data.id}/resolve`, {
+      const res = await fetch(getApiUrl(`/api/polls/${data.id}/resolve`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -262,7 +263,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/news/${item.id}`, {
+      const res = await fetch(getApiUrl(`/api/news/${item.id}`), {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -290,7 +291,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
     setIsLiked(!isLiked);
 
     try {
-      const res = await fetch(`http://localhost:3001/api/news/${item.id}/like`, {
+      const res = await fetch(getApiUrl(`/api/news/${item.id}/like`), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

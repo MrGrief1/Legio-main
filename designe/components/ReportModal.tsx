@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getApiUrl } from '../config';
 import { createPortal } from 'react-dom';
 
 import { Button } from './UI';
@@ -30,7 +31,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, newsI
         setError(null);
 
         try {
-            const res = await fetch('http://localhost:3001/api/reports', {
+            const res = await fetch(getApiUrl('/api/reports'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -77,7 +78,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, newsI
     return createPortal(
         <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
             {/* Backdrop */}
-            <div 
+            <div
                 className={`absolute inset-0 bg-black/60 transition-opacity duration-300 ease-out ${isOpen ? 'opacity-100' : 'opacity-0'}`}
                 onClick={handleClose}
             />

@@ -5,6 +5,7 @@ import { NewsItem, PollData } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { ReportModal } from './ReportModal';
+import { getApiUrl } from '../config';
 
 interface NewsModalProps {
   item: NewsItem;
@@ -48,7 +49,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
     setIsLiked(!isLiked);
 
     try {
-      const res = await fetch(`http://localhost:3001/api/news/${item.id}/like`, {
+      const res = await fetch(getApiUrl(`/api/news/${item.id}/like`), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

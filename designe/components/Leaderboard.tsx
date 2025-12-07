@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from '../config';
 import { Trophy, Crown } from 'lucide-react';
 import { User } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -9,7 +10,7 @@ export const Leaderboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetch('http://localhost:3001/api/leaders')
+        fetch(getApiUrl('/api/leaders'))
             .then(res => res.json())
             .then(data => setLeaders(data))
             .catch(err => console.error(err))
@@ -28,13 +29,13 @@ export const Leaderboard: React.FC = () => {
                     <div className="text-center py-10 text-zinc-500">{t.leaderboard.loading}</div>
                 ) : leaders.map((user, index) => (
                     <div key={user.id} className={`flex items-center gap-4 p-4 rounded-2xl transition-all border ${index === 0
-                            ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-500/10 dark:border-yellow-500/20'
-                            : 'bg-zinc-50 border-transparent hover:border-zinc-200 dark:bg-zinc-900/50 dark:border-zinc-800'
+                        ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-500/10 dark:border-yellow-500/20'
+                        : 'bg-zinc-50 border-transparent hover:border-zinc-200 dark:bg-zinc-900/50 dark:border-zinc-800'
                         }`}>
                         <div className={`w-8 h-8 flex items-center justify-center rounded-full font-bold text-sm ${index === 0 ? 'bg-yellow-500 text-white' :
-                                index === 1 ? 'bg-zinc-400 text-white' :
-                                    index === 2 ? 'bg-amber-700 text-white' :
-                                        'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
+                            index === 1 ? 'bg-zinc-400 text-white' :
+                                index === 2 ? 'bg-amber-700 text-white' :
+                                    'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
                             }`}>
                             {index + 1}
                         </div>

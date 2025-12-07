@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useDialog } from '../context/DialogContext';
 import { ChatContactItem, ChatMessageItem, Message, ChatContact } from './ChatComponents';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { getApiUrl } from '../config';
 
 interface ChatModalProps {
     isOpen: boolean;
@@ -68,7 +69,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
             try {
                 const token = localStorage.getItem('token');
                 const lastId = lastMessageIdRef.current;
-                const response = await fetch(`http://localhost:3001/api/chats/${activeChatId}/messages?afterId=${lastId}`, {
+                const response = await fetch(getApiUrl(`/api/chats/${activeChatId}/messages?afterId=${lastId}`), {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (response.ok) {
@@ -149,7 +150,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     const fetchChats = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/chats', {
+            const response = await fetch(getApiUrl('/api/chats'), {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
@@ -176,7 +177,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
 
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:3001/api/chats/${activeChatId}/messages/${messageId}`, {
+            await fetch(getApiUrl(`/api/chats/${activeChatId}/messages/${messageId}`), {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -190,7 +191,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     const fetchMessages = async (chatId: number) => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:3001/api/chats/${chatId}/messages`, {
+            const response = await fetch(getApiUrl(`/api/chats/${chatId}/messages`), {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
@@ -208,7 +209,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     const markMessagesAsRead = async (chatId: number) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:3001/api/chats/${chatId}/read`, {
+            await fetch(getApiUrl(`/api/chats/${chatId}/read`), {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -267,7 +268,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
                 formData.append('files', file);
             });
 
-            const response = await fetch(`http://localhost:3001/api/chats/${activeChatId}/messages`, {
+            const response = await fetch(getApiUrl(`/api/chats/${activeChatId}/messages`), {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
                 body: formData
@@ -304,7 +305,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:3001/api/users/search?query=${encodeURIComponent(query)}`, {
+            const response = await fetch(getApiUrl(`/api/users/search?query=${encodeURIComponent(query)}`), {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
@@ -319,7 +320,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     const startChat = async (targetUserId: number) => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/chats', {
+            const response = await fetch(getApiUrl('/api/chats'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -352,8 +353,8 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
 
         const isBlocked = activeContact.is_blocked;
         const url = isBlocked
-            ? `http://localhost:3001/api/users/block/${activeContact.otherUserId}`
-            : 'http://localhost:3001/api/users/block';
+            ? getApiUrl(`/api/users/block/${activeContact.otherUserId}`)
+            : getApiUrl('/api/users/block');
 
         const method = isBlocked ? 'DELETE' : 'POST';
         const body = isBlocked ? undefined : JSON.stringify({ userId: activeContact.otherUserId });

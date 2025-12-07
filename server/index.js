@@ -72,16 +72,18 @@ app.use(cors({
 
 // Content Security Policy for production
 app.use((req, res, next) => {
+    // Allow Railway and custom origins
+    const defaultOrigins = "'self' http://localhost:3000 http://localhost:5173 https://*.railway.app";
     const cspOrigins = process.env.CSP_CONNECT_ORIGINS
-        ? process.env.CSP_CONNECT_ORIGINS
-        : "'self' http://localhost:3000 http://localhost:5173";
+        ? `${defaultOrigins} ${process.env.CSP_CONNECT_ORIGINS}`
+        : defaultOrigins;
 
     res.setHeader('Content-Security-Policy',
         "default-src 'self'; " +
         "script-src 'self' 'unsafe-inline' https://aistudiocdn.com; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' data: https://fonts.gstatic.com; " +
-        "img-src 'self' data: https:; " +
+        "img-src 'self' data: https: blob:; " + // Added blob: for temporary image URLs
         `connect-src ${cspOrigins};`
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');

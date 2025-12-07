@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useDialog } from '../context/DialogContext';
 import { Button } from './UI';
+import { getApiUrl } from '../config';
 
 interface ErrorReport {
     id: number;
@@ -24,7 +25,7 @@ export const ErrorReports: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`http://localhost:3001/api/admin/reports?status=${filter}`, {
+            const res = await fetch(getApiUrl(`/api/admin/reports?status=${filter}`), {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
@@ -48,8 +49,8 @@ export const ErrorReports: React.FC = () => {
 
     const handleStatusChange = async (reportId: number, newStatus: 'pending' | 'resolved') => {
         try {
-            const res = await fetch(`http://localhost:3001/api/admin/reports/${reportId}/status`, {
-                method: 'PATCH',
+            const res = await fetch(getApiUrl(`/api/admin/reports/${reportId}/status`), {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${localStorage.getItem('token')}`

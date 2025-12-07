@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getApiUrl } from '../config';
 import { createPortal } from 'react-dom';
 import { X, Upload, Lock, User as UserIcon, Mail, Camera, Loader2, ChevronDown, FileText, Calendar } from 'lucide-react';
 import { Button, Input } from './UI';
@@ -95,7 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             if (avatarFile) {
                 const formData = new FormData();
                 formData.append('image', avatarFile);
-                const uploadRes = await fetch('http://localhost:3001/api/upload', {
+                const uploadRes = await fetch(getApiUrl('/api/upload'), {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
                     body: formData
@@ -106,7 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 }
             }
 
-            const res = await fetch('http://localhost:3001/api/user/update', {
+            const res = await fetch(getApiUrl('/api/user/update'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -147,7 +148,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:3001/api/user/security', {
+            const res = await fetch(getApiUrl('/api/user/security'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

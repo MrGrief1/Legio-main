@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { Loader2, Trash, Plus, Check, Upload, Search } from 'lucide-react';
 import { CATEGORIES } from '../constants';
+import { getApiUrl } from '../config';
 
 interface User {
     id: number;
@@ -38,7 +39,7 @@ export const AdminPanel: React.FC = () => {
 
     const fetchUsers = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/admin/users', {
+            const res = await fetch(getApiUrl('/api/admin/users'), {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (res.ok) {
@@ -54,7 +55,7 @@ export const AdminPanel: React.FC = () => {
 
     const changeRole = async (id: number, newRole: string) => {
         try {
-            await fetch(`http://localhost:3001/api/admin/users/${id}/role`, {
+            await fetch(getApiUrl(`/api/admin/users/${id}/role`), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -84,7 +85,7 @@ export const AdminPanel: React.FC = () => {
             formData.append('image', file);
 
             try {
-                const res = await fetch('http://localhost:3001/api/upload', {
+                const res = await fetch(getApiUrl('/api/upload'), {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -119,7 +120,7 @@ export const AdminPanel: React.FC = () => {
                 }
             };
 
-            const res = await fetch('http://localhost:3001/api/news', {
+            const res = await fetch(getApiUrl('/api/news'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
