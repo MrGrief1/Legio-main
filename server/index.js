@@ -43,7 +43,23 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Serve static files from the public directory
 const publicPath = path.join(__dirname, 'public');
 console.log(`Serving static files from: ${publicPath}`);
-app.use(express.static(publicPath));
+app.use(express.static(publicPath, {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, path) => {
+    // Set cache control for assets
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
+
+// SPA fallback - serve index.html for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
 
 // Rate Limiting
 if (rateLimit) {

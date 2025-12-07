@@ -3,13 +3,10 @@ FROM node:18 AS frontend-builder
 
 WORKDIR /frontend
 COPY designe/package*.json ./
-RUN npm install
+RUN npm ci
 
 # Копируем остальные файлы фронтенда
 COPY designe/ .
-
-# Создаем директорию для билда, если её нет
-RUN mkdir -p dist
 
 # Запускаем сборку
 RUN npm run build
@@ -30,7 +27,7 @@ COPY server/ .
 # Этап 3: Финальный образ
 FROM node:18-slim
 
-# Устанавливаем зависимости для работы с SQLite
+# Устанавливаем зависимости для работы с SQLite и других утилит
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
@@ -41,17 +38,25 @@ WORKDIR /app
 # Копируем бэкенд
 COPY --from=backend-builder /backend /app
 
-# Создаем директорию для статических файлов
-RUN mkdir -p /app/public
+# Создаем необходимые директории
+RUN mkdir -p /app/public /app/uploads
 
 # Копируем собранный фронтенд
 COPY --from=frontend-builder /frontend/dist /app/public
+
+# Устанавливаем правильные права доступа
+RUN chown -R node:node /app
+USER node
 
 # Проверяем, что файлы скопированы правильно
 RUN ls -la /app/public
 
 # Открываем порт, на котором работает приложение
 EXPOSE 3000
+
+# Переменные окружения
+ENV NODE_ENV=production
+ENV PORT=3000
 
 # Команда для запуска приложения
 CMD ["node", "index.js"]
