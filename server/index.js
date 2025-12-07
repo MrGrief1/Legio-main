@@ -73,7 +73,7 @@ app.use(cors({
 // Content Security Policy for production
 app.use((req, res, next) => {
     // Allow Railway and custom origins
-    const defaultOrigins = "'self' http://localhost:3000 http://localhost:5173 https://*.railway.app";
+    const defaultOrigins = "'self' http://localhost:3000 http://localhost:3001 http://localhost:5173 https://*.railway.app";
     const cspOrigins = process.env.CSP_CONNECT_ORIGINS
         ? `${defaultOrigins} ${process.env.CSP_CONNECT_ORIGINS}`
         : defaultOrigins;
