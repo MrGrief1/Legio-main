@@ -227,7 +227,7 @@ const getUserIdFromToken = (req) => {
 
 // --- Auth Routes ---
 
-app.post('/auth/register', async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
     let { username, password, role } = req.body;
     if (username) username = username.trim();
 
@@ -248,7 +248,7 @@ app.post('/auth/register', async (req, res) => {
     });
 });
 
-app.post('/auth/login', (req, res) => {
+app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
 
     db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
