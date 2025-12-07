@@ -238,15 +238,26 @@ app.post('/api/auth/register', async (req, res) => {
     // Default name to username
     const name = username;
 
-    db.run("INSERT INTO users (username, password, role, points, avatar, name) VALUES (?, ?, ?, 0, ?, ?)", [username, hashedPassword, role || 'user', avatarUrl, name], function (err) {
+    // Check if this is the first user - if so, make them admin
+    db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
         if (err) {
-            if (err.message.includes('UNIQUE constraint failed')) {
-                return res.status(400).json({ message: "Email or Nickname already exists" });
-            }
-            return res.status(400).json({ message: "User already exists" });
+            console.error('Error checking user count:', err);
+            return res.status(500).json({ error: err.message });
         }
-        const token = jwt.sign({ id: this.lastID, username, role }, SECRET_KEY);
-        res.json({ token, user: { id: this.lastID, username, role, points: 0, avatar: avatarUrl, name, bio: null, birthdate: null } });
+
+        const isFirstUser = result && result.count === 0;
+        const userRole = isFirstUser ? 'admin' : (role || 'user');
+
+        db.run("INSERT INTO users (username, password, role, points, avatar, name) VALUES (?, ?, ?, 0, ?, ?)", [username, hashedPassword, userRole, avatarUrl, name], function (err) {
+            if (err) {
+                if (err.message.includes('UNIQUE constraint failed')) {
+                    return res.status(400).json({ message: "Email or Nickname already exists" });
+                }
+                return res.status(400).json({ message: "User already exists" });
+            }
+            const token = jwt.sign({ id: this.lastID, username, role: userRole }, SECRET_KEY);
+            res.json({ token, user: { id: this.lastID, username, role: userRole, points: 0, avatar: avatarUrl, name, bio: null, birthdate: null } });
+        });
     });
 });
 
@@ -1149,7 +1160,10 @@ app.post('/api/chats/:id/messages', authenticateToken, upload.array('files'), (r
                             files.forEach(file => {
                                 const type = file.mimetype.startsWith('image/') ? 'image' :
                                     file.mimetype.startsWith('video/') ? 'video' : 'file';
-                                const url = `http://localhost:3001/uploads/${file.filename}`;
+                                // Use dynamic host from request
+                                const protocol = req.protocol;
+                                const host = req.get('host');
+                                const url = `${protocol}://${host}/uploads/${file.filename}`;
                                 stmt.run(messageId, url, type, file.originalname);
                             });
                             stmt.finalize();
