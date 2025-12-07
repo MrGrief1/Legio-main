@@ -41,17 +41,27 @@ if (compression) {
 }
 
 // CORS Configuration
+// In production, set ALLOWED_ORIGINS="https://your-frontend.railway.app,https://your-domain.com"
+// In development, defaults to allowing all origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:3000', 'http://localhost:5173'];
+    : null; // null means allow all
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+        // If no restriction set, allow all
+        if (!allowedOrigins) {
+            return callback(null, true);
+        }
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) {
+            return callback(null, true);
+        }
+        // Check if origin is in allowed list
         if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
             callback(null, true);
         } else {
+            console.error(`CORS blocked origin: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
