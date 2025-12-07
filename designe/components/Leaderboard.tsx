@@ -18,45 +18,77 @@ export const Leaderboard: React.FC = () => {
     }, []);
 
     return (
-        <div className="bg-white dark:bg-[#121212] rounded-[32px] p-6 lg:p-8 border border-zinc-200 dark:border-zinc-800">
-            <h2 className="text-2xl font-bold mb-8 dark:text-white flex items-center gap-3">
-                <Trophy className="text-yellow-500" />
+        <div className="bg-white/80 dark:bg-[#121212]/80 backdrop-blur-xl rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
+            <h2 className="text-2xl font-bold mb-6 lg:mb-8 dark:text-white flex items-center gap-3 px-2">
+                <div className="p-2 bg-yellow-100 dark:bg-yellow-500/10 rounded-xl">
+                    <Trophy className="text-yellow-600 dark:text-yellow-500 w-6 h-6" />
+                </div>
                 {t.leaderboard.title}
             </h2>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
                 {loading ? (
-                    <div className="text-center py-10 text-zinc-500">{t.leaderboard.loading}</div>
+                    <div className="flex flex-col items-center justify-center py-20 text-zinc-500 gap-3">
+                        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                        <p>{t.leaderboard.loading}</p>
+                    </div>
                 ) : leaders.map((user, index) => (
-                    <div key={user.id} className={`flex items-center gap-4 p-4 rounded-2xl transition-all border ${index === 0
-                        ? 'bg-yellow-50 border-yellow-200 dark:bg-yellow-500/10 dark:border-yellow-500/20'
-                        : 'bg-zinc-50 border-transparent hover:border-zinc-200 dark:bg-zinc-900/50 dark:border-zinc-800'
-                        }`}>
-                        <div className={`w-8 h-8 flex items-center justify-center rounded-full font-bold text-sm ${index === 0 ? 'bg-yellow-500 text-white' :
-                            index === 1 ? 'bg-zinc-400 text-white' :
-                                index === 2 ? 'bg-amber-700 text-white' :
-                                    'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
-                            }`}>
-                            {index + 1}
+                    <div
+                        key={user.id}
+                        className={`relative group flex items-center gap-3 lg:gap-4 p-3 lg:p-4 rounded-2xl transition-all duration-300 border ${index === 0
+                                ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-500/10 dark:to-orange-500/10 border-yellow-200 dark:border-yellow-500/20 shadow-lg shadow-yellow-500/5'
+                                : index === 1
+                                    ? 'bg-gradient-to-r from-zinc-50 to-slate-50 dark:from-zinc-800/40 dark:to-slate-800/40 border-zinc-200 dark:border-zinc-700'
+                                    : index === 2
+                                        ? 'bg-gradient-to-r from-orange-50 to-rose-50 dark:from-orange-900/10 dark:to-red-900/10 border-orange-200 dark:border-orange-800/30'
+                                        : 'bg-white/50 dark:bg-zinc-900/30 border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                            }`}
+                    >
+                        {/* Rank Badge */}
+                        <div className={`
+                            flex-shrink-0 w-8 h-8 lg:w-10 lg:h-10 flex items-center justify-center rounded-full font-bold text-sm lg:text-base shadow-sm
+                            ${index === 0 ? 'bg-yellow-500 text-white ring-4 ring-yellow-100 dark:ring-yellow-900/30' :
+                                index === 1 ? 'bg-zinc-400 text-white' :
+                                    index === 2 ? 'bg-amber-700 text-white' :
+                                        'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'}
+                        `}>
+                            {index === 0 ? <Crown size={16} fill="currentColor" /> : index + 1}
                         </div>
 
-                        <img src={user.avatar} alt={user.name || user.username} className="w-12 h-12 rounded-full bg-zinc-200 dark:bg-zinc-800 object-cover" />
-
-                        <div className="flex-1">
-                            <div className="font-bold text-lg dark:text-white flex items-center gap-2">
-                                {user.name || user.username}
-                                {index === 0 && <Crown size={16} className="text-yellow-500" />}
-                            </div>
-                            {user.name && user.name !== user.username && (
-                                <div className="text-xs text-zinc-500">@{user.username}</div>
+                        {/* Avatar */}
+                        <div className="relative flex-shrink-0">
+                            <img
+                                src={user.avatar}
+                                alt={user.name || user.username}
+                                className="w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-zinc-200 dark:bg-zinc-800 object-cover ring-2 ring-white dark:ring-zinc-900"
+                            />
+                            {index < 3 && (
+                                <div className="absolute -bottom-1 -right-1 flex items-center justify-center w-5 h-5 bg-white dark:bg-zinc-900 rounded-full shadow-sm text-[10px]">
+                                    {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                                </div>
                             )}
                         </div>
 
-                        <div className="text-right">
-                            <div className="font-bold text-blue-600 dark:text-blue-400 text-lg">
+                        {/* User Info */}
+                        <div className="flex-1 min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className={`font-bold text-sm lg:text-lg truncate ${index === 0 ? 'text-yellow-700 dark:text-yellow-500' : 'text-zinc-900 dark:text-white'
+                                    }`}>
+                                    {user.name || user.username}
+                                </span>
+                                {index === 0 && <Crown size={14} className="text-yellow-500 flex-shrink-0 hidden lg:block" />}
+                            </div>
+                            <div className="text-xs text-zinc-500 truncate font-medium">
+                                @{user.username}
+                            </div>
+                        </div>
+
+                        {/* Points */}
+                        <div className="text-right flex-shrink-0 pl-2 border-l border-zinc-100 dark:border-zinc-800">
+                            <div className="font-bold text-blue-600 dark:text-blue-400 text-sm lg:text-lg tabular-nums">
                                 {user.points.toLocaleString()}
                             </div>
-                            <div className="text-xs text-zinc-500">{t.leaderboard.pointsLabel}</div>
+                            <div className="text-[10px] lg:text-xs text-zinc-400 font-medium uppercase tracking-wider">{t.leaderboard.pointsLabel}</div>
                         </div>
                     </div>
                 ))}
