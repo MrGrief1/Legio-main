@@ -37,8 +37,13 @@ if (compression) {
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Limit body size
-app.use('/uploads', express.static('uploads'));
-app.use(express.static(path.join(__dirname, '../designe/dist')));
+// Serve uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Serve static files from the public directory
+const publicPath = path.join(__dirname, 'public');
+console.log(`Serving static files from: ${publicPath}`);
+app.use(express.static(publicPath));
 
 // Rate Limiting
 if (rateLimit) {
@@ -1204,11 +1209,13 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
 });
 
 // Serve static files from the frontend build directory
-app.use(express.static(path.join(__dirname, '../designe/dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve index.html for any other requests (SPA support)
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../designe/dist/index.html'));
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    console.log(`Serving index.html from: ${indexPath}`);
+    res.sendFile(indexPath);
 });
 
 app.listen(PORT, HOST, () => {
