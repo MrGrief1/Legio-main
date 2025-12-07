@@ -5,6 +5,23 @@ const fs = require('fs');
 // Check if Railway volume exists at /app/data
 const dataDir = '/app/data';
 const isRailwayVolume = fs.existsSync(dataDir);
+
+if (isRailwayVolume) {
+  try {
+    fs.accessSync(dataDir, fs.constants.W_OK);
+    console.log(`Directory ${dataDir} is writable.`);
+  } catch (err) {
+    console.error(`Directory ${dataDir} is NOT writable:`, err.message);
+    try {
+      const stats = fs.statSync(dataDir);
+      console.log(`Directory stats: uid=${stats.uid}, gid=${stats.gid}, mode=${stats.mode}`);
+      console.log(`Process info: uid=${process.getuid()}, gid=${process.getgid()}`);
+    } catch (e) {
+      console.error('Could not stat directory:', e);
+    }
+  }
+}
+
 const dbPath = isRailwayVolume
   ? path.join(dataDir, 'database.sqlite')
   : path.resolve(__dirname, 'database.sqlite');
@@ -14,6 +31,9 @@ console.log('Database path:', dbPath); // Log the database path
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error opening database', err.message);
+    if (err.code === 'SQLITE_CANTOPEN') {
+      console.error('Trying to fallback to in-memory/local DB due to permission error...');
+    }
   } else {
     console.log('Connected to the SQLite database.');
     initDb();

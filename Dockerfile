@@ -45,8 +45,8 @@ RUN mkdir -p /app/public /app/uploads
 COPY --from=frontend-builder /frontend/dist /app/public
 
 # Устанавливаем правильные права доступа
-RUN chown -R node:node /app
-USER node
+# RUN chown -R node:node /app
+# USER node
 
 # Проверяем, что файлы скопированы правильно
 RUN ls -la /app/public
