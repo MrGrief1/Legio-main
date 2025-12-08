@@ -159,7 +159,7 @@ export const AdminPanel: React.FC = () => {
     );
 
     return (
-        <div className="bg-white dark:bg-[#121212] rounded-[32px] p-6 lg:p-8 border border-zinc-200 dark:border-zinc-800">
+        <div className="bg-white dark:bg-[#121212] rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800">
             <h2 className="text-2xl font-bold mb-6 dark:text-white">Admin Panel</h2>
 
             {/* Create News Form */}

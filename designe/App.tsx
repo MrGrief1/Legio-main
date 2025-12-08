@@ -185,11 +185,11 @@ const AppContent: React.FC = () => {
 
         <div className="flex-1 max-w-3xl">
           {view === 'feed' ? <Feed category={category} search={search} /> :
-            view === 'admin' ? <div className="py-4 lg:py-8 px-4 lg:px-8"><AdminPanel /></div> :
+            view === 'admin' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><AdminPanel /></div> :
               view === 'statistics' ? <Statistics /> :
                 view === 'reports' ? <ErrorReports /> :
-                  view === 'info' ? <div className="py-4 lg:py-8 px-4 lg:px-8"><Information /></div> :
-                    <div className="py-4 lg:py-8 px-4 lg:px-8"><Leaderboard /></div>}
+                  view === 'info' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><Information /></div> :
+                    <div className="py-4 lg:py-8 px-2 lg:px-8"><Leaderboard /></div>}
         </div>
 
         <RightPanel />

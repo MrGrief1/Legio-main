@@ -56,7 +56,7 @@ export const Information: React.FC = () => {
             </div>
 
             {/* Content */}
-            <div className="p-6 lg:p-8 text-zinc-900 dark:text-white">
+            <div className="p-4 lg:p-8 text-zinc-900 dark:text-white">
                 {activeTab === 'about' && (
                     <div className="space-y-8 animate-in fade-in duration-500">
                         <div className="text-center mb-8">
@@ -160,8 +160,8 @@ export const Information: React.FC = () => {
                             </ul>
                         </section>
 
-                        <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
-                             <table className="w-full text-left text-sm">
+                        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                             <table className="w-full text-left text-sm whitespace-nowrap">
                                 <thead className="bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-bold">
                                     <tr>
                                         <th className="px-6 py-3">Уровень</th>
