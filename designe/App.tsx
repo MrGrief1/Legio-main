@@ -90,7 +90,7 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="relative z-10 max-w-[1440px] mx-auto flex justify-center pt-16 lg:pt-0">
+      <div className="relative z-10 max-w-[1440px] mx-auto flex flex-col lg:flex-row lg:justify-center pt-16 lg:pt-0">
 
         {/* Mobile Header */}
         <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 z-40 flex items-center justify-between px-4 transition-colors duration-300">
@@ -183,13 +183,13 @@ const AppContent: React.FC = () => {
           />
         </div>
 
-        <div className="flex-1 max-w-3xl">
+        <div className="flex-1 max-w-3xl w-full min-w-0">
           {view === 'feed' ? <Feed category={category} search={search} /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><AdminPanel /></div> :
               view === 'statistics' ? <Statistics /> :
                 view === 'reports' ? <ErrorReports /> :
                   view === 'info' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><Information /></div> :
-                    <div className="py-4 lg:py-8 px-2 lg:px-8"><Leaderboard /></div>}
+                    <div className="py-0 lg:py-8 px-0 lg:px-8"><Leaderboard /></div>}
         </div>
 
         <RightPanel />

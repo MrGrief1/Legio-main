@@ -187,7 +187,7 @@ export const Statistics: React.FC = () => {
     ];
 
     return (
-        <main className="flex-1 min-w-0 min-h-screen text-zinc-900 dark:text-white font-sans p-6">
+        <main className="flex-1 min-w-0 min-h-screen text-zinc-900 dark:text-white font-sans p-4 lg:p-6">
             <div className="max-w-7xl mx-auto">
 
                 {/* Header */}

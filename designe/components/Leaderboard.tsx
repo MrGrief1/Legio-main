@@ -19,7 +19,7 @@ export const Leaderboard: React.FC = () => {
     }, []);
 
     return (
-        <div className="bg-white/80 dark:bg-[#121212]/80 backdrop-blur-xl rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden">
+        <div className="bg-white/80 dark:bg-[#121212]/80 backdrop-blur-xl rounded-2xl lg:rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 shadow-xl overflow-hidden w-full">
             <h2 className="text-2xl font-bold mb-6 lg:mb-8 dark:text-white flex items-center gap-3 px-2">
                 <div className="p-2 bg-yellow-100 dark:bg-yellow-500/10 rounded-xl">
                     <Trophy className="text-yellow-600 dark:text-yellow-500 w-6 h-6" />

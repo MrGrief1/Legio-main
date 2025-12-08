@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
+import { useLanguage } from '../context/LanguageContext';
 import { Loader2, Trash, Plus, Check, Upload, Search } from 'lucide-react';
 import { CATEGORIES } from '../constants';
 import { getApiUrl } from '../config';
@@ -16,6 +17,7 @@ interface User {
 
 export const AdminPanel: React.FC = () => {
     const { user } = useAuth();
+    const { t } = useLanguage();
     const { showAlert } = useDialog();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
@@ -96,7 +98,7 @@ export const AdminPanel: React.FC = () => {
                     const data = await res.json();
                     setImage(data.url);
                 } else {
-                    showAlert('Upload failed');
+                    showAlert(t.admin.uploadFailed);
                 }
             } catch (err) {
                 console.error(err);
@@ -130,7 +132,7 @@ export const AdminPanel: React.FC = () => {
             });
 
             if (res.ok) {
-                showAlert('News created successfully!');
+                showAlert(t.admin.newsCreated);
                 // Reset form
                 setTitle('');
                 setDescription('');
@@ -140,7 +142,7 @@ export const AdminPanel: React.FC = () => {
                 setQuestion('');
                 setOptions(['', '']);
             } else {
-                showAlert('Failed to create news');
+                showAlert(t.admin.newsCreateFailed);
             }
         } catch (e) {
             console.error(e);
@@ -150,7 +152,7 @@ export const AdminPanel: React.FC = () => {
     };
 
     if (!user || (user.role !== 'admin' && user.role !== 'creator')) {
-        return <div className="p-8 text-center text-white">Access Denied</div>;
+        return <div className="p-8 text-center text-white">{t.admin.accessDenied}</div>;
     }
 
     const filteredUsers = users.filter(u =>
@@ -159,16 +161,16 @@ export const AdminPanel: React.FC = () => {
     );
 
     return (
-        <div className="bg-white dark:bg-[#121212] rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800">
-            <h2 className="text-2xl font-bold mb-6 dark:text-white">Admin Panel</h2>
+        <div className="bg-white dark:bg-[#121212] rounded-2xl lg:rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 w-full">
+            <h2 className="text-2xl font-bold mb-6 dark:text-white">{t.admin.title}</h2>
 
             {/* Create News Form */}
             <div className="mb-12">
-                <h3 className="text-xl font-semibold mb-4 dark:text-white">Create News & Poll</h3>
+                <h3 className="text-xl font-semibold mb-4 dark:text-white">{t.admin.createNewsPoll}</h3>
                 <form onSubmit={createNews} className="space-y-4">
-                    <Input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900" required />
+                    <Input placeholder={t.admin.titlePlaceholder} value={title} onChange={e => setTitle(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900" required />
                     <textarea
-                        placeholder="Description"
+                        placeholder={t.admin.descriptionPlaceholder}
                         className="w-full p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
                         rows={3}
                         value={description}
@@ -178,11 +180,11 @@ export const AdminPanel: React.FC = () => {
 
                     {/* Custom Image Upload */}
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Cover Image</label>
+                        <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t.admin.coverImage}</label>
                         <div className="flex items-center gap-4">
                             <div className="relative flex-1">
                                 <Input
-                                    placeholder="Image URL (or upload file)"
+                                    placeholder={t.admin.imageUrl}
                                     value={image}
                                     onChange={e => setImage(e.target.value)}
                                     className="!bg-zinc-100 dark:!bg-zinc-900 pr-12"
@@ -204,13 +206,13 @@ export const AdminPanel: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                        <Input placeholder="Tags (comma separated, e.g., Auto, Sport)" value={tags} onChange={e => setTags(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900" />
+                        <Input placeholder={t.admin.tagsPlaceholder} value={tags} onChange={e => setTags(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900" />
                     </div>
 
                     {/* Custom Category Selector */}
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Category</label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t.admin.category}</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full">
                             {CATEGORIES.map(cat => (
                                 <button
                                     key={cat.id}
@@ -232,14 +234,14 @@ export const AdminPanel: React.FC = () => {
                     </div>
 
                     <div className="p-4 border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/20">
-                        <h4 className="font-medium mb-3 dark:text-white">Poll Configuration</h4>
-                        <Input placeholder="Question" value={question} onChange={e => setQuestion(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900 mb-3" required />
+                        <h4 className="font-medium mb-3 dark:text-white">{t.admin.pollConfig}</h4>
+                        <Input placeholder={t.admin.questionPlaceholder} value={question} onChange={e => setQuestion(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900 mb-3" required />
 
                         <div className="space-y-2">
                             {options.map((opt, i) => (
                                 <div key={i} className="flex gap-2">
                                     <Input
-                                        placeholder={`Option ${i + 1}`}
+                                        placeholder={`${t.admin.optionPlaceholder} ${i + 1}`}
                                         value={opt}
                                         onChange={e => handleOptionChange(i, e.target.value)}
                                         className="!bg-zinc-100 dark:!bg-zinc-900"
@@ -254,12 +256,12 @@ export const AdminPanel: React.FC = () => {
                             ))}
                         </div>
                         <Button type="button" onClick={addOption} variant="secondary" className="mt-3 text-sm">
-                            <Plus size={16} className="mr-1" /> Add Option
+                            <Plus size={16} className="mr-1" /> {t.admin.addOption}
                         </Button>
                     </div>
 
                     <Button type="submit" variant="primary" disabled={creating} fullWidth className="!bg-blue-600 text-white hover:!bg-blue-500 !py-4 !text-base shadow-lg shadow-blue-500/20">
-                        {creating ? <Loader2 className="animate-spin" /> : 'Publish News'}
+                        {creating ? <Loader2 className="animate-spin" /> : t.admin.publishNews}
                     </Button>
                 </form>
             </div>
@@ -268,12 +270,12 @@ export const AdminPanel: React.FC = () => {
             {user.role === 'admin' && (
                 <div>
                     <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-xl font-semibold dark:text-white">User Management</h3>
+                        <h3 className="text-xl font-semibold dark:text-white">{t.admin.userManagement}</h3>
                         <div className="relative w-64">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                             <input
                                 type="text"
-                                placeholder="Search users..."
+                                placeholder={t.admin.searchUsers}
                                 value={userSearch}
                                 onChange={e => setUserSearch(e.target.value)}
                                 className="w-full pl-9 pr-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-900 border-none focus:ring-2 focus:ring-blue-500 outline-none text-sm dark:text-white placeholder-zinc-400"
@@ -285,17 +287,17 @@ export const AdminPanel: React.FC = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                                    <th className="pb-3 pl-2 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">User</th>
-                                    <th className="pb-3 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">Points</th>
-                                    <th className="pb-3 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">Role</th>
-                                    <th className="pb-3 pr-2 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider text-right">Actions</th>
+                                    <th className="pb-3 pl-2 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">{t.admin.user}</th>
+                                    <th className="pb-3 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">{t.points}</th>
+                                    <th className="pb-3 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">{t.admin.role}</th>
+                                    <th className="pb-3 pr-2 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider text-right">{t.admin.actions}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
-                                    <tr><td colSpan={4} className="text-center py-8 text-zinc-500">Loading users...</td></tr>
+                                    <tr><td colSpan={4} className="text-center py-8 text-zinc-500">{t.admin.loadingUsers}</td></tr>
                                 ) : filteredUsers.length === 0 ? (
-                                    <tr><td colSpan={4} className="text-center py-8 text-zinc-500">No users found</td></tr>
+                                    <tr><td colSpan={4} className="text-center py-8 text-zinc-500">{t.admin.noUsers}</td></tr>
                                 ) : filteredUsers.map(u => (
                                     <tr key={u.id} className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors">
                                         <td className="py-3 pl-2">
@@ -332,3 +334,4 @@ export const AdminPanel: React.FC = () => {
         </div>
     );
 };
+
