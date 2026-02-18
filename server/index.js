@@ -349,63 +349,50 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ message: "Username and password are required" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
-    // Default name to username
-    const name = username;
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
+        const name = username;
 
-    // Check if this is the first user - if so, make them admin
-    db.get("SELECT COUNT(*) as count FROM users", async (err, result) => {
-        if (err) {
-            console.error('Error checking user count:', err);
-            return res.status(500).json({ error: err.message });
+        const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
+        const isFirstUser = Number(countRow?.count) === 0;
+        const userRole = isFirstUser ? 'admin' : (role || 'user');
+
+        const pointsSettings = await getPointsSettings();
+        const startPoints = pointsSettings.start_points;
+        const level = calculateLevel(startPoints);
+
+        const insertResult = await dbRunAsync(
+            "INSERT INTO users (username, password, role, points, level, avatar, name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [username, hashedPassword, userRole, startPoints, level, avatarUrl, name]
+        );
+
+        await dbRunAsync(
+            "INSERT INTO points_history (user_id, points, calculation_date, comment) VALUES (?, ?, CURRENT_TIMESTAMP, ?)",
+            [insertResult.lastID, startPoints, "Начисление баллов за регистрацию"]
+        );
+
+        const token = jwt.sign({ id: insertResult.lastID, username, role: userRole }, SECRET_KEY);
+        res.json({
+            token, user: {
+                id: insertResult.lastID,
+                username,
+                role: userRole,
+                points: startPoints,
+                level,
+                avatar: avatarUrl,
+                name,
+                bio: null,
+                birthdate: null
+            }
+        });
+    } catch (error) {
+        if (error && error.message && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ message: "Email or Nickname already exists" });
         }
-
-        try {
-            const isFirstUser = result && result.count === 0;
-            const userRole = isFirstUser ? 'admin' : (role || 'user');
-            const pointsSettings = await getPointsSettings();
-            const startPoints = pointsSettings.start_points;
-            const level = calculateLevel(startPoints);
-
-            db.run(
-                "INSERT INTO users (username, password, role, points, level, avatar, name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [username, hashedPassword, userRole, startPoints, level, avatarUrl, name],
-                function (insertErr) {
-                    if (insertErr) {
-                        if (insertErr.message.includes('UNIQUE constraint failed')) {
-                            return res.status(400).json({ message: "Email or Nickname already exists" });
-                        }
-                        return res.status(400).json({ message: "User already exists" });
-                    }
-
-                    db.run(
-                        "INSERT INTO points_history (user_id, points, calculation_date, comment) VALUES (?, ?, CURRENT_TIMESTAMP, ?)",
-                        [this.lastID, startPoints, "Начисление баллов за регистрацию"]
-                    );
-
-                    const token = jwt.sign({ id: this.lastID, username, role: userRole }, SECRET_KEY);
-                    res.json({
-                        token, user: {
-                            id: this.lastID,
-                            username,
-                            role: userRole,
-                            points: startPoints,
-                            level,
-                            avatar: avatarUrl,
-                            name,
-                            bio: null,
-                            birthdate: null
-                        }
-                    });
-                }
-            });
-
-        } catch (settingsError) {
-            console.error('Failed to load points settings:', settingsError);
-            res.status(500).json({ message: "Failed to register user" });
-        }
-    });
+        console.error('Failed to register user:', error);
+        res.status(500).json({ message: "Failed to register user" });
+    }
 });
 
 app.post('/api/auth/login', (req, res) => {
