@@ -369,12 +369,19 @@ const authenticateToken = (req, res, next) => {
 
     jwt.verify(token, SECRET_KEY, (err, user) => {
         if (err) return res.sendStatus(403);
-        req.user = user;
+        db.get("SELECT id FROM users WHERE id = ?", [user.id], (dbErr, dbUser) => {
+            if (dbErr) return res.status(500).json({ message: "Database error" });
+            if (!dbUser) {
+                return res.status(401).json({ message: "Token user no longer exists. Please login again." });
+            }
 
-        // Update last_seen
-        db.run("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", [user.id]);
+            req.user = user;
 
-        next();
+            // Update last_seen
+            db.run("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", [user.id]);
+
+            next();
+        });
     });
 };
 
@@ -470,9 +477,19 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    username = (username || '').trim();
+    if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+    }
 
-    db.get("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [username], async (err, user) => {
+    db.get(
+        `SELECT * FROM users
+         WHERE LOWER(username) = LOWER(?) OR LOWER(name) = LOWER(?)
+         ORDER BY CASE WHEN LOWER(username) = LOWER(?) THEN 0 ELSE 1 END
+         LIMIT 1`,
+        [username, username, username],
+        async (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!user) return res.status(400).json({ message: "User not found" });
 
@@ -514,6 +531,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/me', authenticateToken, (req, res) => {
     db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate, created_at FROM users WHERE id = ?", [req.user.id], (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(401).json({ message: "User not found for token. Please login again." });
         if (user && !user.name) user.name = user.username;
         res.json(user);
     });
