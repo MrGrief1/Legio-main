@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 require('dotenv').config();
 
@@ -159,7 +160,16 @@ if (rateLimit) {
 
 // Database Setup
 const db = require('./database');
-const wpPasswordHasher = PasswordHash ? new PasswordHash(8, true) : null;
+let wpPasswordHasher = null;
+if (PasswordHash) {
+    try {
+        // Some phpass JS ports throw when portable=true.
+        wpPasswordHasher = new PasswordHash(8, false);
+    } catch (error) {
+        console.warn('phpass init failed, fallback to built-in portable hash verifier:', error.message || error);
+        wpPasswordHasher = null;
+    }
+}
 
 const dbRunAsync = (sql, params = []) => new Promise((resolve, reject) => {
     db.run(sql, params, function onRun(err) {
@@ -181,6 +191,62 @@ const dbAllAsync = (sql, params = []) => new Promise((resolve, reject) => {
         resolve(rows || []);
     });
 });
+
+const PHPASS_ITOA64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+const phpPassEncode64 = (inputBuffer, count) => {
+    let output = '';
+    let i = 0;
+
+    do {
+        let value = inputBuffer[i++];
+        output += PHPASS_ITOA64[value & 0x3f];
+
+        if (i < count) {
+            value |= inputBuffer[i] << 8;
+        }
+        output += PHPASS_ITOA64[(value >> 6) & 0x3f];
+
+        if (i++ >= count) break;
+
+        if (i < count) {
+            value |= inputBuffer[i] << 16;
+        }
+        output += PHPASS_ITOA64[(value >> 12) & 0x3f];
+
+        if (i++ >= count) break;
+        output += PHPASS_ITOA64[(value >> 18) & 0x3f];
+    } while (i < count);
+
+    return output;
+};
+
+const verifyPortableWordpressHash = (plainPassword, storedHash) => {
+    const hash = String(storedHash || '');
+    if (!(hash.startsWith('$P$') || hash.startsWith('$H$')) || hash.length < 34) {
+        return false;
+    }
+
+    const countLog2 = PHPASS_ITOA64.indexOf(hash[3]);
+    if (countLog2 < 7 || countLog2 > 30) return false;
+
+    const salt = hash.slice(4, 12);
+    if (salt.length !== 8) return false;
+
+    let digest = crypto.createHash('md5').update(salt + plainPassword, 'utf8').digest();
+    const iterations = 1 << countLog2;
+
+    for (let i = 0; i < iterations; i += 1) {
+        digest = crypto
+            .createHash('md5')
+            .update(Buffer.concat([digest, Buffer.from(plainPassword, 'utf8')]))
+            .digest();
+    }
+
+    const encoded = phpPassEncode64(digest, 16);
+    const computed = hash.slice(0, 12) + encoded;
+    return computed === hash;
+};
 
 const normalizeBcryptHash = (hash) => {
     if (!hash) return hash;
@@ -210,13 +276,21 @@ const verifyPassword = async (plainPassword, storedHash) => {
         return bcrypt.compare(plainPassword, normalizeBcryptHash(storedHash));
     }
 
-    if (isPortableWpHash(storedHash) && wpPasswordHasher) {
-        if (typeof wpPasswordHasher.checkPassword === 'function') {
-            return wpPasswordHasher.checkPassword(plainPassword, storedHash);
+    if (isPortableWpHash(storedHash)) {
+        if (verifyPortableWordpressHash(plainPassword, storedHash)) {
+            return true;
         }
-        if (typeof wpPasswordHasher.CheckPassword === 'function') {
-            return wpPasswordHasher.CheckPassword(plainPassword, storedHash);
+
+        if (wpPasswordHasher) {
+            if (typeof wpPasswordHasher.checkPassword === 'function') {
+                return wpPasswordHasher.checkPassword(plainPassword, storedHash);
+            }
+            if (typeof wpPasswordHasher.CheckPassword === 'function') {
+                return wpPasswordHasher.CheckPassword(plainPassword, storedHash);
+            }
         }
+
+        return false;
     }
 
     // Fallback for legacy/dev plaintext passwords
