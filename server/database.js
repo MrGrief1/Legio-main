@@ -49,6 +49,7 @@ function initDb() {
       password TEXT,
       role TEXT DEFAULT 'user', -- 'admin', 'creator', 'user'
       points INTEGER DEFAULT 0,
+      level INTEGER DEFAULT 1,
       avatar TEXT,
       name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -204,6 +205,11 @@ function initDb() {
       // Ignore if exists
     });
 
+    // Add legacy-compatible level column
+    db.run(`ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1`, (err) => {
+      // Ignore if exists
+    });
+
     // Ensure name is unique
     db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(name)`, (err) => {
       if (err) console.error('Error creating unique index on name:', err.message);
@@ -217,6 +223,31 @@ function initDb() {
       UNIQUE(date)
     )`);
 
+    // Points settings table (legacy WordPress compatibility)
+    db.run(`CREATE TABLE IF NOT EXISTS points_settings (
+      id INTEGER PRIMARY KEY,
+      start_points INTEGER NOT NULL DEFAULT 100,
+      wins_points INTEGER NOT NULL DEFAULT 100,
+      level_points INTEGER NOT NULL DEFAULT 1000,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Points history table (legacy WordPress compatibility)
+    db.run(`CREATE TABLE IF NOT EXISTS points_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      points INTEGER NOT NULL,
+      calculation_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+      comment TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
+    db.run(
+      `INSERT INTO points_settings (id, start_points, wins_points, level_points)
+       VALUES (1, 100, 100, 1000)
+       ON CONFLICT(id) DO NOTHING`
+    );
+
     // --- OPTIMIZATION INDEXES ---
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_created_at ON news(created_at)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_category ON news(category)`);
@@ -225,6 +256,7 @@ function initDb() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_votes_option_id ON votes(option_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_chat_participants_user_id ON chat_participants(user_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_points_history_user_id ON points_history(user_id)`);
 
     console.log('Database initialized');
 

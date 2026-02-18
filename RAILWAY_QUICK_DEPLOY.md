@@ -38,6 +38,16 @@ git push
 
 ```bash
 SECRET_KEY=<random-string>
+
+# Опционально: миграция старой WordPress БД
+WP_DB_HOST=<mysql-host>
+WP_DB_PORT=3306
+WP_DB_USER=<mysql-user>
+WP_DB_PASSWORD=<mysql-password>
+WP_DB_NAME=<mysql-database>
+WP_DB_PREFIX=wp_
+WP_SYNC_ON_STARTUP=true
+WP_SYNC_FULL_REPLACE=true
 ```
 
 > Генерируйте: `openssl rand -base64 32`
@@ -54,6 +64,10 @@ Railway автоматически:
 Откройте `https://your-app.railway.app`
 
 ✅ **Первый пользователь = ADMIN автоматически!**
+
+Если подключена старая WordPress БД и нужен ручной перезапуск миграции:
+- войдите под админом
+- вызовите `POST /api/admin/sync/wordpress` (можно передать `{\"fullReplace\": true}`).
 
 ---
 

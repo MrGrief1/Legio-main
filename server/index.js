@@ -7,11 +7,22 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+require('dotenv').config();
+
+const {
+    DEFAULT_POINTS_SETTINGS,
+    calculateLevel,
+    isWordpressSyncConfigured,
+    syncWordpressToSQLite,
+    toBoolean,
+} = require('./wordpress_sync');
+
 // Fallback for missing packages
-let helmet, rateLimit, compression;
+let helmet, rateLimit, compression, PasswordHash;
 try { helmet = require('helmet'); } catch (e) { }
 try { rateLimit = require('express-rate-limit'); } catch (e) { }
 try { compression = require('compression'); } catch (e) { }
+try { ({ PasswordHash } = require('phpass')); } catch (e) { }
 
 const app = express();
 
@@ -22,6 +33,8 @@ const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const SECRET_KEY = process.env.SECRET_KEY || "supersecretkey";
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
+const WP_SYNC_FULL_REPLACE = toBoolean(process.env.WP_SYNC_FULL_REPLACE, true);
 
 // Middleware
 if (helmet) {
@@ -146,6 +159,99 @@ if (rateLimit) {
 
 // Database Setup
 const db = require('./database');
+const wpPasswordHasher = PasswordHash ? new PasswordHash(8, true) : null;
+
+const dbRunAsync = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+        if (err) return reject(err);
+        resolve(this);
+    });
+});
+
+const dbGetAsync = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+    });
+});
+
+const dbAllAsync = (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+    });
+});
+
+const normalizeBcryptHash = (hash) => {
+    if (!hash) return hash;
+    let normalized = String(hash);
+
+    if (normalized.startsWith('$wp$2')) {
+        normalized = normalized.replace('$wp$', '$');
+    }
+    if (normalized.startsWith('$2y$')) {
+        normalized = '$2a$' + normalized.slice(4);
+    }
+
+    return normalized;
+};
+
+const isBcryptHash = (hash) => {
+    const normalized = normalizeBcryptHash(hash);
+    return typeof normalized === 'string' && /^\$2[abxy]\$/.test(normalized);
+};
+
+const isPortableWpHash = (hash) => typeof hash === 'string' && (hash.startsWith('$P$') || hash.startsWith('$H$'));
+
+const verifyPassword = async (plainPassword, storedHash) => {
+    if (!storedHash) return false;
+
+    if (isBcryptHash(storedHash)) {
+        return bcrypt.compare(plainPassword, normalizeBcryptHash(storedHash));
+    }
+
+    if (isPortableWpHash(storedHash) && wpPasswordHasher) {
+        if (typeof wpPasswordHasher.checkPassword === 'function') {
+            return wpPasswordHasher.checkPassword(plainPassword, storedHash);
+        }
+        if (typeof wpPasswordHasher.CheckPassword === 'function') {
+            return wpPasswordHasher.CheckPassword(plainPassword, storedHash);
+        }
+    }
+
+    // Fallback for legacy/dev plaintext passwords
+    return String(plainPassword) === String(storedHash);
+};
+
+const shouldRehashPassword = (storedHash) => {
+    if (!storedHash) return false;
+    if (!isBcryptHash(storedHash)) return true;
+    return String(storedHash).startsWith('$wp$');
+};
+
+const getPointsSettings = async () => {
+    const row = await dbGetAsync(
+        "SELECT start_points, wins_points, level_points FROM points_settings WHERE id = 1"
+    ).catch(() => null);
+
+    return {
+        start_points: Number(row?.start_points) || DEFAULT_POINTS_SETTINGS.start_points,
+        wins_points: Number(row?.wins_points) || DEFAULT_POINTS_SETTINGS.wins_points,
+        level_points: Number(row?.level_points) || DEFAULT_POINTS_SETTINGS.level_points,
+    };
+};
+
+const syncWordpressIfConfigured = async ({ fullReplace = WP_SYNC_FULL_REPLACE } = {}) => {
+    if (!isWordpressSyncConfigured()) {
+        return { skipped: true, reason: 'WP_DB_* is not configured' };
+    }
+
+    return syncWordpressToSQLite({
+        db,
+        fullReplace,
+        logger: console,
+    });
+};
 
 // Ensure uploads directory exists
 if (!fs.existsSync('./uploads')) {
@@ -239,6 +345,9 @@ const getUserIdFromToken = (req) => {
 app.post('/api/auth/register', async (req, res) => {
     let { username, password, role } = req.body;
     if (username) username = username.trim();
+    if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
@@ -246,36 +355,78 @@ app.post('/api/auth/register', async (req, res) => {
     const name = username;
 
     // Check if this is the first user - if so, make them admin
-    db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
+    db.get("SELECT COUNT(*) as count FROM users", async (err, result) => {
         if (err) {
             console.error('Error checking user count:', err);
             return res.status(500).json({ error: err.message });
         }
 
-        const isFirstUser = result && result.count === 0;
-        const userRole = isFirstUser ? 'admin' : (role || 'user');
+        try {
+            const isFirstUser = result && result.count === 0;
+            const userRole = isFirstUser ? 'admin' : (role || 'user');
+            const pointsSettings = await getPointsSettings();
+            const startPoints = pointsSettings.start_points;
+            const level = calculateLevel(startPoints);
 
-        db.run("INSERT INTO users (username, password, role, points, avatar, name) VALUES (?, ?, ?, 0, ?, ?)", [username, hashedPassword, userRole, avatarUrl, name], function (err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ message: "Email or Nickname already exists" });
+            db.run(
+                "INSERT INTO users (username, password, role, points, level, avatar, name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [username, hashedPassword, userRole, startPoints, level, avatarUrl, name],
+                function (insertErr) {
+                    if (insertErr) {
+                        if (insertErr.message.includes('UNIQUE constraint failed')) {
+                            return res.status(400).json({ message: "Email or Nickname already exists" });
+                        }
+                        return res.status(400).json({ message: "User already exists" });
+                    }
+
+                    db.run(
+                        "INSERT INTO points_history (user_id, points, calculation_date, comment) VALUES (?, ?, CURRENT_TIMESTAMP, ?)",
+                        [this.lastID, startPoints, "Начисление баллов за регистрацию"]
+                    );
+
+                    const token = jwt.sign({ id: this.lastID, username, role: userRole }, SECRET_KEY);
+                    res.json({
+                        token, user: {
+                            id: this.lastID,
+                            username,
+                            role: userRole,
+                            points: startPoints,
+                            level,
+                            avatar: avatarUrl,
+                            name,
+                            bio: null,
+                            birthdate: null
+                        }
+                    });
                 }
-                return res.status(400).json({ message: "User already exists" });
-            }
-            const token = jwt.sign({ id: this.lastID, username, role: userRole }, SECRET_KEY);
-            res.json({ token, user: { id: this.lastID, username, role: userRole, points: 0, avatar: avatarUrl, name, bio: null, birthdate: null } });
-        });
+            });
+
+        } catch (settingsError) {
+            console.error('Failed to load points settings:', settingsError);
+            res.status(500).json({ message: "Failed to register user" });
+        }
     });
 });
 
 app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
 
-    db.get("SELECT * FROM users WHERE username = ?", [username], async (err, user) => {
+    db.get("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [username], async (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!user) return res.status(400).json({ message: "User not found" });
 
-        if (await bcrypt.compare(password, user.password)) {
+        const isValidPassword = await verifyPassword(password, user.password);
+
+        if (isValidPassword) {
+            if (shouldRehashPassword(user.password)) {
+                try {
+                    const rehashedPassword = await bcrypt.hash(password, 10);
+                    db.run("UPDATE users SET password = ? WHERE id = ?", [rehashedPassword, user.id]);
+                } catch (rehashError) {
+                    console.error('Failed to rehash legacy password:', rehashError.message);
+                }
+            }
+
             const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY);
             // If name is null (old users), fallback to username
             const name = user.name || user.username;
@@ -285,6 +436,7 @@ app.post('/api/auth/login', (req, res) => {
                     username: user.username,
                     role: user.role,
                     points: user.points,
+                    level: user.level || calculateLevel(user.points || 0),
                     avatar: user.avatar,
                     name,
                     bio: user.bio,
@@ -299,7 +451,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
-    db.get("SELECT id, username, role, points, avatar, name, bio, birthdate, created_at FROM users WHERE id = ?", [req.user.id], (err, user) => {
+    db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate, created_at FROM users WHERE id = ?", [req.user.id], (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
         if (user && !user.name) user.name = user.username;
         res.json(user);
@@ -349,7 +501,7 @@ app.post('/api/user/update', authenticateToken, (req, res) => {
         db.run(sql, values, function (err) {
             if (err) return res.status(500).json({ error: err.message });
             // Return updated user
-            db.get("SELECT id, username, role, points, avatar, name, bio, birthdate FROM users WHERE id = ?", [req.user.id], (err, user) => {
+            db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate FROM users WHERE id = ?", [req.user.id], (err, user) => {
                 if (user && !user.name) user.name = user.username;
                 res.json({ message: "Profile updated", user });
             });
@@ -644,60 +796,114 @@ app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
 });
 
 // Resolve Poll (Admin/Creator only)
-app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, (req, res) => {
-    const pollId = req.params.id;
-    const { correctOptionId } = req.body;
+app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    const pollId = Number(req.params.id);
+    const correctOptionId = Number(req.body.correctOptionId);
 
-    db.serialize(() => {
-        // Update poll
-        db.run("UPDATE polls SET correct_option_id = ?, is_resolved = 1 WHERE id = ?", [correctOptionId, pollId], (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-        });
+    if (!Number.isFinite(pollId) || !Number.isFinite(correctOptionId)) {
+        return res.status(400).json({ message: "Invalid poll or option id" });
+    }
 
-        // Award points to winners with dynamic scoring
-        // 1. Get total votes for the poll
-        db.get("SELECT COUNT(*) as total FROM votes WHERE poll_id = ?", [pollId], (err, totalRes) => {
-            if (err) {
-                console.error(err);
-                return;
+    try {
+        const poll = await dbGetAsync(
+            "SELECT id, is_resolved FROM polls WHERE id = ?",
+            [pollId]
+        );
+
+        if (!poll) {
+            return res.status(404).json({ message: "Poll not found" });
+        }
+
+        if (Number(poll.is_resolved) === 1) {
+            return res.status(400).json({ message: "Poll already resolved" });
+        }
+
+        const option = await dbGetAsync(
+            "SELECT id FROM poll_options WHERE id = ? AND poll_id = ?",
+            [correctOptionId, pollId]
+        );
+
+        if (!option) {
+            return res.status(400).json({ message: "Option does not belong to this poll" });
+        }
+
+        const settings = await getPointsSettings();
+        const totalVotesRow = await dbGetAsync(
+            "SELECT COUNT(*) as total FROM votes WHERE poll_id = ?",
+            [pollId]
+        );
+        const totalVotes = Number(totalVotesRow?.total) || 0;
+
+        const winners = await dbAllAsync(
+            "SELECT user_id FROM votes WHERE poll_id = ? AND option_id = ?",
+            [pollId, correctOptionId]
+        );
+        const winnersCount = winners.length;
+
+        // Legacy formula from the old WordPress project:
+        // points = wins_points + (100 - (user_vote_count / total_votes) * 100)
+        let pointsToAward = 0;
+        if (totalVotes > 0 && winnersCount > 0) {
+            const rarityCoefficient = (winnersCount / totalVotes) * 100;
+            pointsToAward = Math.max(0, Math.floor(settings.wins_points + (100 - rarityCoefficient)));
+        }
+
+        await dbRunAsync('BEGIN TRANSACTION');
+        try {
+            await dbRunAsync(
+                "UPDATE polls SET correct_option_id = ?, is_resolved = 1 WHERE id = ?",
+                [correctOptionId, pollId]
+            );
+
+            if (pointsToAward > 0 && winnersCount > 0) {
+                for (const winner of winners) {
+                    const winnerId = Number(winner.user_id);
+                    if (!winnerId) continue;
+
+                    await dbRunAsync(
+                        "UPDATE users SET points = points + ? WHERE id = ?",
+                        [pointsToAward, winnerId]
+                    );
+
+                    const updatedUser = await dbGetAsync(
+                        "SELECT points FROM users WHERE id = ?",
+                        [winnerId]
+                    );
+                    const updatedLevel = calculateLevel(updatedUser?.points || 0);
+                    await dbRunAsync(
+                        "UPDATE users SET level = ? WHERE id = ?",
+                        [updatedLevel, winnerId]
+                    );
+
+                    await dbRunAsync(
+                        "INSERT INTO points_history (user_id, points, calculation_date, comment) VALUES (?, ?, CURRENT_TIMESTAMP, ?)",
+                        [winnerId, pointsToAward, `Начисление баллов за победу в опросе № ${pollId}`]
+                    );
+                }
             }
-            const totalVotes = totalRes.total;
 
-            // 2. Get winners
-            db.all("SELECT user_id FROM votes WHERE poll_id = ? AND option_id = ?", [pollId, correctOptionId], (err, winners) => {
-                if (err) {
-                    console.error(err);
-                    return;
-                }
+            await dbRunAsync('COMMIT');
+        } catch (transactionError) {
+            await dbRunAsync('ROLLBACK');
+            throw transactionError;
+        }
 
-                const winnersCount = winners.length;
-
-                // Calculate points: Base (10) * (Total / Winners)
-                // If winnersCount is 0, no points awarded.
-                let pointsToAward = 0;
-                if (winnersCount > 0) {
-                    const multiplier = totalVotes / winnersCount;
-                    pointsToAward = Math.round(10 * multiplier);
-                }
-
-                if (pointsToAward > 0) {
-                    const stmt = db.prepare(`UPDATE users SET points = points + ? WHERE id = ?`);
-                    winners.forEach(row => {
-                        stmt.run(pointsToAward, row.user_id);
-                    });
-                    stmt.finalize();
-                }
-            });
+        res.json({
+            message: "Poll resolved and points awarded",
+            pointsAwarded: pointsToAward,
+            winners: winnersCount,
+            totalVotes
         });
-
-        res.json({ message: "Poll resolved and points awarded" });
-    });
+    } catch (error) {
+        console.error('Failed to resolve poll:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // --- Admin Routes ---
 
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
-    db.all("SELECT id, username, role, points, name, avatar FROM users", [], (err, rows) => {
+    db.all("SELECT id, username, role, points, level, name, avatar FROM users", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -709,6 +915,32 @@ app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Role updated" });
     });
+});
+
+app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (req, res) => {
+    const requestFullReplace = req.body?.fullReplace;
+    let fullReplace = WP_SYNC_FULL_REPLACE;
+
+    if (typeof requestFullReplace === 'boolean') {
+        fullReplace = requestFullReplace;
+    } else if (typeof requestFullReplace === 'string') {
+        fullReplace = requestFullReplace.toLowerCase() === 'true';
+    }
+
+    try {
+        const stats = await syncWordpressIfConfigured({ fullReplace });
+        if (stats.skipped) {
+            return res.status(400).json({ message: stats.reason });
+        }
+
+        res.json({
+            message: "WordPress sync completed",
+            stats
+        });
+    } catch (error) {
+        console.error('WordPress sync failed:', error);
+        res.status(500).json({ message: error.message });
+    }
 });
 
 app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, res) => {
@@ -1293,7 +1525,24 @@ app.get('*', (req, res) => {
     res.sendFile(indexPath);
 });
 
-app.listen(PORT, HOST, () => {
-    console.log(`Server running on http://${HOST}:${PORT}`);
-    console.log(`Access from network: http://[YOUR_IP]:${PORT}`);
-});
+const startServer = async () => {
+    if (WP_SYNC_ON_STARTUP) {
+        try {
+            const stats = await syncWordpressIfConfigured({ fullReplace: WP_SYNC_FULL_REPLACE });
+            if (stats.skipped) {
+                console.warn('[WP Sync] Startup sync skipped:', stats.reason);
+            } else {
+                console.log('[WP Sync] Startup sync completed:', stats);
+            }
+        } catch (error) {
+            console.error('[WP Sync] Startup sync failed:', error.message);
+        }
+    }
+
+    app.listen(PORT, HOST, () => {
+        console.log(`Server running on http://${HOST}:${PORT}`);
+        console.log(`Access from network: http://[YOUR_IP]:${PORT}`);
+    });
+};
+
+startServer();

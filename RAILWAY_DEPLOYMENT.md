@@ -11,6 +11,16 @@ PORT=8080                    # Railway will set this automatically
 SECRET_KEY=your-random-secret-key-here
 ALLOWED_ORIGINS=            # Leave empty to allow all origins (or set your frontend URL)
 CSP_CONNECT_ORIGINS=        # Leave empty for permissive mode
+
+# Optional: sync data from old WordPress DB (legio.news)
+WP_DB_HOST=
+WP_DB_PORT=3306
+WP_DB_USER=
+WP_DB_PASSWORD=
+WP_DB_NAME=
+WP_DB_PREFIX=wp_
+WP_SYNC_ON_STARTUP=true
+WP_SYNC_FULL_REPLACE=true
 ```
 
 ### Frontend Service (if deploying separately)
@@ -79,5 +89,7 @@ If deploying frontend and backend together (monorepo), the frontend will be serv
 ✅ Trust proxy enabled for Railway
 ✅ CORS configured to allow all origins by default
 ✅ All hardcoded localhost URLs replaced with API_URL config
+✅ Legacy WordPress sync endpoint: `POST /api/admin/sync/wordpress`
+✅ Legacy WordPress password hashes supported in login (`$P$`, `$H$`, `$wp$2y$...`)
 
 The application is ready for Railway deployment!
