@@ -121,6 +121,12 @@ export const Statistics: React.FC = () => {
                 rawData = stats.votesHistory;
         }
 
+        // Backend can return rows with null/empty date; guard all string operations.
+        const normalizedRawData = (rawData || []).map((item) => ({
+            date: String(item?.date || ''),
+            count: Number(item?.count || 0),
+        }));
+
         // Fill in missing dates/hours
         const filledData: { date: string; count: number }[] = [];
         const now = new Date();
@@ -130,7 +136,7 @@ export const Statistics: React.FC = () => {
             for (let i = 23; i >= 0; i--) {
                 const d = new Date(now.getTime() - i * 60 * 60 * 1000);
                 const hourStr = `${d.getHours().toString().padStart(2, '0')}:00`;
-                const found = rawData.find(item => item.date.includes(hourStr) || item.date === hourStr); // Adjust matching logic as needed
+                const found = normalizedRawData.find(item => item.date.includes(hourStr) || item.date === hourStr); // Adjust matching logic as needed
                 // Backend likely returns "HH:00" or full date. Let's assume backend returns "YYYY-MM-DD HH:00" or just "HH:00" for 24h
                 // Based on previous code: d.date.split(':')[0] implies HH:MM format or similar.
                 // Let's rely on the backend format. If backend returns "YYYY-MM-DD", this logic needs to match.
@@ -141,7 +147,7 @@ export const Statistics: React.FC = () => {
                 // Simple fill logic:
                 // If we can't perfectly match, we might just return rawData if it's populated, but here it's likely sparse.
                 // Let's try to match by hour if possible.
-                const match = rawData.find(r => r.date.startsWith(d.getHours().toString().padStart(2, '0')));
+                const match = normalizedRawData.find(r => r.date.startsWith(d.getHours().toString().padStart(2, '0')));
                 filledData.push({
                     date: hourStr,
                     count: match ? match.count : 0
@@ -160,7 +166,7 @@ export const Statistics: React.FC = () => {
                 // rawData item.date likely "YYYY-MM-DD"
                 const fullDateStr = `${d.getFullYear()}-${month}-${day}`;
 
-                const match = rawData.find(r => r.date === fullDateStr || r.date.endsWith(dateStr));
+                const match = normalizedRawData.find(r => r.date === fullDateStr || r.date.endsWith(dateStr));
                 filledData.push({
                     date: fullDateStr,
                     count: match ? match.count : 0
