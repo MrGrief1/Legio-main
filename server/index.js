@@ -1749,6 +1749,23 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
     );
 });
 
+app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
+    const userId = Number(req.params.id);
+    if (!userId) {
+        return res.status(400).json({ message: "Invalid user id" });
+    }
+
+    db.get(
+        "SELECT id, username, name, avatar, bio, birthdate, points, role, created_at FROM users WHERE id = ?",
+        [userId],
+        (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ message: "User not found" });
+            res.json(row);
+        }
+    );
+});
+
 // Serve static files from the frontend build directory
 app.use(express.static(path.join(__dirname, 'public')));
 

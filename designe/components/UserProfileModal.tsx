@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Calendar, Trophy, User, Shield, Clock } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { Avatar } from './Avatar';
+import { getApiUrl } from '../config';
 
 interface UserProfileModalProps {
     isOpen: boolean;
@@ -22,9 +23,37 @@ interface UserProfileModalProps {
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, user }) => {
     const hasTransitionedIn = useMountTransition(isOpen, 300);
+    const [freshUser, setFreshUser] = useState(user);
+
+    useEffect(() => {
+        setFreshUser(user);
+    }, [user]);
+
+    useEffect(() => {
+        if (!isOpen || !user?.id) return;
+
+        const token = localStorage.getItem('token');
+        fetch(getApiUrl(`/api/users/${user.id}/profile`), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch profile');
+                return res.json();
+            })
+            .then((data) => {
+                if (data && data.id) {
+                    setFreshUser(data);
+                }
+            })
+            .catch(() => {
+                // Keep fallback data from the list when profile refresh fails.
+            });
+    }, [isOpen, user?.id]);
 
     if (!user) return null;
     if (!hasTransitionedIn && !isOpen) return null;
+
+    const displayUser = freshUser || user;
 
     return createPortal(
         <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
@@ -51,30 +80,30 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 <div className="px-6 pb-6 -mt-12 relative">
                     <div className="flex flex-col items-center">
                         <div className="w-24 h-24 rounded-full border-4 border-white dark:border-[#121212] overflow-hidden shadow-lg bg-zinc-100 dark:bg-zinc-800">
-                            <Avatar src={user.avatar} alt={user.username} size={96} className="w-full h-full object-cover" fallbackText={user.name || user.username} />
+                            <Avatar src={displayUser.avatar} alt={displayUser.username} size={96} className="w-full h-full object-cover" fallbackText={displayUser.name || displayUser.username} />
                         </div>
 
                         <h2 className="mt-3 text-xl font-bold text-zinc-900 dark:text-white">
-                            {user.name || user.username}
+                            {displayUser.name || displayUser.username}
                         </h2>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">@{user.username}</p>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">@{displayUser.username}</p>
 
-                        {user.role !== 'user' && (
-                            <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${user.role === 'admin'
+                        {displayUser.role !== 'user' && (
+                            <span className={`mt-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${displayUser.role === 'admin'
                                 ? 'bg-red-500/10 text-red-500 border border-red-500/20'
                                 : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
                                 }`}>
-                                {user.role}
+                                {displayUser.role}
                             </span>
                         )}
                     </div>
 
                     {/* Stats / Details */}
                     <div className="mt-6 space-y-4">
-                        {user.bio && (
+                        {displayUser.bio && (
                             <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-2xl border border-zinc-100 dark:border-zinc-800">
                                 <p className="text-sm text-zinc-600 dark:text-zinc-300 italic text-center">
-                                    "{user.bio}"
+                                    "{displayUser.bio}"
                                 </p>
                             </div>
                         )}
@@ -86,7 +115,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                                 </div>
                                 <div>
                                     <p className="text-xs text-zinc-500">Очки</p>
-                                    <p className="font-bold text-zinc-900 dark:text-white">{user.points}</p>
+                                    <p className="font-bold text-zinc-900 dark:text-white">{displayUser.points}</p>
                                 </div>
                             </div>
 
@@ -97,7 +126,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                                 <div>
                                     <p className="text-xs text-zinc-500">Дата рождения</p>
                                     <p className="font-bold text-zinc-900 dark:text-white">
-                                        {user.birthdate ? new Date(user.birthdate).toLocaleDateString() : 'Не указана'}
+                                        {displayUser.birthdate ? new Date(displayUser.birthdate).toLocaleDateString() : 'Не указана'}
                                     </p>
                                 </div>
                             </div>
@@ -109,7 +138,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                                 <div>
                                     <p className="text-xs text-zinc-500">Регистрация</p>
                                     <p className="font-bold text-zinc-900 dark:text-white">
-                                        {new Date(user.created_at).toLocaleDateString()}
+                                        {displayUser.created_at ? new Date(displayUser.created_at).toLocaleDateString() : 'Неизвестно'}
                                     </p>
                                 </div>
                             </div>
