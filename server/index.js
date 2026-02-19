@@ -692,8 +692,8 @@ app.get('/api/feed', (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const requestedLimit = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
-        ? Math.min(requestedLimit, 5000)
-        : 5000;
+        ? Math.min(requestedLimit, 100)
+        : 20;
     const offset = (page - 1) * limit;
 
     let query = `
