@@ -747,39 +747,40 @@ app.get('/api/feed', (req, res) => {
     query += ` ORDER BY n.created_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+    const continueWithViewerRole = (isAdminViewer) => {
+        db.all(query, params, (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
 
-        // Process rows to nest options
-        const feed = [];
-        const promises = rows.map(async (row) => {
-            const item = {
-                id: row.id,
-                title: row.title,
-                description: row.description,
-                image: row.image,
-                category: row.category,
-                tags: JSON.parse(row.tags || '[]'),
-                date: row.created_at,
-                isLiked: row.is_liked > 0,
-                poll: null
-            };
+            // Process rows to nest options
+            const feed = [];
+            const promises = rows.map(async (row) => {
+                const item = {
+                    id: row.id,
+                    title: row.title,
+                    description: row.description,
+                    image: row.image,
+                    category: row.category,
+                    tags: JSON.parse(row.tags || '[]'),
+                    date: row.created_at,
+                    isLiked: row.is_liked > 0,
+                    poll: null
+                };
 
-            if (row.poll_id) {
-                // Get options for this poll
-                const options = await new Promise((resolve, reject) => {
-                    db.all(
-                        `SELECT po.id, po.text, 
+                if (row.poll_id) {
+                    // Get options for this poll
+                    const options = await new Promise((resolve, reject) => {
+                        db.all(
+                            `SELECT po.id, po.text, 
                         (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count,
                         (SELECT COUNT(*) FROM votes v WHERE v.poll_id = po.poll_id) as total_votes
                         FROM poll_options po 
                         WHERE po.poll_id = ?`,
-                        [row.poll_id],
-                        async (err, opts) => {
-                            if (err) reject(err);
-                            else {
-                                // If admin, fetch voters for each option
-                                if (user && user.role === 'admin') {
+                            [row.poll_id],
+                            async (err, opts) => {
+                                if (err) reject(err);
+                                else {
+                                    // If admin, fetch voters for each option
+                                    if (isAdminViewer) {
                                     const optsWithVoters = await Promise.all(opts.map(async (opt) => {
                                         const voters = await new Promise((resVoters) => {
                                             db.all(
@@ -812,49 +813,63 @@ app.get('/api/feed', (req, res) => {
                                                 }
                                             );
                                         });
-                                        return { ...opt, voters };
-                                    }));
-                                    resolve(optsWithVoters);
-                                } else {
-                                    resolve(opts);
+                                            return { ...opt, voters };
+                                        }));
+                                        resolve(optsWithVoters);
+                                    } else {
+                                        resolve(opts);
+                                    }
                                 }
                             }
-                        }
-                    );
-                });
-
-                // Check if user voted
-                let userVotedOptionId = null;
-                if (userId) {
-                    const userVote = await new Promise((resolve) => {
-                        db.get("SELECT option_id FROM votes WHERE user_id = ? AND poll_id = ?", [userId, row.poll_id], (err, row) => {
-                            resolve(row ? row.option_id : null);
-                        });
+                        );
                     });
-                    userVotedOptionId = userVote;
+
+                    // Check if user voted
+                    let userVotedOptionId = null;
+                    if (userId) {
+                        const userVote = await new Promise((resolve) => {
+                            db.get("SELECT option_id FROM votes WHERE user_id = ? AND poll_id = ?", [userId, row.poll_id], (err, row) => {
+                                resolve(row ? row.option_id : null);
+                            });
+                        });
+                        userVotedOptionId = userVote;
+                    }
+
+                    // Calculate percentages
+                    const formattedOptions = options.map(opt => ({
+                        id: opt.id,
+                        text: opt.text,
+                        percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
+                        voters: opt.voters // Include voters if present
+                    }));
+
+                    item.poll = {
+                        id: row.poll_id,
+                        question: row.question,
+                        options: formattedOptions,
+                        is_resolved: row.is_resolved,
+                        correct_option_id: row.correct_option_id,
+                        user_voted_option_id: userVotedOptionId // Flag for frontend
+                    };
                 }
+                return item;
+            });
 
-                // Calculate percentages
-                const formattedOptions = options.map(opt => ({
-                    id: opt.id,
-                    text: opt.text,
-                    percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
-                    voters: opt.voters // Include voters if present
-                }));
-
-                item.poll = {
-                    id: row.poll_id,
-                    question: row.question,
-                    options: formattedOptions,
-                    is_resolved: row.is_resolved,
-                    correct_option_id: row.correct_option_id,
-                    user_voted_option_id: userVotedOptionId // Flag for frontend
-                };
-            }
-            return item;
+            Promise.all(promises).then(results => res.json(results));
         });
+    };
 
-        Promise.all(promises).then(results => res.json(results));
+    if (!userId) {
+        continueWithViewerRole(false);
+        return;
+    }
+
+    db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
+        if (roleErr) {
+            continueWithViewerRole(false);
+            return;
+        }
+        continueWithViewerRole(dbUser?.role === 'admin');
     });
 });
 
