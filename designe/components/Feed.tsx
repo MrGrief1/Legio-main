@@ -24,7 +24,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
       url += `&search=${encodeURIComponent(search)}`;
     }
 
-    fetch(url, { headers })
+    return fetch(url, { headers })
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch');
         return res.json();
