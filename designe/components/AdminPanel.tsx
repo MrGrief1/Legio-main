@@ -241,7 +241,7 @@ export const AdminPanel: React.FC = () => {
 
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t.admin.tags}</label>
-                        <div className="flex items-center gap-2">
+                        <div className="space-y-2">
                             <Input
                                 placeholder={t.admin.tagsPlaceholder}
                                 value={tagInput}
@@ -258,6 +258,7 @@ export const AdminPanel: React.FC = () => {
                             <Button
                                 type="button"
                                 variant="secondary"
+                                fullWidth
                                 onClick={() => {
                                     addTag(tagInput);
                                     setTagInput('');
