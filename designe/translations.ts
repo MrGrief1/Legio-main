@@ -91,6 +91,7 @@ export interface Translations {
         pollConfig: string;
         question: string;
         option: string;
+        addTag: string;
         addOption: string;
         publishNews: string;
         userManagement: string;
@@ -287,11 +288,12 @@ export const translations: Record<Language, Translations> = {
             descriptionLabel: 'Описание',
             coverImage: 'Обложка',
             imageUrl: 'URL изображения (или загрузите файл)',
-            tags: 'Теги (через запятую, напр. Авто, Спорт)',
+            tags: 'Теги',
             category: 'Категория',
             pollConfig: 'Настройка опроса',
             question: 'Вопрос',
             option: 'Вариант',
+            addTag: 'Добавить тег',
             addOption: 'Добавить вариант',
             publishNews: 'Опубликовать новость',
             userManagement: 'Управление пользователями',
@@ -307,7 +309,7 @@ export const translations: Record<Language, Translations> = {
             uploadFailed: 'Ошибка загрузки',
             titlePlaceholder: 'Заголовок',
             descriptionPlaceholder: 'Описание',
-            tagsPlaceholder: 'Теги (через запятую, напр. Авто, Спорт)',
+            tagsPlaceholder: 'Введите тег и нажмите Enter или запятую',
             questionPlaceholder: 'Вопрос',
             optionPlaceholder: 'Вариант',
         },
@@ -486,11 +488,12 @@ export const translations: Record<Language, Translations> = {
             descriptionLabel: 'Description',
             coverImage: 'Cover Image',
             imageUrl: 'Image URL (or upload file)',
-            tags: 'Tags (comma separated, e.g., Auto, Sport)',
+            tags: 'Tags',
             category: 'Category',
             pollConfig: 'Poll Configuration',
             question: 'Question',
             option: 'Option',
+            addTag: 'Add Tag',
             addOption: 'Add Option',
             publishNews: 'Publish News',
             userManagement: 'User Management',
@@ -506,7 +509,7 @@ export const translations: Record<Language, Translations> = {
             uploadFailed: 'Upload failed',
             titlePlaceholder: 'Title',
             descriptionPlaceholder: 'Description',
-            tagsPlaceholder: 'Tags (comma separated, e.g., Auto, Sport)',
+            tagsPlaceholder: 'Type a tag and press Enter or comma',
             questionPlaceholder: 'Question',
             optionPlaceholder: 'Option',
         },

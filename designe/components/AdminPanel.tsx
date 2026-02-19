@@ -3,7 +3,7 @@ import { Button, Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Loader2, Trash, Plus, Check, Upload, Search } from 'lucide-react';
+import { Loader2, Trash, Plus, Check, Upload, Search, X } from 'lucide-react';
 import { CATEGORIES } from '../constants';
 import { getApiUrl } from '../config';
 
@@ -26,7 +26,8 @@ export const AdminPanel: React.FC = () => {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [image, setImage] = useState('');
-    const [tags, setTags] = useState('');
+    const [tags, setTags] = useState<string[]>([]);
+    const [tagInput, setTagInput] = useState('');
     const [category, setCategory] = useState('general');
     const [question, setQuestion] = useState('');
     const [options, setOptions] = useState<string[]>(['', '']);
@@ -80,6 +81,27 @@ export const AdminPanel: React.FC = () => {
     const addOption = () => setOptions([...options, '']);
     const removeOption = (index: number) => setOptions(options.filter((_, i) => i !== index));
 
+    const parseTags = (value: string) =>
+        value
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(Boolean);
+
+    const addTag = (value: string) => {
+        const newTags = parseTags(value);
+        if (!newTags.length) return;
+
+        setTags(prevTags => {
+            const existing = new Set(prevTags.map(tag => tag.toLowerCase()));
+            const toAdd = newTags.filter(tag => !existing.has(tag.toLowerCase()));
+            return [...prevTags, ...toAdd];
+        });
+    };
+
+    const removeTag = (index: number) => {
+        setTags(prevTags => prevTags.filter((_, i) => i !== index));
+    };
+
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
@@ -110,12 +132,23 @@ export const AdminPanel: React.FC = () => {
         e.preventDefault();
         setCreating(true);
         try {
+            const inlineTags = parseTags(tagInput);
+            const allTags = [...tags];
+            const existing = new Set(allTags.map(tag => tag.toLowerCase()));
+
+            inlineTags.forEach(tag => {
+                if (!existing.has(tag.toLowerCase())) {
+                    allTags.push(tag);
+                    existing.add(tag.toLowerCase());
+                }
+            });
+
             const payload = {
                 title,
                 description,
                 image,
                 category,
-                tags: tags.split(',').map(t => t.trim()),
+                tags: allTags,
                 poll: {
                     question,
                     options: options.filter(o => o.trim() !== '')
@@ -137,7 +170,8 @@ export const AdminPanel: React.FC = () => {
                 setTitle('');
                 setDescription('');
                 setImage('');
-                setTags('');
+                setTags([]);
+                setTagInput('');
                 setCategory('general');
                 setQuestion('');
                 setOptions(['', '']);
@@ -206,7 +240,51 @@ export const AdminPanel: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                        <Input placeholder={t.admin.tagsPlaceholder} value={tags} onChange={e => setTags(e.target.value)} className="!bg-zinc-100 dark:!bg-zinc-900" />
+                        <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t.admin.tags}</label>
+                        <div className="flex items-center gap-2">
+                            <Input
+                                placeholder={t.admin.tagsPlaceholder}
+                                value={tagInput}
+                                onChange={e => setTagInput(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' || e.key === ',') {
+                                        e.preventDefault();
+                                        addTag(tagInput);
+                                        setTagInput('');
+                                    }
+                                }}
+                                className="!bg-zinc-100 dark:!bg-zinc-900"
+                            />
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => {
+                                    addTag(tagInput);
+                                    setTagInput('');
+                                }}
+                            >
+                                {t.admin.addTag}
+                            </Button>
+                        </div>
+                        {tags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                                {tags.map((tag, index) => (
+                                    <div
+                                        key={`${tag}-${index}`}
+                                        className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-sm"
+                                    >
+                                        <span>{tag}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeTag(index)}
+                                            className="text-zinc-500 hover:text-red-500 transition-colors"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Custom Category Selector */}
@@ -334,4 +412,3 @@ export const AdminPanel: React.FC = () => {
         </div>
     );
 };
-
