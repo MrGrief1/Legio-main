@@ -1261,7 +1261,7 @@ app.patch('/api/admin/reports/:id/status', authenticateToken, requireAdmin, (req
 });
 
 app.get('/api/leaders', (req, res) => {
-    db.all("SELECT id, username, name, points, avatar FROM users ORDER BY points DESC LIMIT 10", [], (err, rows) => {
+    db.all("SELECT id, username, name, points, avatar FROM users ORDER BY points DESC", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         // Add rank
         const ranked = rows.map((r, i) => ({
