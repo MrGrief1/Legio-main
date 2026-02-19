@@ -783,12 +783,33 @@ app.get('/api/feed', (req, res) => {
                                     const optsWithVoters = await Promise.all(opts.map(async (opt) => {
                                         const voters = await new Promise((resVoters) => {
                                             db.all(
-                                                `SELECT u.id, u.username, u.name, u.avatar, u.bio, u.birthdate, u.points, u.role, u.created_at 
+                                                `SELECT v.user_id as voter_user_id,
+                                                        u.id, u.username, u.name, u.avatar, u.bio, u.birthdate, u.points, u.role, u.created_at 
                                                  FROM votes v 
-                                                 JOIN users u ON v.user_id = u.id 
+                                                 LEFT JOIN users u ON v.user_id = u.id 
                                                  WHERE v.option_id = ?`,
                                                 [opt.id],
-                                                (err, rows) => resVoters(rows || [])
+                                                (err, rows) => {
+                                                    const safeRows = (rows || []).map((row) => {
+                                                        const fallbackId = Number(row?.voter_user_id) || 0;
+                                                        const safeId = Number(row?.id) || fallbackId;
+                                                        const safeUsername = row?.username || `user_${fallbackId || 'unknown'}`;
+                                                        const safeName = row?.name || safeUsername;
+
+                                                        return {
+                                                            id: safeId,
+                                                            username: safeUsername,
+                                                            name: safeName,
+                                                            avatar: row?.avatar || '',
+                                                            bio: row?.bio || '',
+                                                            birthdate: row?.birthdate || null,
+                                                            points: Number(row?.points) || 0,
+                                                            role: row?.role || 'user',
+                                                            created_at: row?.created_at || null
+                                                        };
+                                                    });
+                                                    resVoters(safeRows);
+                                                }
                                             );
                                         });
                                         return { ...opt, voters };
