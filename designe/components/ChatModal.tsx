@@ -293,7 +293,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     const handleContactClick = useCallback((id: number) => {
         setActiveChatId(id);
         setShowMobileChat(true);
-        setShowContactInfo(false);
+        setShowContactInfo(true);
     }, []);
 
     const handleSearch = async (query: string) => {
@@ -334,6 +334,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
                 await fetchChats();
                 setActiveChatId(data.id);
                 setShowMobileChat(true);
+                setShowContactInfo(true);
                 setSearchQuery('');
                 setSearchResults([]);
             }

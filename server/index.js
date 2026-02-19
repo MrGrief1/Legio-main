@@ -1643,16 +1643,50 @@ app.delete('/api/users/block/:id', authenticateToken, (req, res) => {
 
 // Search Users (for new chat)
 app.get('/api/users/search', authenticateToken, (req, res) => {
-    const { query } = req.query;
-    if (!query) return res.json([]);
+    const rawQuery = String(req.query.query || '').trim();
+    if (!rawQuery) return res.json([]);
 
-    const search = `%${query}%`;
+    const normalize = (value) => String(value || '')
+        .toLocaleLowerCase('ru-RU')
+        .replace(/ё/g, 'е')
+        .trim();
+
+    const needle = normalize(rawQuery);
+    if (!needle) return res.json([]);
+
     db.all(
-        "SELECT id, username, name, avatar FROM users WHERE (username LIKE ? OR name LIKE ?) AND id != ? LIMIT 10",
-        [search, search, req.user.id],
+        "SELECT id, username, name, avatar, bio, birthdate, points, role, created_at FROM users WHERE id != ?",
+        [req.user.id],
         (err, users) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json(users);
+
+            const ranked = (users || [])
+                .map((u) => {
+                    const usernameNorm = normalize(u.username);
+                    const nameNorm = normalize(u.name);
+                    const inUsername = usernameNorm.includes(needle);
+                    const inName = nameNorm.includes(needle);
+                    const startsUsername = usernameNorm.startsWith(needle);
+                    const startsName = nameNorm.startsWith(needle);
+
+                    const matched = inUsername || inName;
+                    const score =
+                        (startsName ? 8 : 0) +
+                        (startsUsername ? 6 : 0) +
+                        (inName ? 4 : 0) +
+                        (inUsername ? 2 : 0);
+
+                    return { ...u, matched, score };
+                })
+                .filter((u) => u.matched)
+                .sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    return String(a.name || a.username).localeCompare(String(b.name || b.username), 'ru-RU');
+                })
+                .slice(0, 30)
+                .map(({ matched, score, ...user }) => user);
+
+            res.json(ranked);
         }
     );
 });
