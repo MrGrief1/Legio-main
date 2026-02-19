@@ -125,25 +125,32 @@ function mapCategoryToNewProject(rawValue) {
   if (!value) return 'general';
 
   const map = [
-    { key: 'auto', needles: ['auto', 'авто'] },
-    { key: 'finance', needles: ['finance', 'bank', 'финанс', 'банк'] },
-    { key: 'housing', needles: ['housing', 'realty', 'жиль', 'недвиж'] },
-    { key: 'health', needles: ['health', 'мед', 'здоров'] },
-    { key: 'cinema', needles: ['cinema', 'movie', 'кино', 'сериал'] },
-    { key: 'crypto', needles: ['crypto', 'bitcoin', 'крипт', 'биткоин'] },
-    { key: 'society', needles: ['society', 'обще'] },
-    { key: 'politics', needles: ['politics', 'policy', 'полит'] },
-    { key: 'family', needles: ['family', 'семь'] },
+    { key: 'avto', needles: ['avto', 'auto', 'авто'] },
+    { key: 'bankovskij-sektor', needles: ['bankovskij-sektor', 'finance', 'bank', 'финанс', 'банк'] },
+    { key: 'zhile', needles: ['zhile', 'housing', 'realty', 'жиль', 'недвиж'] },
+    { key: 'zdorove', needles: ['zdorove', 'health', 'мед', 'здоров'] },
+    { key: 'kino', needles: ['kino', 'cinema', 'movie', 'кино', 'сериал'] },
+    { key: 'kriptovalyuta', needles: ['kriptovalyuta', 'crypto', 'bitcoin', 'крипт', 'биткоин'] },
+    { key: 'obshhestvo', needles: ['obshhestvo', 'society', 'обще'] },
+    { key: 'politika', needles: ['politika', 'politics', 'policy', 'полит'] },
+    { key: 'semya', needles: ['semya', 'family', 'семь'] },
     { key: 'sport', needles: ['sport', 'спорт'] },
-    { key: 'tourism', needles: ['tourism', 'travel', 'тури', 'путеш'] },
-    { key: 'ecology', needles: ['ecology', 'eco', 'эколог'] },
-    { key: 'economy', needles: ['economy', 'эконом'] },
+    { key: 'turizm', needles: ['turizm', 'tourism', 'travel', 'тури', 'путеш'] },
+    { key: 'ekologiya', needles: ['ekologiya', 'ecology', 'eco', 'эколог'] },
+    { key: 'ekonomika', needles: ['ekonomika', 'economy', 'эконом'] },
+    { key: 'blagoustrojstvo', needles: ['blagoustrojstvo', 'благоустрой'] },
+    { key: 'bez-rubriki', needles: ['bez-rubriki', 'uncategorized', 'без рубрики'] },
   ];
 
   for (const entry of map) {
     if (entry.needles.some((needle) => value.includes(needle))) {
       return entry.key;
     }
+  }
+
+  // Preserve unknown slugs from old WP if they are URL-safe.
+  if (/^[a-z0-9-]+$/.test(value)) {
+    return value;
   }
 
   return 'general';

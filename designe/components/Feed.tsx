@@ -92,7 +92,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
       {/* Feed Items */}
       <div className="space-y-8 pb-20">
         {Array.isArray(news) && news.length > 0 ? (
-          news.slice(0, 10).map((item) => (
+          news.map((item) => (
             <NewsCard key={item.id} item={item} onRefresh={refreshFeed} />
           ))
         ) : (

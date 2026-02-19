@@ -421,6 +421,46 @@ const getUserIdFromToken = (req) => {
     return user ? user.id : null;
 };
 
+const CATEGORY_LABELS_RU = {
+    avto: 'Авто',
+    'bankovskij-sektor': 'Банковский сектор',
+    zhile: 'Жилье',
+    zdorove: 'Здоровье',
+    kino: 'Кино',
+    kriptovalyuta: 'Криптовалюта',
+    obshhestvo: 'Общество',
+    politika: 'Политика',
+    semya: 'Семья',
+    sport: 'Спорт',
+    turizm: 'Туризм',
+    ekologiya: 'Экология',
+    ekonomika: 'Экономика',
+    blagoustrojstvo: 'Благоустройство',
+    'bez-rubriki': 'Без рубрики',
+    general: 'Общее',
+    auto: 'Авто',
+    finance: 'Банковский сектор',
+    housing: 'Жилье',
+    health: 'Здоровье',
+    cinema: 'Кино',
+    crypto: 'Криптовалюта',
+    society: 'Общество',
+    politics: 'Политика',
+    family: 'Семья',
+    tourism: 'Туризм',
+    ecology: 'Экология',
+    economy: 'Экономика',
+};
+
+const formatCategoryLabel = (categoryId) => {
+    const key = String(categoryId || '').trim().toLowerCase();
+    if (!key) return 'Общее';
+    if (CATEGORY_LABELS_RU[key]) return CATEGORY_LABELS_RU[key];
+    return key
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+};
+
 // --- Auth Routes ---
 
 app.post('/api/auth/register', async (req, res) => {
@@ -649,8 +689,11 @@ app.get('/api/feed', (req, res) => {
     const user = getUserFromToken(req);
     const userId = user ? user.id : 0;
     const { category, search } = req.query;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 5000)
+        : 5000;
     const offset = (page - 1) * limit;
 
     let query = `
@@ -771,6 +814,26 @@ app.get('/api/feed', (req, res) => {
 
         Promise.all(promises).then(results => res.json(results));
     });
+});
+
+app.get('/api/categories', (req, res) => {
+    db.all(
+        `SELECT category, COUNT(*) AS count
+         FROM news
+         WHERE category IS NOT NULL AND TRIM(category) != ''
+         GROUP BY category
+         ORDER BY count DESC, category ASC`,
+        [],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const categories = (rows || []).map((row) => ({
+                id: row.category,
+                name: formatCategoryLabel(row.category),
+                count: Number(row.count) || 0,
+            }));
+            res.json(categories);
+        }
+    );
 });
 
 // Toggle Like

@@ -11,6 +11,16 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap"
     rel="stylesheet">
 
+  <script>
+    const originalDefine = customElements.define;
+    customElements.define = function (name, constructor, options) {
+      if (customElements.get(name)) {
+        console.warn(`Custom element ${name} has already been defined.`);
+        return;
+      }
+      originalDefine.call(customElements, name, constructor, options);
+    };
+  </script>
   <script type="importmap">
 {
   "imports": {
@@ -21,8 +31,8 @@
   }
 }
     </script>
-  <script type="module" crossorigin src="/assets/index-B3pN8EBL.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-Dnp4P-Tl.css">
+  <script type="module" crossorigin src="/assets/index-DkSSaQBN.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DNBhQ31H.css">
 </head>
 
 <body class="bg-gray-100">

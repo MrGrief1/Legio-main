@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { CATEGORIES, getCategoryName, LEVELS, getLevel } from '../constants';
+import { LEVELS, getLevel } from '../constants';
 import { LevelsModal } from './LevelsModal';
-import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart } from 'lucide-react';
+import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, Newspaper } from 'lucide-react';
 import { Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -26,10 +26,17 @@ interface SidebarProps {
 
 import { User } from '../types';
 
+type SidebarCategory = {
+  id: string;
+  name: string;
+  count: number;
+};
+
 export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, onAdminClick, onFeedClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const [leaders, setLeaders] = React.useState<User[]>([]);
+  const [categories, setCategories] = React.useState<SidebarCategory[]>([]);
   const [isLevelsModalOpen, setIsLevelsModalOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -48,6 +55,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
       .catch(err => {
         console.error(err);
         setLeaders([]);
+      });
+
+    fetch(`${API_URL}/categories`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch categories');
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setCategories(data.filter((item) => item && item.id).map((item) => ({
+            id: String(item.id),
+            name: String(item.name || item.id),
+            count: Number(item.count || 0),
+          })));
+        } else {
+          setCategories([]);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setCategories([]);
       });
   }, []);
 
@@ -216,16 +244,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
         <h3 className="text-[11px] font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">{t.sidebar.categories}</h3>
       </div>
       <div className="space-y-1">
-        {CATEGORIES.map((cat) => (
+        {categories.map((cat) => (
           <button
             key={cat.id}
             onClick={() => onCategorySelect && onCategorySelect(cat.id)}
             className="flex items-center gap-3 w-full px-4 py-2.5 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm group"
           >
             <span className="text-zinc-400 dark:text-zinc-600 group-hover:text-zinc-600 dark:group-hover:text-zinc-400 transition-colors">
-              {cat.icon}
+              <Newspaper size={18} />
             </span>
-            {getCategoryName(cat.id, language)}
+            {cat.name}
           </button>
         ))}
       </div>
