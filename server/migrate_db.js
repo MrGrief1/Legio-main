@@ -1,4 +1,4 @@
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('./sqlite').verbose();
 const path = require('path');
 
 const dbPath = path.resolve(__dirname, 'database.sqlite'); // Corrected path to match database.js

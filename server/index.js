@@ -1,5 +1,4 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -87,6 +86,8 @@ const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
 const WP_SYNC_FULL_REPLACE = toBoolean(process.env.WP_SYNC_FULL_REPLACE, true);
 const FORCED_ADMIN_LOGINS = parseCsvSet(process.env.FORCED_ADMIN_LOGINS);
 const VISITOR_ID_HASH_SALT = process.env.VISITOR_ID_HASH_SALT || SECRET_KEY;
+const ALLOW_LEGACY_PLAINTEXT_PASSWORDS = toBoolean(process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS, false);
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').trim();
 const uploadsDir = path.join(__dirname, 'uploads');
 
 // Middleware
@@ -295,6 +296,25 @@ const parseOptionalPositiveInt = (value, field) => {
     return parsePositiveInt(value, field);
 };
 
+const parseBoundedInt = (value, field, {
+    min = 1,
+    max = Number.MAX_SAFE_INTEGER,
+    defaultValue = min,
+} = {}) => {
+    if (value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+
+    const parsed = parsePositiveInt(value, field);
+    if (parsed < min || parsed > max) {
+        throw createValidationError(field, `${field} must be between ${min} and ${max}`);
+    }
+
+    return parsed;
+};
+
+const escapeSqlLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
+
 const validateUrl = (value, field, { allowRelative = false, allowEmpty = true } = {}) => {
     if (value === undefined) {
         return undefined;
@@ -386,7 +406,13 @@ const buildVisitorId = (req) => crypto
 
 const buildUploadUrl = (req, filename) => {
     const safeFilename = encodeURIComponent(String(filename || ''));
-    return `${req.protocol}://${req.get('host')}/uploads/${safeFilename}`;
+    const relativePath = `/uploads/${safeFilename}`;
+
+    if (PUBLIC_BASE_URL) {
+        return new URL(relativePath, PUBLIC_BASE_URL).toString();
+    }
+
+    return relativePath;
 };
 
 // Database Setup
@@ -524,8 +550,11 @@ const verifyPassword = async (plainPassword, storedHash) => {
         return false;
     }
 
-    // Fallback for legacy/dev plaintext passwords
-    return String(plainPassword) === String(storedHash);
+    if (ALLOW_LEGACY_PLAINTEXT_PASSWORDS) {
+        return String(plainPassword) === String(storedHash);
+    }
+
+    return false;
 };
 
 const shouldRehashPassword = (storedHash) => {
@@ -769,6 +798,58 @@ const validateCategory = (value) => {
         throw createValidationError('category', 'Category is invalid');
     }
     return normalized;
+};
+
+const validateFeedCategory = (value) => {
+    if (value === undefined || value === null || value === '') {
+        return 'all';
+    }
+
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (normalized === 'all' || normalized === 'favorites') {
+        return normalized;
+    }
+
+    return validateCategory(normalized);
+};
+
+const ALLOWED_STATISTICS_PERIODS = new Map([
+    ['24h', 1],
+    ['7d', 7],
+    ['28d', 28],
+]);
+
+const validateStatisticsPeriod = (value) => {
+    if (value === undefined || value === null || value === '') {
+        return '28d';
+    }
+
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (!ALLOWED_STATISTICS_PERIODS.has(normalized)) {
+        throw createValidationError('period', 'Period is invalid');
+    }
+
+    return normalized;
+};
+
+const validateBooleanFlag = (value, field, fallback = false) => {
+    if (value === undefined || value === null || value === '') {
+        return fallback;
+    }
+
+    if (typeof value === 'boolean') {
+        return value;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'true') {
+        return true;
+    }
+    if (normalized === 'false') {
+        return false;
+    }
+
+    throw createValidationError(field, `${field} must be true or false`);
 };
 
 const validateTags = (value) => {
@@ -1287,12 +1368,27 @@ app.post('/api/visit', (req, res) => {
 app.get('/api/feed', (req, res) => {
     const user = getUserFromToken(req);
     const userId = user ? user.id : 0;
-    const { category, search } = req.query;
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const requestedLimit = parseInt(req.query.limit, 10);
-    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
-        ? Math.min(requestedLimit, 100)
-        : 20;
+    let category;
+    let search;
+    let page;
+    let limit;
+
+    try {
+        category = validateFeedCategory(req.query.category);
+        search = req.query.search === undefined || req.query.search === null || req.query.search === ''
+            ? ''
+            : sanitizeTextInput(req.query.search);
+
+        if (search.length > 100) {
+            throw createValidationError('search', 'Search must be 100 characters or less');
+        }
+
+        page = parseBoundedInt(req.query.page, 'page', { min: 1, max: 100000, defaultValue: 1 });
+        limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 100, defaultValue: 20 });
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const offset = (page - 1) * limit;
 
     let query = `
@@ -1318,8 +1414,9 @@ app.get('/api/feed', (req, res) => {
     if (search) {
         // If category filter exists, use AND, else WHERE
         query += (category && category !== 'all') ? ` AND` : ` WHERE`;
-        query += ` (n.title LIKE ? OR n.description LIKE ?)`;
-        params.push(`%${search}%`, `%${search}%`);
+        query += ` (n.title LIKE ? ESCAPE '\\' OR n.description LIKE ? ESCAPE '\\')`;
+        const searchPattern = `%${escapeSqlLike(search)}%`;
+        params.push(searchPattern, searchPattern);
     }
 
     query += ` ORDER BY n.created_at DESC LIMIT ? OFFSET ?`;
@@ -1610,11 +1707,14 @@ app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
 
 // Resolve Poll (Admin/Creator only)
 app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
-    const pollId = Number(req.params.id);
-    const correctOptionId = Number(req.body.correctOptionId);
+    let pollId;
+    let correctOptionId;
 
-    if (!Number.isFinite(pollId) || !Number.isFinite(correctOptionId)) {
-        return res.status(400).json({ message: "Invalid poll or option id" });
+    try {
+        pollId = parsePositiveInt(req.params.id, 'id');
+        correctOptionId = parsePositiveInt(req.body.correctOptionId, 'correctOptionId');
+    } catch (error) {
+        return sendValidationError(res, error);
     }
 
     try {
@@ -1740,13 +1840,12 @@ app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res
 });
 
 app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (req, res) => {
-    const requestFullReplace = req.body?.fullReplace;
-    let fullReplace = WP_SYNC_FULL_REPLACE;
+    let fullReplace;
 
-    if (typeof requestFullReplace === 'boolean') {
-        fullReplace = requestFullReplace;
-    } else if (typeof requestFullReplace === 'string') {
-        fullReplace = requestFullReplace.toLowerCase() === 'true';
+    try {
+        fullReplace = validateBooleanFlag(req.body?.fullReplace, 'fullReplace', WP_SYNC_FULL_REPLACE);
+    } catch (error) {
+        return sendValidationError(res, error);
     }
 
     try {
@@ -1767,10 +1866,15 @@ app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (re
 });
 
 app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, res) => {
-    const { period } = req.query;
-    let days = 28;
-    if (period === '7d') days = 7;
-    if (period === '24h') days = 1;
+    let period;
+
+    try {
+        period = validateStatisticsPeriod(req.query.period);
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    const days = ALLOWED_STATISTICS_PERIODS.get(period);
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -1804,52 +1908,10 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
         const periodVisits = await getCount(`SELECT SUM(count) as count FROM visits WHERE date >= ?`, [startDateStr]);
         const newUsers = await getCount(`SELECT COUNT(*) as count FROM users WHERE created_at >= ?`, [startDateStr]);
         const activeUsers = await getCount(`SELECT COUNT(DISTINCT user_id) as count FROM votes WHERE created_at >= ?`, [startDateStr]);
-
-        // Engagement Rate: (Period Votes + Period Polls Created + Period Likes) / Period Visits * 100
-        // We will use Votes + Likes for now as primary engagement actions
-        const periodLikes = await getCount(`SELECT COUNT(*) as count FROM likes WHERE created_at >= ?`, [startDateStr]); // Assuming likes have created_at, if not we might need to check schema. 
-        // Wait, the likes table schema wasn't explicitly shown with created_at in the CREATE TABLE (it was just user_id, news_id). 
-        // Let's check if likes has created_at. If not, we might need to add it or just use total likes as a proxy if period is long, but that's inaccurate.
-        // Looking at the code, `likes` table creation isn't shown, but `votes` has `created_at`.
-        // Let's assume for now we stick to Votes for engagement or check if we can add created_at to likes if missing. 
-        // Actually, let's just use Votes / Visits for now but make sure the calculation is robust.
-        // The user said "engagement dropped to 1%". 
-        // If visits are very high (due to duplicate tracking) and votes are low, that explains it.
-        // We will fix the visit tracking in frontend, but here let's also cap the rate or make it more sensible.
-        // Let's try: (Votes + Likes) / Unique Visits. 
-        // Since we don't have unique visits easily without IP/User tracking (we have `visits` table with simple count), 
-        // we rely on the frontend fix for visits.
-        // Let's stick to the formula but maybe scale it if needed? No, 1% means 1 vote per 100 visits.
-        // If we fix the visit count to be "unique per session", this number should naturally rise.
-        // So the backend change here is mainly to ensure we are counting everything we want.
-        // Let's add Likes to the numerator if possible.
-        // If `likes` doesn't have timestamp, we can't filter by period. 
-        // Let's check `votes` table again. `created_at` exists.
-        // Let's just use `periodVotes` for now but ensure `periodVisits` is not huge.
-
-        // Actually, let's look at the engagement calculation again.
-        // const engagementRate = periodVisits > 0 ? Math.round((periodVotes / periodVisits) * 100) : 0;
-        // If I have 100 visits and 1 vote, it's 1%. 
-        // If I have 100 visits and 50 votes, it's 50%.
-        // The issue is likely "visits" being incremented too often.
-        // I will leave this calculation as is for now, relying on the frontend fix for visits.
-        // BUT, I will add a small safeguard or "multiplier" if the user wants "normal percentages" effectively "cheating" 
-        // or just accept that fixing visits is the real cure. 
-        // The user said "engagement dropped... make it so admins can see...". 
-        // He didn't explicitly say "fake the engagement". He said "fix it".
-        // So fixing visit counting is the right way.
-
-        // However, I will add `periodLikes` to the numerator if I can. 
-        // Since I can't verify `likes` schema for `created_at` right now without checking, 
-        // I'll assume `likes` might not have it. 
-        // Let's check `votes` again.
-
-        // Let's just keep the formula but maybe format it better? 
-        // No, `Math.round` is fine.
-
-        // Wait, I see `periodVotes` is used.
-        // Let's just ensure we return it.
-        const engagementRate = periodVisits > 0 ? Math.round((periodVotes / periodVisits) * 100) : 0;
+        const periodLikes = await getCount(`SELECT COUNT(*) as count FROM likes WHERE created_at >= ?`, [startDateStr]);
+        const engagementRate = periodVisits > 0
+            ? Math.round(((periodVotes + periodLikes) / periodVisits) * 100)
+            : 0;
 
         // Graphs Data
         const getHistory = async (table, dateField = 'created_at') => {
@@ -1916,6 +1978,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             activeUsers,
             engagementRate,
             newUsers,
+            periodLikes,
             periodVotes,
             periodVisits
         });
@@ -2390,8 +2453,11 @@ app.delete('/api/users/block/:id', authenticateToken, (req, res) => {
 
 // Search Users (for new chat)
 app.get('/api/users/search', authenticateToken, (req, res) => {
-    const rawQuery = String(req.query.query || '').trim();
-    if (!rawQuery) return res.json([]);
+    const rawQuery = sanitizeTextInput(req.query.query);
+    if (!rawQuery || rawQuery.length < 2) return res.json([]);
+    if (rawQuery.length > 80) {
+        return sendValidationError(res, createValidationError('query', 'Query must be 80 characters or less'));
+    }
 
     const normalize = (value) => String(value || '')
         .toLocaleLowerCase('ru-RU')
@@ -2400,10 +2466,18 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
 
     const needle = normalize(rawQuery);
     if (!needle) return res.json([]);
+    const likeNeedle = `%${escapeSqlLike(needle)}%`;
 
     db.all(
-        "SELECT id, username, name, avatar, bio, birthdate, points, role, created_at FROM users WHERE id != ?",
-        [req.user.id],
+        `SELECT id, username, name, avatar
+         FROM users
+         WHERE id != ?
+           AND (
+                REPLACE(LOWER(username), 'ё', 'е') LIKE ? ESCAPE '\\'
+                OR REPLACE(LOWER(COALESCE(name, '')), 'ё', 'е') LIKE ? ESCAPE '\\'
+           )
+         LIMIT 100`,
+        [req.user.id, likeNeedle, likeNeedle],
         (err, users) => {
             if (err) return res.status(500).json({ error: err.message });
 
