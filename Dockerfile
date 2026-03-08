@@ -29,6 +29,7 @@ FROM node:18-slim
 
 # Устанавливаем зависимости для работы с SQLite и других утилит
 RUN apt-get update && apt-get install -y \
+    gosu \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -41,12 +42,11 @@ COPY --from=backend-builder /backend /app
 # Создаем необходимые директории
 RUN mkdir -p /app/public /app/uploads /app/data \
     && chown -R node:node /app \
-    && chmod -R 755 /app
+    && chmod -R 755 /app \
+    && chmod +x /app/docker-entrypoint.sh
 
 # Копируем собранный фронтенд
 COPY --from=frontend-builder /frontend/dist /app/public
-
-USER node
 
 # Проверяем, что файлы скопированы правильно
 RUN ls -la /app/public
@@ -57,6 +57,8 @@ EXPOSE 3000
 # Переменные окружения
 ENV NODE_ENV=production
 ENV PORT=3000
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Команда для запуска приложения
 CMD ["node", "index.js"]
