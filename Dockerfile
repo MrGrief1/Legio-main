@@ -39,14 +39,14 @@ WORKDIR /app
 COPY --from=backend-builder /backend /app
 
 # Создаем необходимые директории
-RUN mkdir -p /app/public /app/uploads
+RUN mkdir -p /app/public /app/uploads /app/data \
+    && chown -R node:node /app \
+    && chmod -R 755 /app
 
 # Копируем собранный фронтенд
 COPY --from=frontend-builder /frontend/dist /app/public
 
-# Устанавливаем правильные права доступа
-# RUN chown -R node:node /app
-# USER node
+USER node
 
 # Проверяем, что файлы скопированы правильно
 RUN ls -la /app/public

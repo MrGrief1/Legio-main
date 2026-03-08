@@ -22,9 +22,25 @@ if (isRailwayVolume) {
   }
 }
 
-const dbPath = isRailwayVolume
+const configuredDbPath = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : null;
+
+const dbPath = configuredDbPath || (isRailwayVolume
   ? path.join(dataDir, 'database.sqlite')
-  : path.resolve(__dirname, 'database.sqlite');
+  : path.resolve(__dirname, 'database.sqlite'));
+
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+let resolveDbReady;
+let rejectDbReady;
+const ready = new Promise((resolve, reject) => {
+  resolveDbReady = resolve;
+  rejectDbReady = reject;
+});
 
 console.log('Database path:', dbPath); // Log the database path
 
@@ -34,6 +50,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     if (err.code === 'SQLITE_CANTOPEN') {
       console.error('Trying to fallback to in-memory/local DB due to permission error...');
     }
+    rejectDbReady(err);
   } else {
     console.log('Connected to the SQLite database.');
     initDb();
@@ -223,6 +240,14 @@ function initDb() {
       UNIQUE(date)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS visitor_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      visitor_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(visitor_id, date)
+    )`);
+
     // Points settings table (legacy WordPress compatibility)
     db.run(`CREATE TABLE IF NOT EXISTS points_settings (
       id INTEGER PRIMARY KEY,
@@ -251,19 +276,30 @@ function initDb() {
     // --- OPTIMIZATION INDEXES ---
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_created_at ON news(created_at)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_category ON news(category)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_news_category_created ON news(category, created_at DESC)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_likes_news_id ON likes(news_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_votes_poll_id ON votes(poll_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_votes_option_id ON votes(option_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_votes_user_poll ON votes(user_id, poll_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_messages_chat_read ON messages(chat_id, is_read, sender_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(chat_id, created_at DESC)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_chat_participants_user_id ON chat_participants(user_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_points_history_user_id ON points_history(user_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_visitor_sessions_date ON visitor_sessions(date)`);
 
-    console.log('Database initialized');
+    db.get('SELECT 1', (readyErr) => {
+      if (readyErr) {
+        rejectDbReady(readyErr);
+        return;
+      }
 
-    // Create default admin if not exists
-    const adminPassword = 'admin'; // In real app hash this!
-    // We'll handle hashing in the auth route, but for initial seed let's keep it simple or add a check
+      console.log('Database initialized');
+      resolveDbReady();
+    });
   });
 }
+
+db.ready = ready;
 
 module.exports = db;

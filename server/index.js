@@ -10,6 +10,41 @@ const crypto = require('crypto');
 
 require('dotenv').config();
 
+const normalizeLogin = (value) => String(value || '').trim().toLowerCase();
+
+const parseCsvSet = (value) => new Set(
+    String(value || '')
+        .split(',')
+        .map(normalizeLogin)
+        .filter(Boolean)
+);
+
+const validateEnvironment = () => {
+    const secretKey = String(process.env.SECRET_KEY || '');
+    const insecureSecrets = new Set([
+        'supersecretkey',
+        'changeme',
+        'your-super-secret-jwt-key-change-this-in-production',
+    ]);
+
+    if (!secretKey) {
+        console.error('FATAL: SECRET_KEY environment variable is not set');
+        process.exit(1);
+    }
+
+    if (secretKey.length < 32) {
+        console.error('FATAL: SECRET_KEY must be at least 32 characters long');
+        process.exit(1);
+    }
+
+    if (insecureSecrets.has(secretKey)) {
+        console.error('FATAL: SECRET_KEY uses an insecure placeholder value');
+        process.exit(1);
+    }
+};
+
+validateEnvironment();
+
 const {
     DEFAULT_POINTS_SETTINGS,
     calculateLevel,
@@ -26,19 +61,21 @@ try { compression = require('compression'); } catch (e) { }
 try { ({ PasswordHash } = require('phpass')); } catch (e) { }
 
 const app = express();
+let server = null;
 
 // Enable trust proxy for Railway and other reverse proxies
 app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
-const SECRET_KEY = process.env.SECRET_KEY || "supersecretkey";
+const SECRET_KEY = process.env.SECRET_KEY;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const ALLOW_BOOTSTRAP_ADMIN = toBoolean(process.env.ALLOW_BOOTSTRAP_ADMIN, process.env.NODE_ENV !== 'production');
 const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
 const WP_SYNC_FULL_REPLACE = toBoolean(process.env.WP_SYNC_FULL_REPLACE, true);
-const FORCED_ADMIN_LOGINS = new Set([
-    'urazovmaks1502@gmail.com',
-]);
+const FORCED_ADMIN_LOGINS = parseCsvSet(process.env.FORCED_ADMIN_LOGINS);
+const VISITOR_ID_HASH_SALT = process.env.VISITOR_ID_HASH_SALT || SECRET_KEY;
+const uploadsDir = path.join(__dirname, 'uploads');
 
 // Middleware
 if (helmet) {
@@ -112,7 +149,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 
 // Serve uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
 // Note: Static files and SPA fallback are configured at the end of the file after all API routes
 
@@ -123,43 +160,222 @@ if (rateLimit) {
         max: 100,
         standardHeaders: true,
         legacyHeaders: false,
+        message: { message: "Too many requests. Please try again later." },
     });
     app.use('/api/', limiter);
 
-    const authLimiter = rateLimit({
+    const loginLimiter = rateLimit({
         windowMs: 60 * 60 * 1000,
-        max: 10,
-        message: "Too many accounts created from this IP, please try again after an hour"
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        skipSuccessfulRequests: true,
+        message: { message: "Too many login attempts. Please try again later." }
     });
-    app.use('/auth/', authLimiter);
+    const registerLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: "Too many registration attempts. Please try again later." }
+    });
+    app.use('/api/auth/login', loginLimiter);
+    app.use('/api/auth/register', registerLimiter);
 } else {
     // Simple Custom Rate Limiter
-    const rateLimitMap = new Map();
-    const simpleLimiter = (req, res, next) => {
-        const ip = req.ip;
-        const now = Date.now();
-        const windowMs = 15 * 60 * 1000;
-        const limit = 100;
+    const createSimpleLimiter = ({ windowMs, max, message }) => {
+        const rateLimitMap = new Map();
 
-        if (!rateLimitMap.has(ip)) {
-            rateLimitMap.set(ip, { count: 1, startTime: now });
-        } else {
+        return (req, res, next) => {
+            const ip = req.ip;
+            const now = Date.now();
+
             const data = rateLimitMap.get(ip);
-            if (now - data.startTime > windowMs) {
-                data.count = 1;
-                data.startTime = now;
-            } else {
-                data.count++;
-                if (data.count > 3000) {
-                    return res.status(429).json({ message: "Too many requests, please try again later." });
-                }
+            if (!data || now - data.startTime > windowMs) {
+                rateLimitMap.set(ip, { count: 1, startTime: now });
+                return next();
             }
-        }
-        next();
+
+            if (data.count >= max) {
+                return res.status(429).json({ message });
+            }
+
+            data.count += 1;
+            next();
+        };
     };
+
+    const simpleLimiter = createSimpleLimiter({
+        windowMs: 15 * 60 * 1000,
+        max: 100,
+        message: "Too many requests. Please try again later."
+    });
+    const simpleAuthLimiter = createSimpleLimiter({
+        windowMs: 60 * 60 * 1000,
+        max: 5,
+        message: "Too many authentication attempts. Please try again later."
+    });
+
     app.use('/api/', simpleLimiter);
-    app.use('/auth/', simpleLimiter); // Use same limiter for auth if package missing
+    app.use('/api/auth/login', simpleAuthLimiter);
+    app.use('/api/auth/register', simpleAuthLimiter);
 }
+
+const sendValidationError = (res, error) => {
+    const payload = { message: error.message || 'Validation failed' };
+    if (error.details) {
+        payload.errors = error.details;
+    }
+    return res.status(400).json(payload);
+};
+
+const createValidationError = (field, message) => {
+    const error = new Error('Validation failed');
+    error.details = [{ field, message }];
+    return error;
+};
+
+const throwIfValidationErrors = (errors) => {
+    if (errors.length > 0) {
+        const error = new Error('Validation failed');
+        error.details = errors;
+        throw error;
+    }
+};
+
+const sanitizeTextInput = (value, {
+    allowNewlines = false,
+    trim = true,
+    collapseWhitespace = true,
+} = {}) => {
+    let normalized = String(value ?? '').normalize('NFKC').replace(/\r\n/g, '\n');
+    normalized = normalized.replace(
+        allowNewlines ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g : /[\u0000-\u001F\u007F]/g,
+        ' '
+    );
+    normalized = normalized.replace(/<[^>]*>/g, '');
+
+    if (allowNewlines) {
+        normalized = normalized
+            .split('\n')
+            .map((line) => collapseWhitespace ? line.replace(/[^\S\n]+/g, ' ').trimEnd() : line)
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n');
+    } else if (collapseWhitespace) {
+        normalized = normalized.replace(/\s+/g, ' ');
+    }
+
+    return trim ? normalized.trim() : normalized;
+};
+
+const parsePositiveInt = (value, field) => {
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw createValidationError(field, `${field} must be a positive integer`);
+    }
+    return parsed;
+};
+
+const parseOptionalPositiveInt = (value, field) => {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    return parsePositiveInt(value, field);
+};
+
+const validateUrl = (value, field, { allowRelative = false, allowEmpty = true } = {}) => {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (value === null) {
+        return null;
+    }
+
+    const rawValue = String(value).trim();
+    if (!rawValue) {
+        return allowEmpty ? '' : null;
+    }
+
+    if (rawValue.length > 500) {
+        throw createValidationError(field, `${field} is too long`);
+    }
+
+    if (allowRelative && rawValue.startsWith('/')) {
+        if (!/^\/[A-Za-z0-9/_\-\\.]+$/.test(rawValue)) {
+            throw createValidationError(field, `${field} contains an invalid relative path`);
+        }
+        return rawValue;
+    }
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(rawValue);
+    } catch (error) {
+        throw createValidationError(field, `${field} must be a valid URL`);
+    }
+
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw createValidationError(field, `${field} must use http or https`);
+    }
+
+    return parsedUrl.toString();
+};
+
+const validateUsername = (value, { required = true } = {}) => {
+    const rawValue = String(value || '').trim().normalize('NFKC');
+    if (!rawValue) {
+        if (required) {
+            throw createValidationError('username', 'Username is required');
+        }
+        return '';
+    }
+
+    if (rawValue.length < 3 || rawValue.length > 80) {
+        throw createValidationError('username', 'Username must be between 3 and 80 characters');
+    }
+
+    if (!/^[\p{L}\p{N}._@+-]+$/u.test(rawValue)) {
+        throw createValidationError('username', 'Username contains unsupported characters');
+    }
+
+    return rawValue;
+};
+
+const validatePassword = (value, { required = true } = {}) => {
+    if (value === undefined || value === null || value === '') {
+        if (required) {
+            throw createValidationError('password', 'Password is required');
+        }
+        return '';
+    }
+
+    const rawValue = String(value);
+    if (rawValue.length < 8 || rawValue.length > 128) {
+        throw createValidationError('password', 'Password must be between 8 and 128 characters');
+    }
+
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(rawValue)) {
+        throw createValidationError('password', 'Password must include uppercase, lowercase and a number');
+    }
+
+    return rawValue;
+};
+
+const getClientIp = (req) => {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    return String(ip).split(',')[0].trim();
+};
+
+const buildVisitorId = (req) => crypto
+    .createHash('sha256')
+    .update(`${VISITOR_ID_HASH_SALT}:${getClientIp(req)}:${req.get('user-agent') || ''}`)
+    .digest('hex');
+
+const buildUploadUrl = (req, filename) => {
+    const safeFilename = encodeURIComponent(String(filename || ''));
+    return `${req.protocol}://${req.get('host')}/uploads/${safeFilename}`;
+};
 
 // Database Setup
 const db = require('./database');
@@ -331,35 +547,48 @@ const syncWordpressIfConfigured = async ({ fullReplace = WP_SYNC_FULL_REPLACE } 
 };
 
 // Ensure uploads directory exists
-if (!fs.existsSync('./uploads')) {
-    fs.mkdirSync('./uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 // Multer Setup
+const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_CHAT_ATTACHMENTS = 4;
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+]);
+const ALLOWED_UPLOAD_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        cb(null, uploadsDir);
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
+        const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+        const extension = path.extname(String(file.originalname || '')).toLowerCase();
+        const safeExtension = ALLOWED_UPLOAD_EXTENSIONS.has(extension) ? extension : '';
+        cb(null, `${uniqueSuffix}${safeExtension}`);
     }
 });
 
 const fileFilter = (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const mimetype = allowedTypes.test(file.mimetype);
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-
-    if (mimetype && extname) {
-        return cb(null, true);
+    const extension = path.extname(String(file.originalname || '')).toLowerCase();
+    if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.mimetype)) {
+        return cb(new Error('Only JPEG, PNG, GIF and WEBP images are allowed'));
     }
-    cb(new Error('Only images are allowed'));
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+        return cb(new Error('Invalid file extension'));
+    }
+    file.originalname = path.basename(String(file.originalname || '')).replace(/[^A-Za-z0-9._-]/g, '');
+    return cb(null, true);
 };
 
 const upload = multer({
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: MAX_UPLOAD_FILE_SIZE, files: MAX_CHAT_ATTACHMENTS },
     fileFilter
 });
 
@@ -424,8 +653,6 @@ const getUserIdFromToken = (req) => {
     return user ? user.id : null;
 };
 
-const normalizeLogin = (value) => String(value || '').trim().toLowerCase();
-
 const isForcedAdminLogin = (login) => FORCED_ADMIN_LOGINS.has(normalizeLogin(login));
 
 const enforceForcedAdminRoles = async () => {
@@ -477,23 +704,313 @@ const formatCategoryLabel = (categoryId) => {
         .replace(/\b\w/g, (m) => m.toUpperCase());
 };
 
-// --- Auth Routes ---
+const ALLOWED_ROLE_UPDATES = new Set(['user', 'creator', 'admin']);
+const ALLOWED_NEWS_CATEGORIES = new Set(Object.keys(CATEGORY_LABELS_RU));
 
-app.post('/api/auth/register', async (req, res) => {
-    let { username, password, role } = req.body;
-    if (username) username = username.trim();
-    if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
+const validateDisplayName = (value, field = 'name') => {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (value === null || String(value).trim() === '') {
+        return null;
+    }
+
+    const sanitized = sanitizeTextInput(value);
+    if (sanitized.length < 2 || sanitized.length > 50) {
+        throw createValidationError(field, `${field} must be between 2 and 50 characters`);
+    }
+
+    return sanitized;
+};
+
+const validateBirthdate = (value) => {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (value === null || String(value).trim() === '') {
+        return null;
+    }
+
+    const rawValue = String(value).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+        throw createValidationError('birthdate', 'Birthdate must use YYYY-MM-DD format');
+    }
+
+    const parsedDate = new Date(`${rawValue}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime())) {
+        throw createValidationError('birthdate', 'Birthdate is invalid');
+    }
+
+    const now = new Date();
+    if (parsedDate > now) {
+        throw createValidationError('birthdate', 'Birthdate cannot be in the future');
+    }
+
+    return rawValue;
+};
+
+const validateCategory = (value) => {
+    const normalized = sanitizeTextInput(value || 'general').toLowerCase();
+    if (!normalized || !ALLOWED_NEWS_CATEGORIES.has(normalized)) {
+        throw createValidationError('category', 'Category is invalid');
+    }
+    return normalized;
+};
+
+const validateTags = (value) => {
+    if (value === undefined || value === null || value === '') {
+        return [];
+    }
+
+    if (!Array.isArray(value)) {
+        throw createValidationError('tags', 'Tags must be an array');
+    }
+
+    if (value.length > 10) {
+        throw createValidationError('tags', 'No more than 10 tags are allowed');
+    }
+
+    const uniqueTags = [];
+    const seenTags = new Set();
+
+    for (const tag of value) {
+        const sanitized = sanitizeTextInput(tag);
+        if (!sanitized) {
+            throw createValidationError('tags', 'Tags cannot be empty');
+        }
+        if (sanitized.length > 30) {
+            throw createValidationError('tags', 'Each tag must be 30 characters or less');
+        }
+        if (!/^[\p{L}\p{N} ._#-]+$/u.test(sanitized)) {
+            throw createValidationError('tags', 'Tag contains unsupported characters');
+        }
+
+        const normalized = sanitized.toLowerCase();
+        if (!seenTags.has(normalized)) {
+            seenTags.add(normalized);
+            uniqueTags.push(sanitized);
+        }
+    }
+
+    return uniqueTags;
+};
+
+const validatePoll = (poll) => {
+    if (poll === undefined || poll === null || poll === '') {
+        return null;
+    }
+
+    if (typeof poll !== 'object' || Array.isArray(poll)) {
+        throw createValidationError('poll', 'Poll must be an object');
+    }
+
+    const question = sanitizeTextInput(poll.question);
+    if (question.length < 5 || question.length > 200) {
+        throw createValidationError('poll.question', 'Poll question must be between 5 and 200 characters');
+    }
+
+    if (!Array.isArray(poll.options)) {
+        throw createValidationError('poll.options', 'Poll options must be an array');
+    }
+
+    if (poll.options.length < 2 || poll.options.length > 10) {
+        throw createValidationError('poll.options', 'Poll must contain between 2 and 10 options');
+    }
+
+    const options = poll.options.map((option) => {
+        const sanitized = sanitizeTextInput(option);
+        if (sanitized.length < 1 || sanitized.length > 200) {
+            throw createValidationError('poll.options', 'Each poll option must be between 1 and 200 characters');
+        }
+        return sanitized;
+    });
+
+    const uniqueOptions = new Set(options.map((option) => option.toLowerCase()));
+    if (uniqueOptions.size !== options.length) {
+        throw createValidationError('poll.options', 'Poll options must be unique');
+    }
+
+    return { question, options };
+};
+
+const validateRegisterPayload = (body = {}) => ({
+    username: validateUsername(body.username),
+    password: validatePassword(body.password),
+});
+
+const validateLoginPayload = (body = {}) => ({
+    username: validateUsername(body.username),
+    password: (() => {
+        const password = String(body.password ?? '');
+        if (!password) {
+            throw createValidationError('password', 'Password is required');
+        }
+        if (password.length > 128) {
+            throw createValidationError('password', 'Password is too long');
+        }
+        return password;
+    })(),
+});
+
+const validateProfileUpdatePayload = (body = {}) => {
+    const errors = [];
+    let avatar;
+    let name;
+    let bio;
+    let birthdate;
+
+    try {
+        avatar = validateUrl(body.avatar, 'avatar', { allowRelative: true });
+    } catch (error) {
+        errors.push(...(error.details || []));
     }
 
     try {
+        name = validateDisplayName(body.name);
+    } catch (error) {
+        errors.push(...(error.details || []));
+    }
+
+    try {
+        if (body.bio !== undefined) {
+            bio = body.bio === null ? null : sanitizeTextInput(body.bio, { allowNewlines: true });
+            if (bio !== null && bio.length > 500) {
+                throw createValidationError('bio', 'Bio must be 500 characters or less');
+            }
+        }
+    } catch (error) {
+        errors.push(...(error.details || []));
+    }
+
+    try {
+        birthdate = validateBirthdate(body.birthdate);
+    } catch (error) {
+        errors.push(...(error.details || []));
+    }
+
+    throwIfValidationErrors(errors);
+
+    return { avatar, name, bio, birthdate };
+};
+
+const validateSecurityUpdatePayload = (body = {}) => {
+    const errors = [];
+    let username;
+    let password;
+
+    try {
+        if (body.username !== undefined) {
+            username = validateUsername(body.username);
+        }
+    } catch (error) {
+        errors.push(...(error.details || []));
+    }
+
+    try {
+        if (body.password !== undefined && body.password !== '') {
+            password = validatePassword(body.password);
+        }
+    } catch (error) {
+        errors.push(...(error.details || []));
+    }
+
+    if (body.username === undefined && (body.password === undefined || body.password === '')) {
+        errors.push({ field: 'body', message: 'At least one field must be provided' });
+    }
+
+    throwIfValidationErrors(errors);
+
+    return { username, password };
+};
+
+const validateNewsPayload = (body = {}) => ({
+    title: (() => {
+        const title = sanitizeTextInput(body.title);
+        if (title.length < 5 || title.length > 200) {
+            throw createValidationError('title', 'Title must be between 5 and 200 characters');
+        }
+        return title;
+    })(),
+    description: (() => {
+        const description = sanitizeTextInput(body.description, { allowNewlines: true });
+        if (description.length < 10 || description.length > 5000) {
+            throw createValidationError('description', 'Description must be between 10 and 5000 characters');
+        }
+        return description;
+    })(),
+    image: validateUrl(body.image, 'image', { allowRelative: true }) ?? '',
+    tags: validateTags(body.tags),
+    poll: validatePoll(body.poll),
+    category: validateCategory(body.category),
+});
+
+const validateReportPayload = (body = {}) => {
+    const message = sanitizeTextInput(body.message, { allowNewlines: true });
+    if (message.length < 5 || message.length > 1000) {
+        throw createValidationError('message', 'Message must be between 5 and 1000 characters');
+    }
+
+    return {
+        newsId: parseOptionalPositiveInt(body.newsId, 'newsId'),
+        message,
+    };
+};
+
+const validateDirectChatPayload = (body = {}) => ({
+    targetUserId: parsePositiveInt(body.targetUserId, 'targetUserId'),
+});
+
+const validateChatMessagePayload = (body = {}, files = []) => {
+    const content = body.content === undefined ? '' : sanitizeTextInput(body.content, { allowNewlines: true });
+    if (content.length > 4000) {
+        throw createValidationError('content', 'Content must be 4000 characters or less');
+    }
+    if (!content && files.length === 0) {
+        throw createValidationError('content', 'Content or files required');
+    }
+    return { content };
+};
+
+const validateRolePayload = (body = {}) => {
+    const role = sanitizeTextInput(body.role).toLowerCase();
+    if (!ALLOWED_ROLE_UPDATES.has(role)) {
+        throw createValidationError('role', 'Role is invalid');
+    }
+    return { role };
+};
+
+// --- Auth Routes ---
+
+app.post('/api/auth/register', async (req, res) => {
+    let username;
+    let password;
+
+    try {
+        ({ username, password } = validateRegisterPayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const existingUser = await dbGetAsync(
+            "SELECT id FROM users WHERE LOWER(username) = LOWER(?)",
+            [username]
+        );
+        if (existingUser) {
+            return res.status(400).json({ message: "Email or Nickname already exists" });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
-        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
+        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
         const name = username;
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
         const isFirstUser = Number(countRow?.count) === 0;
-        const userRole = (isFirstUser || isForcedAdminLogin(username)) ? 'admin' : (role || 'user');
+        const userRole = ((ALLOW_BOOTSTRAP_ADMIN && isFirstUser) || isForcedAdminLogin(username))
+            ? 'admin'
+            : 'user';
 
         const pointsSettings = await getPointsSettings();
         const startPoints = pointsSettings.start_points;
@@ -533,10 +1050,13 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-    let { username, password } = req.body;
-    username = (username || '').trim();
-    if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
+    let username;
+    let password;
+
+    try {
+        ({ username, password } = validateLoginPayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
     }
 
     db.get(
@@ -547,7 +1067,7 @@ app.post('/api/auth/login', (req, res) => {
         [username, username, username],
         async (err, user) => {
         if (err) return res.status(500).json({ error: err.message });
-        if (!user) return res.status(400).json({ message: "User not found" });
+        if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
         const isValidPassword = await verifyPassword(password, user.password);
 
@@ -598,29 +1118,37 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     });
 });
 
-app.post('/api/user/update', authenticateToken, (req, res) => {
-    const { avatar, name, bio, birthdate } = req.body;
+app.post('/api/user/update', authenticateToken, async (req, res) => {
+    let avatar;
+    let name;
+    let bio;
+    let birthdate;
+
+    try {
+        ({ avatar, name, bio, birthdate } = validateProfileUpdatePayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const updates = [];
     const values = [];
 
-    // Check for unique name if changing name
-    if (name) {
-        db.get("SELECT id FROM users WHERE name = ? AND id != ?", [name, req.user.id], (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (row) return res.status(400).json({ message: "This display name is already taken" });
+    try {
+        if (name !== undefined && name !== null) {
+            const existingName = await dbGetAsync(
+                "SELECT id FROM users WHERE LOWER(name) = LOWER(?) AND id != ?",
+                [name, req.user.id]
+            );
+            if (existingName) {
+                return res.status(400).json({ message: "This display name is already taken" });
+            }
+        }
 
-            proceedUpdate();
-        });
-    } else {
-        proceedUpdate();
-    }
-
-    function proceedUpdate() {
-        if (avatar) {
+        if (avatar !== undefined) {
             updates.push("avatar = ?");
             values.push(avatar);
         }
-        if (name) {
+        if (name !== undefined) {
             updates.push("name = ?");
             values.push(name);
         }
@@ -633,53 +1161,77 @@ app.post('/api/user/update', authenticateToken, (req, res) => {
             values.push(birthdate);
         }
 
-        if (updates.length === 0) return res.json({ message: "No changes" });
+        if (updates.length === 0) {
+            return res.json({ message: "No changes" });
+        }
 
         values.push(req.user.id);
         const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
 
-        db.run(sql, values, function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            // Return updated user
-            db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate FROM users WHERE id = ?", [req.user.id], (err, user) => {
-                if (user && !user.name) user.name = user.username;
-                res.json({ message: "Profile updated", user });
-            });
-        });
+        await dbRunAsync(sql, values);
+
+        const user = await dbGetAsync(
+            "SELECT id, username, role, points, level, avatar, name, bio, birthdate FROM users WHERE id = ?",
+            [req.user.id]
+        );
+        if (user && !user.name) user.name = user.username;
+        res.json({ message: "Profile updated", user });
+    } catch (error) {
+        console.error('Failed to update profile:', error);
+        res.status(500).json({ message: "Failed to update profile" });
     }
 });
 
 app.post('/api/user/security', authenticateToken, async (req, res) => {
-    const { username, password } = req.body;
+    let username;
+    let password;
+
+    try {
+        ({ username, password } = validateSecurityUpdatePayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const updates = [];
     const values = [];
 
-    if (username) {
-        // Check if username exists
-        const existing = await new Promise((resolve) => {
-            db.get("SELECT id FROM users WHERE username = ? AND id != ?", [username, req.user.id], (err, row) => resolve(row));
-        });
-        if (existing) return res.status(400).json({ message: "Username/Email already exists" });
+    try {
+        if (username !== undefined) {
+            const existing = await dbGetAsync(
+                "SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?",
+                [username, req.user.id]
+            );
+            if (existing) {
+                return res.status(400).json({ message: "Username/Email already exists" });
+            }
 
-        updates.push("username = ?");
-        values.push(username);
-    }
+            updates.push("username = ?");
+            values.push(username);
+        }
 
-    if (password) {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        updates.push("password = ?");
-        values.push(hashedPassword);
-    }
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push("password = ?");
+            values.push(hashedPassword);
+        }
 
-    if (updates.length === 0) return res.json({ message: "No changes" });
+        if (updates.length === 0) {
+            return res.json({ message: "No changes" });
+        }
 
-    values.push(req.user.id);
-    const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        values.push(req.user.id);
+        const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        await dbRunAsync(sql, values);
 
-    db.run(sql, values, function (err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (username && isForcedAdminLogin(username)) {
+            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [req.user.id]);
+        }
+
         res.json({ message: "Security settings updated. Please re-login." });
-    });
+    } catch (error) {
+        console.error('Failed to update security settings:', error);
+        res.status(500).json({ message: "Failed to update security settings" });
+    }
 });
 
 // Upload Route
@@ -687,20 +1239,34 @@ app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) =>
     if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
     }
-    // Get the host from request or use environment variable
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const imageUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
-    res.json({ url: imageUrl });
+
+    res.json({ url: buildUploadUrl(req, req.file.filename) });
 });
 
 // Track Visit
 app.post('/api/visit', (req, res) => {
     const today = new Date().toISOString().split('T')[0];
-    db.run("INSERT INTO visits (date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1", [today], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Visit recorded" });
-    });
+    const visitorId = buildVisitorId(req);
+
+    db.run(
+        "INSERT OR IGNORE INTO visitor_sessions (visitor_id, date) VALUES (?, ?)",
+        [visitorId, today],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) {
+                return res.json({ message: "Visit already recorded" });
+            }
+
+            db.run(
+                "INSERT INTO visits (date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1",
+                [today],
+                (visitErr) => {
+                    if (visitErr) return res.status(500).json({ error: visitErr.message });
+                    res.json({ message: "Visit recorded" });
+                }
+            );
+        }
+    );
 });
 
 // --- News/Poll Routes ---
@@ -895,7 +1461,14 @@ app.get('/api/categories', (req, res) => {
 
 // Toggle Like
 app.post('/api/news/:id/like', authenticateToken, (req, res) => {
-    const newsId = req.params.id;
+    let newsId;
+
+    try {
+        newsId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const userId = req.user.id;
 
     // Check if already liked
@@ -904,14 +1477,14 @@ app.post('/api/news/:id/like', authenticateToken, (req, res) => {
 
         if (row) {
             // Unlike
-            db.run("DELETE FROM likes WHERE user_id = ? AND news_id = ?", [userId, newsId], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
+            db.run("DELETE FROM likes WHERE user_id = ? AND news_id = ?", [userId, newsId], (deleteErr) => {
+                if (deleteErr) return res.status(500).json({ error: deleteErr.message });
                 res.json({ message: "Unliked", isLiked: false });
             });
         } else {
             // Like
-            db.run("INSERT INTO likes (user_id, news_id) VALUES (?, ?)", [userId, newsId], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
+            db.run("INSERT INTO likes (user_id, news_id) VALUES (?, ?)", [userId, newsId], (insertErr) => {
+                if (insertErr) return res.status(500).json({ error: insertErr.message });
                 res.json({ message: "Liked", isLiked: true });
             });
         }
@@ -919,40 +1492,61 @@ app.post('/api/news/:id/like', authenticateToken, (req, res) => {
 });
 
 // Create News + Poll (Admin/Creator only)
-app.post('/api/news', authenticateToken, requireCreatorOrAdmin, (req, res) => {
-    const { title, description, image, tags, poll, category } = req.body;
+app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    let payload;
 
-    db.serialize(() => {
-        db.run("INSERT INTO news (title, description, image, tags, category) VALUES (?, ?, ?, ?, ?)",
-            [title, description, image, JSON.stringify(tags), category || 'general'],
-            function (err) {
-                if (err) {
-                    console.error('Error creating news:', err);
-                    return res.status(500).json({ error: err.message });
-                }
-                const newsId = this.lastID;
+    try {
+        payload = validateNewsPayload(req.body);
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
 
-                if (poll) {
-                    db.run("INSERT INTO polls (news_id, question) VALUES (?, ?)", [newsId, poll.question], function (err) {
-                        if (err) return res.status(500).json({ error: err.message });
-                        const pollId = this.lastID;
+    try {
+        await dbRunAsync('BEGIN TRANSACTION');
 
-                        const stmt = db.prepare("INSERT INTO poll_options (poll_id, text) VALUES (?, ?)");
-                        poll.options.forEach(opt => {
-                            stmt.run(pollId, opt);
-                        });
-                        stmt.finalize();
-                    });
-                }
-                res.json({ message: "News created", id: newsId });
-            }
+        const newsResult = await dbRunAsync(
+            "INSERT INTO news (title, description, image, tags, category) VALUES (?, ?, ?, ?, ?)",
+            [
+                payload.title,
+                payload.description,
+                payload.image,
+                JSON.stringify(payload.tags),
+                payload.category,
+            ]
         );
-    });
+
+        if (payload.poll) {
+            const pollResult = await dbRunAsync(
+                "INSERT INTO polls (news_id, question) VALUES (?, ?)",
+                [newsResult.lastID, payload.poll.question]
+            );
+
+            for (const option of payload.poll.options) {
+                await dbRunAsync(
+                    "INSERT INTO poll_options (poll_id, text) VALUES (?, ?)",
+                    [pollResult.lastID, option]
+                );
+            }
+        }
+
+        await dbRunAsync('COMMIT');
+        res.json({ message: "News created", id: newsResult.lastID });
+    } catch (error) {
+        await dbRunAsync('ROLLBACK').catch(() => null);
+        console.error('Error creating news:', error);
+        res.status(500).json({ message: "Failed to create news" });
+    }
 });
 
 // Delete News (Admin/Creator only)
 app.delete('/api/news/:id', authenticateToken, requireCreatorOrAdmin, (req, res) => {
-    const newsId = req.params.id;
+    let newsId;
+
+    try {
+        newsId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
 
     db.serialize(() => {
         // Delete related data first (optional if CASCADE is not set, but good practice)
@@ -976,8 +1570,16 @@ app.delete('/api/news/:id', authenticateToken, requireCreatorOrAdmin, (req, res)
 
 // Vote
 app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
-    const pollId = req.params.id;
-    const { optionId } = req.body;
+    let pollId;
+    let optionId;
+
+    try {
+        pollId = parsePositiveInt(req.params.id, 'id');
+        optionId = parsePositiveInt(req.body.optionId, 'optionId');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const userId = req.user.id;
 
     db.run("INSERT INTO votes (user_id, poll_id, option_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
@@ -1109,8 +1711,17 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res) => {
-    const { role } = req.body;
-    db.run("UPDATE users SET role = ? WHERE id = ?", [role, req.params.id], (err) => {
+    let role;
+    let userId;
+
+    try {
+        ({ role } = validateRolePayload(req.body));
+        userId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    db.run("UPDATE users SET role = ? WHERE id = ?", [role, userId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Role updated" });
     });
@@ -1305,12 +1916,16 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
 
 // Create error report
 app.post('/api/reports', authenticateToken, (req, res) => {
-    const { newsId, message } = req.body;
-    const userId = req.user.id;
+    let newsId;
+    let message;
 
-    if (!message || message.trim().length === 0) {
-        return res.status(400).json({ message: "Message is required" });
+    try {
+        ({ newsId, message } = validateReportPayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
     }
+
+    const userId = req.user.id;
 
     db.run(
         "INSERT INTO error_reports (news_id, user_id, message) VALUES (?, ?, ?)",
@@ -1365,7 +1980,13 @@ app.get('/api/admin/reports', authenticateToken, requireAdmin, (req, res) => {
 // Update error report status (Admin only)
 app.patch('/api/admin/reports/:id/status', authenticateToken, requireAdmin, (req, res) => {
     const { status } = req.body;
-    const reportId = req.params.id;
+    let reportId;
+
+    try {
+        reportId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
 
     if (!['pending', 'resolved'].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
@@ -1470,10 +2091,19 @@ app.get('/api/chats', authenticateToken, (req, res) => {
 
 // Create or Get Direct Chat
 app.post('/api/chats', authenticateToken, (req, res) => {
-    const { targetUserId } = req.body;
+    let targetUserId;
+
+    try {
+        ({ targetUserId } = validateDirectChatPayload(req.body));
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const currentUserId = req.user.id;
 
-    if (!targetUserId) return res.status(400).json({ message: "Target user required" });
+    if (targetUserId === currentUserId) {
+        return res.status(400).json({ message: "Cannot create chat with yourself" });
+    }
 
     // Check if chat already exists
     db.all(
@@ -1510,7 +2140,14 @@ app.post('/api/chats', authenticateToken, (req, res) => {
 
 // Get Messages
 app.get('/api/chats/:id/messages', authenticateToken, (req, res) => {
-    const chatId = req.params.id;
+    let chatId;
+
+    try {
+        chatId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const userId = req.user.id;
     const afterId = parseInt(req.query.afterId) || 0;
 
@@ -1554,14 +2191,23 @@ app.get('/api/chats/:id/messages', authenticateToken, (req, res) => {
 });
 
 // Send Message (with optional files)
-app.post('/api/chats/:id/messages', authenticateToken, upload.array('files'), (req, res) => {
-    const chatId = req.params.id;
-    const userId = req.user.id;
-    const { content } = req.body;
-    const files = req.files || [];
+app.post('/api/chats/:id/messages', authenticateToken, upload.array('files', MAX_CHAT_ATTACHMENTS), (req, res) => {
+    let chatId;
 
-    if ((!content || !content.trim()) && files.length === 0) {
-        return res.status(400).json({ message: "Content or files required" });
+    try {
+        chatId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    const userId = req.user.id;
+    const files = req.files || [];
+    let content;
+
+    try {
+        ({ content } = validateChatMessagePayload(req.body, files));
+    } catch (error) {
+        return sendValidationError(res, error);
     }
 
     // Verify participation
@@ -1599,10 +2245,7 @@ app.post('/api/chats/:id/messages', authenticateToken, upload.array('files'), (r
                             files.forEach(file => {
                                 const type = file.mimetype.startsWith('image/') ? 'image' :
                                     file.mimetype.startsWith('video/') ? 'video' : 'file';
-                                // Use dynamic host from request
-                                const protocol = req.protocol;
-                                const host = req.get('host');
-                                const url = `${protocol}://${host}/uploads/${file.filename}`;
+                                const url = buildUploadUrl(req, file.filename);
                                 stmt.run(messageId, url, type, file.originalname);
                             });
                             stmt.finalize();
@@ -1629,7 +2272,14 @@ app.post('/api/chats/:id/messages', authenticateToken, upload.array('files'), (r
 
 // Mark messages as read
 app.post('/api/chats/:id/read', authenticateToken, (req, res) => {
-    const chatId = req.params.id;
+    let chatId;
+
+    try {
+        chatId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const userId = req.user.id;
 
     // Mark all messages in this chat NOT sent by me as read
@@ -1645,7 +2295,16 @@ app.post('/api/chats/:id/read', authenticateToken, (req, res) => {
 
 // Delete Message
 app.delete('/api/chats/:chatId/messages/:messageId', authenticateToken, (req, res) => {
-    const { chatId, messageId } = req.params;
+    let chatId;
+    let messageId;
+
+    try {
+        chatId = parsePositiveInt(req.params.chatId, 'chatId');
+        messageId = parsePositiveInt(req.params.messageId, 'messageId');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const userId = req.user.id;
 
     // Check if message belongs to user
@@ -1670,8 +2329,19 @@ app.delete('/api/chats/:chatId/messages/:messageId', authenticateToken, (req, re
 
 // Block User
 app.post('/api/users/block', authenticateToken, (req, res) => {
-    const { userId } = req.body;
+    let userId;
+
+    try {
+        userId = parsePositiveInt(req.body.userId, 'userId');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const blockerId = req.user.id;
+
+    if (userId === blockerId) {
+        return res.status(400).json({ message: "You cannot block yourself" });
+    }
 
     db.run(
         "INSERT OR IGNORE INTO blocked_users (blocker_id, blocked_id) VALUES (?, ?)",
@@ -1685,7 +2355,14 @@ app.post('/api/users/block', authenticateToken, (req, res) => {
 
 // Unblock User
 app.delete('/api/users/block/:id', authenticateToken, (req, res) => {
-    const blockedId = req.params.id;
+    let blockedId;
+
+    try {
+        blockedId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
     const blockerId = req.user.id;
 
     db.run(
@@ -1750,9 +2427,12 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
 });
 
 app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
-    const userId = Number(req.params.id);
-    if (!userId) {
-        return res.status(400).json({ message: "Invalid user id" });
+    let userId;
+
+    try {
+        userId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
     }
 
     db.get(
@@ -1766,6 +2446,29 @@ app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
     );
 });
 
+app.use((err, req, res, next) => {
+    if (res.headersSent) {
+        return next(err);
+    }
+
+    if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ message: "File is too large. Maximum size is 5 MB." });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({ message: `Too many files uploaded. Maximum is ${MAX_CHAT_ATTACHMENTS}.` });
+        }
+        return res.status(400).json({ message: err.message });
+    }
+
+    if (err?.details) {
+        return sendValidationError(res, err);
+    }
+
+    console.error('Unhandled request error:', err);
+    return res.status(500).json({ message: "Internal server error" });
+});
+
 // Serve static files from the frontend build directory
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -1776,7 +2479,45 @@ app.get('*', (req, res) => {
     res.sendFile(indexPath);
 });
 
+let isShuttingDown = false;
+
+const shutdown = (signal, exitCode = 0) => {
+    if (isShuttingDown) {
+        return;
+    }
+
+    isShuttingDown = true;
+    console.log(`[Shutdown] ${signal} received`);
+
+    const closeDatabase = () => {
+        db.close((dbError) => {
+            if (dbError) {
+                console.error('[Shutdown] Failed to close database:', dbError);
+                process.exit(1);
+                return;
+            }
+            process.exit(exitCode);
+        });
+    };
+
+    if (server) {
+        server.close((serverError) => {
+            if (serverError) {
+                console.error('[Shutdown] Failed to close server:', serverError);
+                process.exit(1);
+                return;
+            }
+            closeDatabase();
+        });
+        return;
+    }
+
+    closeDatabase();
+};
+
 const startServer = async () => {
+    await db.ready;
+
     if (WP_SYNC_ON_STARTUP) {
         try {
             const stats = await syncWordpressIfConfigured({ fullReplace: WP_SYNC_FULL_REPLACE });
@@ -1797,10 +2538,32 @@ const startServer = async () => {
         console.error('[Admin Override] Failed to enforce forced admin roles:', error.message);
     }
 
-    app.listen(PORT, HOST, () => {
+    server = app.listen(PORT, HOST, () => {
         console.log(`Server running on http://${HOST}:${PORT}`);
         console.log(`Access from network: http://[YOUR_IP]:${PORT}`);
     });
+
+    return server;
 };
 
-startServer();
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+    shutdown('unhandledRejection', 1);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    shutdown('uncaughtException', 1);
+});
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+if (require.main === module) {
+    startServer().catch((error) => {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    });
+}
+
+module.exports = { app, startServer };
