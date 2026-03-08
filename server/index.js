@@ -19,8 +19,18 @@ const parseCsvSet = (value) => new Set(
         .filter(Boolean)
 );
 
-const validateEnvironment = () => {
-    const secretKey = String(process.env.SECRET_KEY || '');
+const getConfiguredSecretKey = () => {
+    const secretKey = String(process.env.SECRET_KEY || '').trim();
+    const jwtSecret = String(process.env.JWT_SECRET || '').trim();
+
+    if (secretKey && jwtSecret && secretKey !== jwtSecret) {
+        console.warn('Both SECRET_KEY and JWT_SECRET are set. Using SECRET_KEY.');
+    }
+
+    return secretKey || jwtSecret || '';
+};
+
+const validateEnvironment = (secretKey) => {
     const insecureSecrets = new Set([
         'supersecretkey',
         'changeme',
@@ -29,6 +39,7 @@ const validateEnvironment = () => {
 
     if (!secretKey) {
         console.error('FATAL: SECRET_KEY environment variable is not set');
+        console.error('Set SECRET_KEY (or JWT_SECRET) in your Railway service variables.');
         process.exit(1);
     }
 
@@ -43,7 +54,8 @@ const validateEnvironment = () => {
     }
 };
 
-validateEnvironment();
+const RESOLVED_SECRET_KEY = getConfiguredSecretKey();
+validateEnvironment(RESOLVED_SECRET_KEY);
 
 const {
     DEFAULT_POINTS_SETTINGS,
@@ -68,7 +80,7 @@ app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
-const SECRET_KEY = process.env.SECRET_KEY;
+const SECRET_KEY = RESOLVED_SECRET_KEY;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const ALLOW_BOOTSTRAP_ADMIN = toBoolean(process.env.ALLOW_BOOTSTRAP_ADMIN, process.env.NODE_ENV !== 'production');
 const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
