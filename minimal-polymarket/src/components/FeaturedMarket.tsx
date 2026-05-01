@@ -1,6 +1,6 @@
+import { type PointerEvent, useRef, useState } from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis } from 'recharts';
 import { motion } from 'motion/react';
-import { Link } from 'react-router-dom';
 import { Link as LinkIcon, Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const mockChartData = [
@@ -19,7 +19,128 @@ const mockChartData = [
   { time: '', val: 9 },
 ];
 
+type FeaturedChartHover = {
+  active: boolean;
+  width: number;
+  svgX: number;
+  pathD: string;
+  viewBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  x: number;
+  y: number;
+  value: number;
+  time: string;
+};
+
+const initialChartHover: FeaturedChartHover = {
+  active: false,
+  width: 0,
+  svgX: 0,
+  pathD: '',
+  viewBox: {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  },
+  x: 0,
+  y: 0,
+  value: 9,
+  time: '12:00 ДП',
+};
+
+function getPointAtPathX(path: SVGPathElement, targetX: number) {
+  const totalLength = path.getTotalLength();
+  const firstPoint = path.getPointAtLength(0);
+  const lastPoint = path.getPointAtLength(totalLength);
+  const minX = Math.min(firstPoint.x, lastPoint.x);
+  const maxX = Math.max(firstPoint.x, lastPoint.x);
+  const clampedX = Math.max(minX, Math.min(maxX, targetX));
+  let start = 0;
+  let end = totalLength;
+
+  for (let index = 0; index < 24; index += 1) {
+    const middle = (start + end) / 2;
+    const point = path.getPointAtLength(middle);
+
+    if (point.x < clampedX) {
+      start = middle;
+    } else {
+      end = middle;
+    }
+  }
+
+  return path.getPointAtLength((start + end) / 2);
+}
+
+function getSvgViewport(svg: SVGSVGElement) {
+  const box = svg.viewBox.baseVal;
+
+  return {
+    x: box?.width ? box.x : 0,
+    y: box?.height ? box.y : 0,
+    width: box?.width || svg.getBoundingClientRect().width,
+    height: box?.height || svg.getBoundingClientRect().height,
+  };
+}
+
+function getChartRowAtProgress(progress: number) {
+  const exactIndex = progress * Math.max(1, mockChartData.length - 1);
+  const row = mockChartData[Math.round(exactIndex)] ?? mockChartData[mockChartData.length - 1];
+
+  return {
+    value: row.val,
+    time: row.time || '12:00 ДП',
+  };
+}
+
 export function FeaturedMarket() {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [chartHover, setChartHover] = useState<FeaturedChartHover>(initialChartHover);
+
+  const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const container = chartRef.current;
+    const svg = container?.querySelector<SVGSVGElement>('.recharts-surface');
+    const path =
+      svg?.querySelector<SVGPathElement>('.featured-market-line.recharts-line-curve') ??
+      svg?.querySelector<SVGPathElement>('.featured-market-line .recharts-line-curve') ??
+      svg?.querySelector<SVGPathElement>('.recharts-line-curve');
+
+    if (!container || !svg || !path) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const viewport = getSvgViewport(svg);
+    const targetSvgX = viewport.x + ((event.clientX - svgRect.left) / svgRect.width) * viewport.width;
+    const point = getPointAtPathX(path, targetSvgX);
+    const firstPoint = path.getPointAtLength(0);
+    const lastPoint = path.getPointAtLength(path.getTotalLength());
+    const minPathX = Math.min(firstPoint.x, lastPoint.x);
+    const maxPathX = Math.max(firstPoint.x, lastPoint.x);
+    const progress = Math.max(0, Math.min(1, (targetSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
+    const row = getChartRowAtProgress(progress);
+
+    setChartHover((previous) => ({
+      ...previous,
+      active: true,
+      width: containerRect.width,
+      svgX: point.x,
+      pathD: path.getAttribute('d') ?? '',
+      viewBox: viewport,
+      x: svgRect.left - containerRect.left + ((point.x - viewport.x) / viewport.width) * svgRect.width,
+      y: svgRect.top - containerRect.top + ((point.y - viewport.y) / viewport.height) * svgRect.height,
+      value: row.value,
+      time: row.time,
+    }));
+  };
+
+  const featuredTooltipOnLeft = chartHover.x > chartHover.width - 150;
+  const featuredDateOnLeft = chartHover.x > chartHover.width - 70;
+
   return (
     <div className="flex flex-col gap-3">
       {/* Main Card */}
@@ -129,7 +250,12 @@ export function FeaturedMarket() {
           {/* Right Column (Chart) */}
           <div className="right-chart-col relative h-[250px] w-full lg:h-[270px] lg:w-[55%]">
             {/* Chart */}
-            <div className="absolute inset-x-0 top-0 bottom-7">
+            <div
+              ref={chartRef}
+              className="absolute inset-x-0 top-0 bottom-7"
+              onPointerMove={handleChartPointerMove}
+              onPointerLeave={() => setChartHover((previous) => ({ ...previous, active: false }))}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={mockChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <XAxis 
@@ -150,17 +276,84 @@ export function FeaturedMarket() {
                     width={40}
                   />
                   <Line 
+                    className="featured-market-line"
                     type="stepAfter" 
                     dataKey="val" 
                     stroke="#2563eb" 
                     strokeWidth={2} 
                     dot={false} 
+                    activeDot={false}
                     isAnimationActive={false} 
                   />
                 </LineChart>
               </ResponsiveContainer>
-              {/* Optional current value marker point */}
-              <div className="absolute right-[40px] top-[76%] w-2.5 h-2.5 bg-pm-blue rounded-full border-2 border-pm-surface"></div>
+
+              {chartHover.active && chartHover.pathD && (
+                <svg
+                  className="pointer-events-none absolute inset-0"
+                  viewBox={`${chartHover.viewBox.x} ${chartHover.viewBox.y} ${chartHover.viewBox.width} ${chartHover.viewBox.height}`}
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    <clipPath id="featured-market-future-line" clipPathUnits="userSpaceOnUse">
+                      <rect
+                        x={chartHover.svgX}
+                        y={chartHover.viewBox.y}
+                        width={Math.max(0, chartHover.viewBox.x + chartHover.viewBox.width - chartHover.svgX)}
+                        height={chartHover.viewBox.height}
+                      />
+                    </clipPath>
+                  </defs>
+                  <path
+                    d={chartHover.pathD}
+                    fill="none"
+                    stroke="#3f444d"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.8}
+                    clipPath="url(#featured-market-future-line)"
+                  />
+                </svg>
+              )}
+
+              {chartHover.active && (
+                <>
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-white/10"
+                    style={{ left: chartHover.x }}
+                  />
+                  <div
+                    className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-pm-blue shadow-[0_0_0_3px_rgba(37,99,235,0.18)]"
+                    style={{ left: chartHover.x, top: chartHover.y }}
+                  />
+                  <div
+                    className={
+                      featuredTooltipOnLeft
+                        ? 'pointer-events-none absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                        : 'pointer-events-none absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                    }
+                    style={{
+                      left: chartHover.x,
+                      top: chartHover.y - 13,
+                      transform: featuredTooltipOnLeft ? 'translateX(calc(-100% - 12px))' : undefined,
+                    }}
+                  >
+                    <span className="h-3 w-1 rounded-full bg-pm-blue" />
+                    <span>Да</span>
+                    <span>{chartHover.value}%</span>
+                  </div>
+                  <div
+                    className="pointer-events-none absolute whitespace-nowrap text-[11px] font-bold text-pm-text-muted"
+                    style={{
+                      left: chartHover.x,
+                      top: 0,
+                      transform: featuredDateOnLeft ? 'translateX(-100%)' : 'translateX(-50%)',
+                    }}
+                  >
+                    {chartHover.time}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Footer Right */}

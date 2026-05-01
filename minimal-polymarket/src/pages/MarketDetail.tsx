@@ -81,6 +81,7 @@ const chartColors = ['#8bbfff', '#4f7dff', '#f8c545', '#f18834'];
 
 type ChartHoverPoint = {
   color: string;
+  pathD: string;
   name: string;
   value: number;
   x: number;
@@ -90,6 +91,13 @@ type ChartHoverPoint = {
 type ChartHoverState = {
   visible: boolean;
   x: number;
+  svgX: number;
+  viewBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   time: string;
   points: ChartHoverPoint[];
 };
@@ -97,6 +105,13 @@ type ChartHoverState = {
 const hiddenChartHover: ChartHoverState = {
   visible: false,
   x: 0,
+  svgX: 0,
+  viewBox: {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  },
   time: '',
   points: [],
 };
@@ -184,10 +199,36 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 bottom-0">
-      <div
-        className="absolute top-0 bottom-8 rounded-r-xl bg-pm-surface/70 backdrop-blur-[1px]"
-        style={{ left: hover.x, right: 46 }}
-      />
+      {hover.viewBox.width > 0 && (
+        <svg
+          className="absolute inset-0"
+          viewBox={`${hover.viewBox.x} ${hover.viewBox.y} ${hover.viewBox.width} ${hover.viewBox.height}`}
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <clipPath id="market-detail-future-line" clipPathUnits="userSpaceOnUse">
+              <rect
+                x={hover.svgX}
+                y={hover.viewBox.y}
+                width={Math.max(0, hover.viewBox.x + hover.viewBox.width - hover.svgX)}
+                height={hover.viewBox.height}
+              />
+            </clipPath>
+          </defs>
+          {hover.points.map((point) => (
+            <path
+              key={`future-${point.name}`}
+              d={point.pathD}
+              fill="none"
+              stroke="#3f444d"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.8}
+              clipPath="url(#market-detail-future-line)"
+            />
+          ))}
+        </svg>
+      )}
       <div className="absolute top-0 bottom-8 w-px bg-white/10" style={{ left: hover.x }} />
       <div
         className="absolute -translate-x-1/2 text-xs font-bold text-pm-text-muted"
@@ -210,8 +251,8 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
             <div
               className={
                 labelsOnLeft
-                  ? 'absolute flex items-center gap-1 rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
-                  : 'absolute ml-3 flex items-center gap-1 rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                  ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                  : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
               }
               style={labelPosition}
             >
@@ -347,6 +388,7 @@ export function MarketDetail() {
 
       result.push({
         color: chartColors[index],
+        pathD: path.getAttribute('d') ?? '',
         name: outcome.name,
         value: Number(activePoint[`line${index}`] ?? outcome.percent),
         x,
@@ -361,6 +403,8 @@ export function MarketDetail() {
     setChartHover({
       visible: true,
       x: points[0].x,
+      svgX: targetSvgX,
+      viewBox: viewport,
       time: String(activePoint.time),
       points,
     });
