@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { cn } from '../lib/utils';
 import { Gift, Bookmark } from 'lucide-react';
 
 interface MarketCardProps {
@@ -16,6 +15,64 @@ interface MarketCardProps {
   listOptions?: { name: string, percent: number }[];
 }
 
+function ProbabilityGauge({ percent, label }: { percent: number; label: string }) {
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+  const color = clampedPercent >= 45 ? '#63c784' : clampedPercent >= 25 ? '#f5b84b' : '#ef6b67';
+
+  return (
+    <div className="w-[84px] shrink-0">
+      <svg className="block h-[66px] w-[84px] overflow-visible" viewBox="0 0 84 66" role="img" aria-label={`${percent}% ${label}`}>
+        <path
+          d="M 14 34 A 28 28 0 0 1 70 34"
+          fill="none"
+          pathLength={100}
+          stroke="#3a3c43"
+          strokeLinecap="round"
+          strokeWidth="4.5"
+        />
+        <path
+          d="M 14 34 A 28 28 0 0 1 70 34"
+          fill="none"
+          pathLength={100}
+          stroke={color}
+          strokeDasharray={100}
+          strokeDashoffset={100 - clampedPercent}
+          strokeLinecap="round"
+          strokeWidth="4.5"
+        />
+        <text
+          x="42"
+          y="43"
+          fill="#ffffff"
+          fontSize="20"
+          fontWeight="700"
+          textAnchor="middle"
+        >
+          {percent}%
+        </text>
+        <text
+          x="42"
+          y="58"
+          fill="#8b8f98"
+          fontSize="12"
+          fontWeight="600"
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function MarketIcon({ icon }: { icon: string | React.ReactNode }) {
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#2a2b31] text-2xl text-white">
+      {typeof icon === 'string' ? icon : icon}
+    </div>
+  );
+}
+
 export function MarketCard({
   id,
   title,
@@ -28,77 +85,71 @@ export function MarketCard({
   layout = 'binary',
   listOptions
 }: MarketCardProps) {
+  const gaugeLabel = category === 'Bitcoin' ? 'Up' : 'Да';
+
   return (
     <Link 
       to={`/market/${id}`} 
-      className="bg-pm-surface hover:bg-pm-surface-hover border border-pm-border rounded-xl p-4 flex flex-col transition-all cursor-pointer group"
+      className="group flex h-full min-h-[188px] flex-col rounded-xl border border-pm-border bg-pm-surface p-3.5 text-pm-text shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-all hover:-translate-y-0.5 hover:border-[#3b3d45] hover:bg-pm-surface-hover hover:shadow-[0_14px_34px_rgba(0,0,0,0.28)]"
     >
-      <div className="flex items-start justify-between mb-4">
-        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-pm-bg border border-pm-border text-2xl">
-          {typeof icon === 'string' ? icon : icon}
-        </div>
+      <div className="mb-3 flex items-start gap-3">
+        <MarketIcon icon={icon} />
+        <h3 className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-white line-clamp-3 group-hover:text-pm-blue">
+          {title}
+        </h3>
         {layout === 'binary' && (
-          <div className="flex flex-col items-end">
-            <span className="text-xl font-semibold text-white">{yesPercent}%</span>
-            <span className="text-xs text-pm-text-muted">Да</span>
-          </div>
+          <ProbabilityGauge percent={yesPercent} label={gaugeLabel} />
         )}
       </div>
 
-      <h3 className="text-[15px] font-medium leading-snug text-white mb-4 flex-1 line-clamp-3 group-hover:text-pm-blue transition-colors">
-        {title}
-      </h3>
-
       {layout === 'binary' ? (
-        <div className="flex items-center gap-2 mb-4">
-          <button className="flex-1 bg-[rgba(34,197,94,0.15)] hover:bg-[rgba(34,197,94,0.25)] text-pm-green py-2 px-4 rounded-lg font-medium text-sm transition-colors border border-[rgba(34,197,94,0.1)]">
+        <div className="mb-3 mt-auto grid grid-cols-2 gap-2">
+          <div className="flex h-10 items-center justify-center rounded-lg bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors group-hover:bg-[#22c55e]/15">
             Да
-          </button>
-          <button className="flex-1 bg-[rgba(239,68,68,0.15)] hover:bg-[rgba(239,68,68,0.25)] text-pm-red py-2 px-4 rounded-lg font-medium text-sm transition-colors border border-[rgba(239,68,68,0.1)]">
+          </div>
+          <div className="flex h-10 items-center justify-center rounded-lg bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors group-hover:bg-[#ef4444]/15">
             Нет
-          </button>
+          </div>
         </div>
       ) : (
-        <div className="mb-4 space-y-2">
+        <div className="mb-3 mt-auto space-y-2">
           {listOptions?.map((opt, i) => (
-            <div key={i} className="flex items-center justify-between text-sm">
-              <span className="text-pm-text">{opt.name}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-white">{opt.percent}%</span>
-                <span className="text-pm-green text-xs">Да.</span>
-                <span className="text-pm-red text-xs">Нет.</span>
-              </div>
+            <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 text-[15px]">
+              <span className="truncate font-medium text-pm-text">{opt.name}</span>
+              <span className="min-w-10 text-right font-bold text-white">{opt.percent}%</span>
+              <span className="rounded-md bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">Да.</span>
+              <span className="rounded-md bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">Нет.</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-3 border-t border-pm-border mt-auto">
-        <div className="flex items-center gap-2 text-xs text-pm-text-muted">
+      <div className="mt-auto flex items-center justify-between pt-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-pm-text-muted">
           {status === 'active' && (
-             <div className="flex items-center gap-1.5 font-medium text-[11px] uppercase tracking-wider">
-               <div className="w-1.5 h-1.5 rounded-full bg-pm-red animate-pulse" />
+             <div className="flex items-center gap-1 font-bold uppercase text-pm-red">
+               <div className="h-1.5 w-1.5 rounded-full bg-pm-red" />
                Активные
              </div>
           )}
           {status === 'new' && (
-             <div className="flex items-center gap-1.5 font-medium text-[11px] text-yellow-500 uppercase tracking-wider">
-               <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+             <div className="flex items-center gap-1 font-bold uppercase text-[#d7a923]">
+               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
                Новое
              </div>
           )}
           {status && <span className="text-pm-border">•</span>}
-          <span>{volume} Объём</span>
+          <span className="truncate">{volume} Объём</span>
           {category && (
             <>
               <span className="text-pm-border">•</span>
-              <span>{category}</span>
+              <span className="truncate">{category}</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2 text-pm-text-muted">
-          <Gift className="w-4 h-4 hover:text-white transition-colors" />
-          <Bookmark className="w-4 h-4 hover:text-white transition-colors" />
+        <div className="ml-2 flex shrink-0 items-center gap-2 text-pm-text-muted">
+          <Gift className="h-4 w-4 transition-colors hover:text-white" />
+          <Bookmark className="h-4 w-4 transition-colors hover:text-white" />
         </div>
       </div>
     </Link>
