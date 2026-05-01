@@ -124,27 +124,27 @@ export function Home() {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8"
+      className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-5"
     >
       
       {/* Featured Top Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="lg:col-span-2">
           <FeaturedMarket />
         </div>
-        <div className="lg:col-span-1">
+        <div className="h-full lg:col-span-1">
           <Sidebar />
         </div>
       </div>
 
-      <div className="h-px bg-pm-border w-full mb-8" />
+      <div className="h-px bg-pm-border w-full mb-5" />
 
       {/* Page Header & Filters */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6"
+        className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4"
       >
         <h1 className="text-2xl font-semibold text-white">Все рынки</h1>
         
@@ -166,7 +166,7 @@ export function Home() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="flex items-center gap-2 overflow-x-auto no-scrollbar mb-8 pb-2"
+        className="flex items-center gap-2 overflow-x-auto no-scrollbar mb-6 pb-2"
       >
         <button className="px-4 py-1.5 rounded-full bg-[rgba(37,99,235,0.15)] text-pm-blue border border-[rgba(37,99,235,0.2)] text-sm font-medium whitespace-nowrap">
           Все
@@ -186,7 +186,7 @@ export function Home() {
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
       >
         {MOCK_MARKETS.map((market) => (
-          <motion.div key={market.id} variants={itemVariants}>
+          <motion.div key={market.id} variants={itemVariants} className="h-full">
             <MarketCard {...market} />
           </motion.div>
         ))}
