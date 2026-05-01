@@ -1,85 +1,96 @@
+import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
+import type { Market } from '../lib/api';
 
-export function Sidebar() {
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  }).format(value);
+}
+
+function MarketRow({ market, index }: { market: Market; index: number }) {
   return (
-    <motion.div 
+    <Link
+      to={`/market/${market.id}`}
+      className="flex gap-2 rounded-lg p-1.5 transition-colors hover:bg-pm-surface group"
+    >
+      <span className="text-xs font-mono text-pm-text-muted">{index + 1}</span>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-[13px] leading-tight text-pm-text group-hover:text-pm-text-strong">{market.title}</p>
+        <div className="mt-1 text-[11px] font-semibold text-pm-text-muted">{formatMoney(market.volume)} объём</div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="text-sm font-semibold leading-tight text-pm-text-strong">{market.yesPercent}%</div>
+        <div className="text-[11px] font-medium text-pm-green">Да</div>
+      </div>
+    </Link>
+  );
+}
+
+export function Sidebar({ markets = [] }: { markets?: Market[] }) {
+  const activeMarkets = markets
+    .filter((market) => market.status === 'open')
+    .sort((left, right) => right.volume - left.volume)
+    .slice(0, 3);
+  const newMarkets = [...markets]
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 5);
+
+  return (
+    <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.5, delay: 0.2 }}
+      transition={{ duration: 0.35, delay: 0.1 }}
       className="flex h-full flex-col"
     >
-      {/* Breaking News */}
       <div>
-        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong cursor-pointer hover:text-pm-blue transition-colors">
-          Срочные новости <ChevronRight className="w-4 h-4" />
+        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong">
+          Активные рынки <ChevronRight className="h-4 w-4" />
         </h3>
         <div className="space-y-0.5">
-          {[
-            { title: 'Более $3 млн привлечено в публичной продаже Printr?', percent: '1%', trend: 'down', trendVal: '99%' },
-            { title: 'Gensyn FDV выше $400M через день после запуска?', percent: '41%', trend: 'down', trendVal: '30%' },
-            { title: 'Будет ли Alphabet крупнейшей компанией в мире по рыночной...', percent: '30%', trend: 'up', trendVal: '25%' },
-          ].map((news, i) => (
-            <motion.div 
-              key={i}
-              whileHover={{ scale: 1.02 }}
-              className="flex gap-2 rounded-lg p-1.5 hover:bg-pm-surface transition-colors cursor-pointer group"
-            >
-              <span className="text-pm-text-muted text-xs font-mono">{i + 1}</span>
-              <div className="flex-1">
-                <p className="text-[13px] text-pm-text group-hover:text-pm-text-strong leading-tight">{news.title}</p>
+          {activeMarkets.length > 0 ? (
+            activeMarkets.map((market, index) => (
+              <div key={market.id}>
+                <MarketRow market={market} index={index} />
               </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-semibold text-pm-text-strong leading-tight">{news.percent}</div>
-                <div className={`text-[11px] font-medium flex items-center justify-end gap-0.5 ${news.trend === 'up' ? 'text-pm-green' : 'text-pm-red'}`}>
-                  {news.trend === 'up' ? "↗" : "↘"} {news.trendVal}
-                </div>
-              </div>
-            </motion.div>
-          ))}
+            ))
+          ) : (
+            <div className="rounded-lg border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
+              Сделок пока нет.
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="my-4 h-px w-full bg-pm-border"></div>
+      <div className="my-4 h-px w-full bg-pm-border" />
 
-      {/* Hot Topics */}
       <div className="flex flex-1 flex-col">
-        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong cursor-pointer hover:text-pm-blue transition-colors">
-          Горячие темы <ChevronRight className="w-4 h-4" />
+        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong">
+          Новые посты <ChevronRight className="h-4 w-4" />
         </h3>
         <div className="space-y-0.5">
-          {[
-            { title: 'Mega', vol: '$11M сегодня' },
-            { title: 'Maine', vol: '$121K сегодня' },
-            { title: 'Lakers', vol: '$8M сегодня' },
-            { title: 'Rocha', vol: '$686K сегодня' },
-            { title: 'Mexico', vol: '$29M сегодня' },
-          ].map((topic, i) => (
-            <motion.div 
-              key={i}
-              whileHover={{ scale: 1.02 }}
-              className="flex gap-2 rounded-lg p-1.5 hover:bg-pm-surface transition-colors cursor-pointer group items-center justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-pm-text-muted text-xs font-mono">{i + 1}</span>
-                <span className="text-[13px] text-pm-text group-hover:text-pm-text-strong font-medium">{topic.title}</span>
+          {newMarkets.length > 0 ? (
+            newMarkets.map((market, index) => (
+              <div key={market.id}>
+                <MarketRow market={market} index={index} />
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-pm-text-muted">
-                {topic.vol}
-                <span className="text-pm-red">🔥</span>
-                <ChevronRight className="w-4 h-4" />
-              </div>
-            </motion.div>
-          ))}
+            ))
+          ) : (
+            <div className="rounded-lg border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
+              Созданные рынки появятся здесь.
+            </div>
+          )}
         </div>
-        
-        <motion.button 
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className="mt-auto w-full rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
+
+        <Link
+          to="/create"
+          className="mt-auto flex w-full items-center justify-center rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
         >
-           Смотреть все
-        </motion.button>
+          Создать рынок
+        </Link>
       </div>
     </motion.div>
   );

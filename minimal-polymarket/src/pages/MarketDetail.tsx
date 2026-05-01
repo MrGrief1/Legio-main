@@ -1,15 +1,17 @@
-import { type PointerEvent, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
+  ArrowLeft,
   Bookmark,
-  ChevronDown,
+  CalendarClock,
+  CheckCircle2,
   Code2,
   Info,
   Link as LinkIcon,
-  MessageCircle,
   ShieldCheck,
-  Smile,
+  TrendingUp,
+  UserRound,
 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -20,64 +22,52 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { api, ApiError, type Market, type Outcome } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
-const marketDetails = {
-  '1': {
-    icon: 'JC',
-    category: 'Политика',
-    subcategory: 'Суды',
-    title: 'Джеймс Коми был приговорён к тюремному заключению?',
-    volume: '$160K',
-    endDate: '31 дек. 2026 г.',
-    selected: '31 декабря 2026 года',
-    outcomes: [
-      { name: '31 декабря 2026 года', volume: '$94,6K', percent: 9, trend: -35 },
-      { name: 'После 31 декабря 2026 года', volume: '$65,4K', percent: 91, trend: 35 },
-    ],
-  },
-  '2': {
-    icon: '₿',
-    category: 'Криптовалюта',
-    subcategory: 'Bitcoin',
-    title: 'BTC вверх или вниз на 5 м',
-    volume: '$2M',
-    endDate: 'Сегодня',
-    selected: 'BTC вверх за 5 минут',
-    outcomes: [
-      { name: 'BTC вверх за 5 минут', volume: '$1,1M', percent: 50, trend: 0 },
-      { name: 'BTC вниз за 5 минут', volume: '$900K', percent: 50, trend: 0 },
-    ],
-  },
-  '3': {
-    icon: '🇮🇳',
-    category: 'Политика',
-    subcategory: 'Индийские выборы',
-    title: 'Победитель выборов в Законодательное собрание Западной Бенгалии',
-    volume: '$5M',
-    endDate: '30 июн. 2026 г.',
-    selected: 'AITC',
-    outcomes: [
-      { name: 'AITC', volume: '$2,6M', percent: 51, trend: 4 },
-      { name: 'БДП', volume: '$2,4M', percent: 50, trend: -2 },
-    ],
-  },
-  default: {
-    icon: '◎',
-    category: 'Рынок',
-    subcategory: 'Polymarket',
-    title: 'Что произойдет с сырой нефтью WTI (WTI) в мае 2026 года?',
-    volume: '$2M',
-    endDate: '31 мая 2026 г.',
-    selected: '↑ $90',
-    outcomes: [
-      { name: '↑ $90', volume: '$1,2M', percent: 99, trend: 2 },
-      { name: '↑ $100', volume: '$800K', percent: 98, trend: 1 },
-      { name: '↓ $80', volume: '$220K', percent: 32, trend: -8 },
-    ],
-  },
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  }).format(value);
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(value));
+}
+
+function categoryIcon(category: string) {
+  const normalized = category.toLowerCase();
+
+  if (normalized.includes('крипто') || normalized.includes('bitcoin') || normalized.includes('btc')) return '₿';
+  if (normalized.includes('спорт')) return '🏟';
+  if (normalized.includes('полит')) return '◎';
+  if (normalized.includes('финанс')) return '$';
+  if (normalized.includes('тех')) return '⌘';
+
+  return category.slice(0, 2).toUpperCase();
+}
+
+type ChartRow = {
+  time: string;
+  isoTime: string;
+  yes: number;
+  no: number;
 };
-
-const chartColors = ['#8bbfff', '#4f7dff', '#f8c545', '#f18834'];
 
 type ChartHoverPoint = {
   color: string;
@@ -116,47 +106,29 @@ const hiddenChartHover: ChartHoverState = {
   points: [],
 };
 
-function clampPercent(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
+const chartSeries = [
+  { key: 'yes', name: 'Да', color: '#22c55e' },
+  { key: 'no', name: 'Нет', color: '#ef4444' },
+] as const;
+
+function clampChartValue(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function buildChartData(outcomes: { percent: number }[]) {
-  const wave = [0, -3, 2, -6, 4, 0, 6, -2, 1];
-  const timeline = ['апр. 18', 'апр. 19', 'апр. 21', 'апр. 23', 'апр. 25', 'апр. 26', 'апр. 27', 'апр. 29', 'май 1'];
-
-  return timeline.map((time, pointIndex) => {
-    const progress = pointIndex / (timeline.length - 1);
-    const row: Record<string, number | string> = { time };
-
-    outcomes.slice(0, 4).forEach((outcome, seriesIndex) => {
-      const startBias = outcome.percent >= 50 ? -18 : 24;
-      const start = clampPercent(outcome.percent + startBias);
-      const value = start + (outcome.percent - start) * progress + wave[pointIndex] * (1 - seriesIndex * 0.15);
-      row[`line${seriesIndex}`] = clampPercent(value);
-    });
-
-    return row;
-  });
-}
-
-function getInterpolatedChartPoint(data: Record<string, number | string>[], progress: number) {
+function getInterpolatedChartPoint(data: ChartRow[], progress: number) {
   const exactIndex = progress * Math.max(1, data.length - 1);
   const leftIndex = Math.floor(exactIndex);
   const rightIndex = Math.min(data.length - 1, leftIndex + 1);
   const mix = exactIndex - leftIndex;
   const left = data[leftIndex];
   const right = data[rightIndex];
-  const nearest = data[Math.round(exactIndex)];
-  const row: Record<string, number | string> = { time: nearest.time };
+  const nearest = data[Math.round(exactIndex)] ?? data[data.length - 1];
 
-  Object.keys(left).forEach((key) => {
-    if (key === 'time') return;
-    const leftValue = Number(left[key]);
-    const rightValue = Number(right[key]);
-    row[key] = clampPercent(leftValue + (rightValue - leftValue) * mix);
-  });
-
-  return row;
+  return {
+    time: nearest?.isoTime ?? '',
+    yes: clampChartValue((left?.yes ?? 50) + ((right?.yes ?? 50) - (left?.yes ?? 50)) * mix),
+    no: clampChartValue((left?.no ?? 50) + ((right?.no ?? 50) - (left?.no ?? 50)) * mix),
+  };
 }
 
 function getPointAtPathX(path: SVGPathElement, targetX: number) {
@@ -234,7 +206,7 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
         className="absolute -translate-x-1/2 text-xs font-bold text-pm-text-muted"
         style={{ left: hover.x, top: -2 }}
       >
-        {hover.time}, 12:00 ДП
+        {formatShortDate(hover.time)}
       </div>
 
       {hover.points.map((point) => {
@@ -268,46 +240,85 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
 }
 
 function TradePanel({
-  icon,
-  selected,
-  percent,
+  market,
+  onMarketUpdated,
 }: {
-  icon: string;
-  selected: string;
-  percent: number;
+  market: Market;
+  onMarketUpdated: (market: Market) => void;
 }) {
-  const yesPrice = Math.max(1, Math.min(99, Math.round(percent)));
-  const noPrice = Math.max(1, Math.min(99, 100 - yesPrice));
+  const { user } = useAuth();
+  const [outcome, setOutcome] = useState<Outcome>('YES');
+  const [amount, setAmount] = useState('10');
+  const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isClosed = market.status !== 'open' || new Date(market.closeDate).getTime() <= Date.now();
+  const price = outcome === 'YES' ? market.yesPrice : market.noPrice;
+  const numericAmount = Number(amount);
+  const previewShares = Number.isFinite(numericAmount) && numericAmount > 0
+    ? numericAmount / (price / 100)
+    : 0;
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage('');
+
+    if (!user) {
+      setMessage('Войди в аккаунт, чтобы голосовать.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await api.vote(market.id, {
+        outcome,
+        amount: numericAmount,
+      });
+
+      onMarketUpdated(response.market);
+      setMessage('Сделка записана. Вероятность обновилась.');
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Не удалось записать сделку.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <aside className="sticky top-24 self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
-          {icon}
+          {categoryIcon(market.category)}
         </div>
         <div className="min-w-0">
-          <h2 className="truncate text-base font-bold text-pm-text-strong">{selected}</h2>
-          <p className="text-xs font-medium text-pm-text-muted">Торговое меню</p>
+          <h2 className="truncate text-base font-bold text-pm-text-strong">Голосование</h2>
+          <p className="text-xs font-medium text-pm-text-muted">Market order, Yes/No</p>
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-b border-pm-border px-4 pt-3">
-        <div className="flex gap-5 text-base font-bold">
-          <button className="border-b-2 border-pm-text-strong pb-2.5 text-pm-text-strong">Купить</button>
-          <button className="pb-2.5 text-pm-text-muted transition-colors hover:text-pm-text-strong">Продать</button>
-        </div>
-        <button className="flex items-center gap-1 pb-2.5 text-sm font-semibold text-pm-text">
-          Рынок <ChevronDown className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="space-y-4 p-4">
+      <form onSubmit={handleSubmit} className="space-y-4 p-4">
         <div className="grid grid-cols-2 gap-3">
-          <button className="h-12 rounded-lg bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90">
-            Да {yesPrice}¢
+          <button
+            type="button"
+            onClick={() => setOutcome('YES')}
+            className={
+              outcome === 'YES'
+                ? 'h-12 rounded-lg bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90'
+                : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+            }
+          >
+            Да {market.yesPrice}¢
           </button>
-          <button className="h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
-            Нет {noPrice}¢
+          <button
+            type="button"
+            onClick={() => setOutcome('NO')}
+            className={
+              outcome === 'NO'
+                ? 'h-12 rounded-lg bg-[#ef4444]/75 text-base font-bold text-white transition-colors hover:bg-[#ef4444]/90'
+                : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+            }
+          >
+            Нет {market.noPrice}¢
           </button>
         </div>
 
@@ -317,55 +328,127 @@ function TradePanel({
           </label>
           <input
             id="trade-amount"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
             inputMode="decimal"
-            placeholder="$0"
-            className="w-36 bg-transparent text-right text-4xl font-bold text-pm-text-muted outline-none placeholder:text-pm-text-muted"
+            min="1"
+            max="10000"
+            type="number"
+            step="1"
+            className="w-36 bg-transparent text-right text-4xl font-bold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
           />
         </div>
 
         <div className="grid grid-cols-4 gap-2">
-          {['+$1', '+$5', '+$10', '+$100'].map((amount) => (
+          {[1, 5, 10, 100].map((nextAmount) => (
             <button
-              key={amount}
+              key={nextAmount}
+              type="button"
+              onClick={() => setAmount(String(nextAmount))}
               className="h-9 rounded-lg border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
             >
-              {amount}
+              +${nextAmount}
             </button>
           ))}
         </div>
 
-        <button className="h-12 w-full rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700">
-          Сделка
+        <div className="rounded-xl border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
+          <div className="flex justify-between gap-3">
+            <span>Цена входа</span>
+            <span className="text-pm-text-strong">{price}¢</span>
+          </div>
+          <div className="mt-1 flex justify-between gap-3">
+            <span>Доли</span>
+            <span className="text-pm-text-strong">{previewShares.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {message && (
+          <div
+            className={
+              message.includes('записана')
+                ? 'flex items-center gap-2 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
+                : 'rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
+            }
+          >
+            {message.includes('записана') && <CheckCircle2 className="h-4 w-4" />}
+            {message}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={isSubmitting || isClosed}
+          className="h-12 w-full rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isClosed ? 'Рынок закрыт' : isSubmitting ? 'Записываю...' : user ? 'Сделка' : 'Войти и голосовать'}
         </button>
 
-        <p className="text-center text-xs leading-relaxed text-pm-text-muted">
-          Совершая торговые операции, ты соглашаешься с{' '}
-          <span className="underline decoration-pm-text-muted underline-offset-2">условиями использования</span>.
-        </p>
-      </div>
+        {!user && (
+          <Link to="/login" className="block text-center text-sm font-semibold text-pm-blue transition-colors hover:text-blue-400">
+            Войти в аккаунт
+          </Link>
+        )}
+      </form>
     </aside>
   );
 }
 
 export function MarketDetail() {
   const { id } = useParams();
-  const market = marketDetails[id as keyof typeof marketDetails] ?? marketDetails.default;
-  const selectedOutcome = market.outcomes[0];
-  const chartData = useMemo(() => buildChartData(market.outcomes), [market.outcomes]);
+  const [market, setMarket] = useState<Market | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const chartRef = useRef<HTMLDivElement>(null);
   const [chartHover, setChartHover] = useState<ChartHoverState>(hiddenChartHover);
+
+  useEffect(() => {
+    if (!id) return;
+
+    let ignore = false;
+
+    api.getMarket(id)
+      .then(({ market: nextMarket }) => {
+        if (!ignore) setMarket(nextMarket);
+      })
+      .catch((requestError) => {
+        if (!ignore) {
+          setError(requestError instanceof ApiError ? requestError.message : 'Не удалось загрузить рынок.');
+        }
+      })
+      .finally(() => {
+        if (!ignore) setIsLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [id]);
+
+  const chartData = useMemo<ChartRow[]>(() => {
+    if (!market) return [];
+
+    return market.history.map((point) => ({
+      time: formatShortDate(point.time),
+      isoTime: point.time,
+      yes: point.yesPercent,
+      no: 100 - point.yesPercent,
+    }));
+  }, [market]);
 
   const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const container = chartRef.current;
     const svg = container?.querySelector<SVGSVGElement>('.recharts-surface');
 
-    if (!container || !svg) return;
+    if (!container || !svg || chartData.length === 0) return;
 
     const containerRect = container.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();
     const viewport = getSvgViewport(svg);
     const targetSvgX = viewport.x + ((event.clientX - svgRect.left) / svgRect.width) * viewport.width;
-    const firstPath = svg.querySelector<SVGPathElement>('.market-detail-line-0 .recharts-line-curve');
+    const firstPath =
+      svg.querySelector<SVGPathElement>('.market-detail-line-yes .recharts-line-curve')
+      ?? svg.querySelector<SVGPathElement>('.recharts-line-curve');
 
     if (!firstPath) return;
 
@@ -375,10 +458,10 @@ export function MarketDetail() {
     const maxPathX = Math.max(firstPoint.x, lastPoint.x);
     const progress = Math.max(0, Math.min(1, (targetSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
     const activePoint = getInterpolatedChartPoint(chartData, progress);
-    const points = market.outcomes.slice(0, 4).reduce<ChartHoverPoint[]>((result, outcome, index) => {
+    const points = chartSeries.reduce<ChartHoverPoint[]>((result, series) => {
       const path =
-        svg.querySelector<SVGPathElement>(`.market-detail-line-${index} .recharts-line-curve`) ??
-        svg.querySelectorAll<SVGPathElement>('.recharts-line-curve')[index];
+        svg.querySelector<SVGPathElement>(`.market-detail-line-${series.key} .recharts-line-curve`)
+        ?? svg.querySelectorAll<SVGPathElement>('.recharts-line-curve')[series.key === 'yes' ? 0 : 1];
 
       if (!path) return result;
 
@@ -387,10 +470,10 @@ export function MarketDetail() {
       const y = svgRect.top - containerRect.top + ((point.y - viewport.y) / viewport.height) * svgRect.height;
 
       result.push({
-        color: chartColors[index],
+        color: series.color,
         pathD: path.getAttribute('d') ?? '',
-        name: outcome.name,
-        value: Number(activePoint[`line${index}`] ?? outcome.percent),
+        name: series.name,
+        value: activePoint[series.key],
         x,
         y,
       });
@@ -405,10 +488,33 @@ export function MarketDetail() {
       x: points[0].x,
       svgX: targetSvgX,
       viewBox: viewport,
-      time: String(activePoint.time),
+      time: activePoint.time,
       points,
     });
   };
+
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+        <div className="h-[420px] animate-pulse rounded-2xl border border-pm-border bg-pm-surface" />
+      </div>
+    );
+  }
+
+  if (error || !market) {
+    return (
+      <div className="mx-auto max-w-[760px] px-4 py-10 sm:px-6">
+        <div className="rounded-2xl border border-pm-border bg-pm-surface p-6">
+          <h1 className="text-2xl font-bold text-pm-text-strong">Рынок не открыт</h1>
+          <p className="mt-2 text-sm leading-6 text-pm-text-muted">{error || 'Такого рынка нет.'}</p>
+          <Link to="/" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-pm-blue">
+            <ArrowLeft className="h-4 w-4" />
+            На главную
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -419,32 +525,40 @@ export function MarketDetail() {
     >
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 space-y-4">
+          <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
+            <ArrowLeft className="h-4 w-4" />
+            Все рынки
+          </Link>
+
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface text-lg font-bold text-pm-text-strong">
-                {market.icon}
+                {categoryIcon(market.category)}
               </div>
               <div className="min-w-0">
                 <div className="mb-1 text-sm font-semibold text-pm-text-muted">
-                  {market.category} <span className="mx-1">•</span> {market.subcategory}
+                  {market.category}
+                  {market.createdBy && <span> <span className="mx-1">•</span> {market.createdBy.name}</span>}
                 </div>
                 <h1 className="text-xl font-bold leading-tight text-pm-text-strong sm:text-2xl">{market.title}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm font-semibold text-pm-text-muted">
-                  <span>{market.volume} Объём</span>
+                  <span>{formatMoney(market.volume)} Объём</span>
                   <span>•</span>
-                  <span>{market.endDate}</span>
+                  <span>{market.tradeCount} сделок</span>
+                  <span>•</span>
+                  <span>До {formatDate(market.closeDate)}</span>
                 </div>
               </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-pm-text">
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Код рынка">
                 <Code2 className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Ссылка">
                 <LinkIcon className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Сохранить">
                 <Bookmark className="h-5 w-5" />
               </button>
             </div>
@@ -452,26 +566,26 @@ export function MarketDetail() {
 
           <div className="rounded-2xl border border-pm-border bg-pm-surface p-3.5">
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              {market.outcomes.slice(0, 4).map((outcome, index) => (
-                <div key={outcome.name} className="flex items-center gap-2 text-sm font-semibold text-pm-text">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index] }} />
-                  <span>{outcome.name}</span>
-                  <span className="font-bold text-pm-text-strong">{outcome.percent}%</span>
-                </div>
-              ))}
+              <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
+                <span className="h-2.5 w-2.5 rounded-full bg-pm-green" />
+                <span>Да</span>
+                <span className="font-bold text-pm-text-strong">{market.yesPercent}%</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
+                <span className="h-2.5 w-2.5 rounded-full bg-pm-red" />
+                <span>Нет</span>
+                <span className="font-bold text-pm-text-strong">{market.noPercent}%</span>
+              </div>
             </div>
 
             <div
               ref={chartRef}
-              className="relative h-[185px] w-full sm:h-[205px]"
+              className="relative h-[220px] w-full sm:h-[260px]"
               onPointerMove={handleChartPointerMove}
               onPointerLeave={() => setChartHover((previous) => ({ ...previous, visible: false }))}
             >
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
-                >
+                <LineChart data={chartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--color-pm-chart-grid)" strokeDasharray="3 4" vertical={false} />
                   <XAxis
                     dataKey="time"
@@ -493,22 +607,28 @@ export function MarketDetail() {
                   <Tooltip
                     cursor={false}
                     wrapperStyle={{ display: 'none' }}
-                    formatter={(value, name) => [`${value}%`, name]}
+                    formatter={(value, name) => [`${value}%`, name === 'yes' ? 'Да' : 'Нет']}
                   />
-                  {market.outcomes.slice(0, 4).map((outcome, index) => (
-                    <Line
-                      key={outcome.name}
-                      className={`market-detail-line-${index}`}
-                      type="monotone"
-                      dataKey={`line${index}`}
-                      name={outcome.name}
-                      stroke={chartColors[index]}
-                      strokeWidth={2.5}
-                      dot={false}
-                      activeDot={false}
-                      isAnimationActive={false}
-                    />
-                  ))}
+                  <Line
+                    className="market-detail-line-yes"
+                    type="stepAfter"
+                    dataKey="yes"
+                    stroke="#22c55e"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    className="market-detail-line-no"
+                    type="stepAfter"
+                    dataKey="no"
+                    stroke="#ef4444"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
               {chartHover.visible && (
@@ -518,109 +638,98 @@ export function MarketDetail() {
 
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-pm-border pt-2.5 text-sm font-semibold text-pm-text-muted">
               <div className="flex flex-wrap items-center gap-3">
-                <span>{market.volume} Объём</span>
-                <span>•</span>
-                <span>{market.endDate}</span>
+                <CalendarClock className="h-4 w-4" />
+                <span>Создан {formatDate(market.createdAt)}</span>
               </div>
-              <div className="flex items-center gap-3">
-                {['1Ч', '6Ч', '1Д', '1Н', '1М', 'ВСЕ'].map((range) => (
-                  <button
-                    key={range}
-                    className={range === 'ВСЕ' ? 'font-bold text-pm-text-strong' : 'transition-colors hover:text-pm-text-strong'}
-                  >
-                    {range}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 text-pm-text">
+                <TrendingUp className="h-4 w-4 text-pm-blue" />
+                <span>{market.yesPrice}¢ / {market.noPrice}¢</span>
               </div>
             </div>
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-pm-border bg-pm-surface">
-            {market.outcomes.map((outcome, index) => {
-              const yesPrice = Math.max(1, Math.min(99, Math.round(outcome.percent)));
-              const noPrice = Math.max(1, Math.min(99, 100 - yesPrice));
-
-              return (
-                <div
-                  key={outcome.name}
-                  className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
-                >
-                  <div>
-                    <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
-                    <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{outcome.volume} Объём</p>
-                  </div>
-                  <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
-                    <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
-                    <span className={outcome.trend >= 0 ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
-                      {outcome.trend >= 0 ? '▲' : '▼'} {Math.abs(outcome.trend)}%
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 sm:w-[270px]">
-                    <button className="h-9 rounded-lg bg-[#22c55e]/10 px-4 text-sm font-bold text-pm-green transition-colors hover:bg-[#22c55e]/20">
-                      Купить Да {yesPrice}¢
-                    </button>
-                    <button className="h-9 rounded-lg bg-[#ef4444]/10 px-4 text-sm font-bold text-pm-red transition-colors hover:bg-[#ef4444]/20">
-                      Купить Нет {noPrice}¢
-                    </button>
+            {market.outcomes.map((outcome) => (
+              <div
+                key={outcome.outcome}
+                className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+              >
+                <div>
+                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
+                  <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{formatMoney(outcome.pool)} поддержано</p>
+                </div>
+                <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
+                  <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
+                  <span className="text-sm font-bold text-pm-text-muted">{outcome.priceCents}¢</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:w-[170px]">
+                  <div className={outcome.outcome === 'YES' ? 'h-9 rounded-lg bg-[#22c55e]/10 px-4 text-center text-sm font-bold leading-9 text-pm-green' : 'h-9 rounded-lg bg-[#ef4444]/10 px-4 text-center text-sm font-bold leading-9 text-pm-red'}>
+                    {outcome.outcome === 'YES' ? 'Да' : 'Нет'}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
 
           <div className="space-y-5">
             <div className="flex items-center gap-6 border-b border-pm-border text-lg font-bold">
               <button className="border-b-2 border-pm-text-strong pb-3 text-pm-text-strong">Правила</button>
-              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">Рыночный контекст</button>
+              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">Сделки</button>
             </div>
 
             <div className="rounded-2xl border border-pm-border bg-pm-surface">
               <div className="flex items-center justify-between border-b border-pm-border p-4">
                 <div className="flex items-center gap-2 font-bold text-pm-text-strong">
                   <Info className="h-5 w-5 text-pm-blue" />
-                  Дополнительный контекст
+                  Контекст рынка
                 </div>
-                <span className="text-sm font-semibold text-pm-text-muted">Обновлено 17 февр.</span>
+                <span className="text-sm font-semibold text-pm-text-muted">Yes/No</span>
               </div>
               <div className="space-y-4 p-4 text-sm leading-relaxed text-pm-text">
-                <p>
-                  Этот рынок разрешится как “Да”, если указанный исход станет публично подтверждённым до даты завершения.
-                  Иначе рынок разрешится как “Нет”.
-                </p>
-                <p>
-                  Формулировки, неподтверждённые заявления и неоднозначные источники не считаются достаточным основанием
-                  для разрешения рынка.
-                </p>
+                {market.description ? (
+                  <p>{market.description}</p>
+                ) : (
+                  <p>Автор не добавил дополнительных правил. Рынок должен разрешаться по формулировке вопроса.</p>
+                )}
               </div>
             </div>
           </div>
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-5 text-lg font-bold">
-              <button className="text-pm-text-strong">Комментарии (45)</button>
-              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Крупнейшие держатели</button>
-              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Позиции</button>
-              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Активность</button>
+              <button className="text-pm-text-strong">Последние сделки ({market.recentTrades.length})</button>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-pm-border bg-pm-surface px-4 py-3">
-              <MessageCircle className="h-5 w-5 text-pm-text-muted" />
-              <input
-                placeholder="Добавить комментарий..."
-                className="min-w-0 flex-1 bg-transparent text-sm text-pm-text-strong outline-none placeholder:text-pm-text-muted"
-              />
-              <Smile className="h-5 w-5 text-pm-text-muted" />
-              <button className="rounded-lg bg-pm-blue px-4 py-2 text-sm font-bold text-white">Опубликовать</button>
-            </div>
+            {market.recentTrades.length > 0 ? (
+              <div className="overflow-hidden rounded-2xl border border-pm-border bg-pm-surface">
+                {market.recentTrades.map((trade) => (
+                  <div key={trade.id} className="grid grid-cols-1 gap-2 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <UserRound className="h-4 w-4 shrink-0 text-pm-text-muted" />
+                      <span className="truncate text-sm font-bold text-pm-text-strong">{trade.userName}</span>
+                      <span className={trade.outcome === 'YES' ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
+                        {trade.outcome === 'YES' ? 'Да' : 'Нет'}
+                      </span>
+                    </div>
+                    <div className="text-sm font-semibold text-pm-text">{formatMoney(trade.amount)} по {trade.priceCents}¢</div>
+                    <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-pm-border bg-pm-surface px-4 py-3 text-sm font-semibold text-pm-text-muted">
+                Сделок пока нет. Первая сделка задаст начальное движение цены.
+              </div>
+            )}
 
             <div className="inline-flex items-center gap-2 rounded-full bg-pm-surface px-4 py-2 text-sm font-semibold text-pm-text-muted">
               <ShieldCheck className="h-4 w-4" />
-              Не доверяй внешним ссылкам.
+              Цены здесь считаются внутри приложения и не являются реальными сделками Polymarket.
             </div>
           </div>
         </section>
 
-        <TradePanel icon={market.icon} selected={market.selected} percent={selectedOutcome.percent} />
+        <TradePanel market={market} onMarketUpdated={setMarket} />
       </div>
     </motion.div>
   );

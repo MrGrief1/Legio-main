@@ -6,7 +6,9 @@
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import { AuthProvider } from './lib/auth';
 import { AuthPage } from './pages/AuthPage';
+import { CreateMarket } from './pages/CreateMarket';
 import { Home } from './pages/Home';
 import { MarketDetail } from './pages/MarketDetail';
 
@@ -65,18 +67,21 @@ export default function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-pm-bg flex flex-col font-sans">
-        <ScrollToTop />
-        <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
-        <main className="flex-1">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/login" element={<AuthPage mode="login" />} />
-            <Route path="/register" element={<AuthPage mode="register" />} />
-            <Route path="/market/:id" element={<MarketDetail />} />
-          </Routes>
-        </main>
-      </div>
+      <AuthProvider>
+        <div className="min-h-screen bg-pm-bg flex flex-col font-sans">
+          <ScrollToTop />
+          <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+          <main className="flex-1">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/create" element={<CreateMarket />} />
+              <Route path="/login" element={<AuthPage mode="login" />} />
+              <Route path="/register" element={<AuthPage mode="register" />} />
+              <Route path="/market/:id" element={<MarketDetail />} />
+            </Routes>
+          </main>
+        </div>
+      </AuthProvider>
     </Router>
   );
 }

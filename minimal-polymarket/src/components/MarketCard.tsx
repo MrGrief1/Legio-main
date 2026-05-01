@@ -13,6 +13,7 @@ interface MarketCardProps {
   noPercent: number;
   layout?: 'binary' | 'list';
   listOptions?: { name: string, percent: number }[];
+  tradeCount?: number;
 }
 
 function ProbabilityGauge({ percent, label }: { percent: number; label: string }) {
@@ -83,7 +84,8 @@ export function MarketCard({
   yesPercent,
   noPercent,
   layout = 'binary',
-  listOptions
+  listOptions,
+  tradeCount = 0,
 }: MarketCardProps) {
   const gaugeLabel = category === 'Bitcoin' ? 'Up' : 'Да';
 
@@ -103,12 +105,12 @@ export function MarketCard({
       </div>
 
       {layout === 'binary' ? (
-        <div className="mb-3 mt-auto grid grid-cols-2 gap-2">
+          <div className="mb-3 mt-auto grid grid-cols-2 gap-2">
           <div className="flex h-10 items-center justify-center rounded-lg bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors group-hover:bg-[#22c55e]/15">
-            Да
+            Да {yesPercent}¢
           </div>
           <div className="flex h-10 items-center justify-center rounded-lg bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors group-hover:bg-[#ef4444]/15">
-            Нет
+            Нет {noPercent}¢
           </div>
         </div>
       ) : (
@@ -140,6 +142,12 @@ export function MarketCard({
           )}
           {status && <span className="text-pm-border">•</span>}
           <span className="truncate">{volume} Объём</span>
+          {tradeCount > 0 && (
+            <>
+              <span className="text-pm-border">•</span>
+              <span className="truncate">{tradeCount} сделок</span>
+            </>
+          )}
           {category && (
             <>
               <span className="text-pm-border">•</span>

@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
@@ -12,6 +12,8 @@ import {
   UserRound,
   Wallet,
 } from 'lucide-react';
+import { ApiError } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 type AuthMode = 'login' | 'register';
 
@@ -28,7 +30,7 @@ const authCopy = {
     switchText: 'Нет аккаунта?',
     switchAction: 'Зарегистрироваться',
     switchTo: '/register',
-    success: 'Готово. После подключения API здесь появится вход в аккаунт.',
+    success: 'Готово. Вход выполнен.',
   },
   register: {
     eyebrow: 'Новый аккаунт',
@@ -38,7 +40,7 @@ const authCopy = {
     switchText: 'Уже есть аккаунт?',
     switchAction: 'Войти',
     switchTo: '/login',
-    success: 'Аккаунт подготовлен. Осталось подключить API авторизации.',
+    success: 'Аккаунт создан.',
   },
 } satisfies Record<AuthMode, {
   eyebrow: string;
@@ -76,14 +78,20 @@ function FieldShell({
 }
 
 export function AuthPage({ mode }: AuthPageProps) {
+  const navigate = useNavigate();
+  const auth = useAuth();
   const copy = authCopy[mode];
   const isRegister = mode === 'register';
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [formMessage, setFormMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setFormMessage('');
     const formData = new FormData(event.currentTarget);
+    const name = String(formData.get('name') ?? '');
+    const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
     const confirmPassword = String(formData.get('confirmPassword') ?? '');
 
@@ -92,7 +100,22 @@ export function AuthPage({ mode }: AuthPageProps) {
       return;
     }
 
-    setFormMessage(copy.success);
+    setIsSubmitting(true);
+
+    try {
+      if (isRegister) {
+        await auth.register({ name, email, password });
+      } else {
+        await auth.login({ email, password });
+      }
+
+      setFormMessage(copy.success);
+      navigate('/', { replace: true });
+    } catch (error) {
+      setFormMessage(error instanceof ApiError ? error.message : 'Не удалось выполнить запрос.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -263,9 +286,10 @@ export function AuthPage({ mode }: AuthPageProps) {
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               type="submit"
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700"
+              disabled={isSubmitting}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {copy.submit}
+              {isSubmitting ? 'Подожди...' : copy.submit}
               <ArrowRight className="h-4 w-4" />
             </motion.button>
           </form>
