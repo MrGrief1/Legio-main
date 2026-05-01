@@ -126,26 +126,45 @@ function clampPercent(value) {
 
 function getDisplayPrices(market) {
   const yesPrice = clampPercent(market.lastYesPrice ?? 50);
+  const noPrice = clampPercent(market.lastNoPrice ?? 50);
 
   return {
     yesPrice,
-    noPrice: 100 - yesPrice,
+    noPrice,
     yesPercent: yesPrice,
-    noPercent: 100 - yesPrice,
+    noPercent: noPrice,
   };
 }
 
-function calculateTrade({ amount, currentYesPrice, outcome, totalVolume }) {
+function calculateTrade({ amount, currentYesPrice, currentNoPrice, outcome, totalVolume }) {
   const liquidity = 75 + Math.sqrt(Math.max(0, totalVolume)) * 12;
   const impact = Math.max(1, Math.min(18, Math.round((amount / liquidity) * 8)));
-  const yesPriceAfterCents = clampPercent(currentYesPrice + (outcome === 'YES' ? impact : -impact));
-  const priceCents = outcome === 'YES' ? yesPriceAfterCents : 100 - yesPriceAfterCents;
+  const counterImpact = Math.max(0, Math.floor(impact * 0.35));
+  const yesPriceAfterCents = clampPercent(
+    currentYesPrice + (outcome === 'YES' ? impact : -counterImpact),
+  );
+  const noPriceAfterCents = clampPercent(
+    currentNoPrice + (outcome === 'NO' ? impact : -counterImpact),
+  );
+  const priceCents = outcome === 'YES' ? yesPriceAfterCents : noPriceAfterCents;
 
   return {
     priceCents,
     yesPriceAfterCents,
+    noPriceAfterCents,
     shares: amount / (priceCents / 100),
   };
+}
+
+function inferNoPriceAfter(row) {
+  if (!row) return null;
+
+  const explicit = row.no_price_after_cents ?? row.noPriceAfterCents;
+
+  if (explicit != null) return asNumber(explicit, 50);
+  if (row.outcome === 'NO') return asNumber(row.price_cents ?? row.priceCents, 50);
+
+  return null;
 }
 
 function normalizeMarket(row) {
@@ -165,10 +184,15 @@ function normalizeMarket(row) {
     lastYesPrice: row.last_yes_price == null && row.lastYesPrice == null
       ? null
       : asNumber(row.last_yes_price ?? row.lastYesPrice),
+    lastNoPrice: row.last_no_price == null && row.lastNoPrice == null
+      ? null
+      : asNumber(row.last_no_price ?? row.lastNoPrice),
   };
 }
 
 function normalizeTrade(row) {
+  const yesPriceAfterCents = asNumber(row.yes_price_after_cents ?? row.yesPriceAfterCents, 50);
+
   return {
     id: row.id,
     marketId: row.market_id || row.marketId,
@@ -177,7 +201,8 @@ function normalizeTrade(row) {
     outcome: row.outcome,
     amount: roundMoney(asNumber(row.amount)),
     priceCents: asNumber(row.price_cents ?? row.priceCents),
-    yesPriceAfterCents: asNumber(row.yes_price_after_cents ?? row.yesPriceAfterCents, 50),
+    yesPriceAfterCents,
+    noPriceAfterCents: inferNoPriceAfter(row),
     shares: roundMoney(asNumber(row.shares)),
     createdAt: row.created_at || row.createdAt,
   };
@@ -227,22 +252,35 @@ function marketDto(market, options = {}) {
 }
 
 function buildHistory(market, trades) {
+  let latestYes = 50;
+  let latestNo = 50;
   const points = [{
     time: new Date(market.createdAt).toISOString(),
-    yesPercent: 50,
+    yesPercent: latestYes,
+    noPercent: latestNo,
   }];
 
   for (const trade of trades) {
+    latestYes = trade.yesPriceAfterCents;
+
+    if (trade.noPriceAfterCents != null) {
+      latestNo = trade.noPriceAfterCents;
+    }
+
     points.push({
       time: new Date(trade.createdAt).toISOString(),
-      yesPercent: trade.yesPriceAfterCents,
+      yesPercent: latestYes,
+      noPercent: latestNo,
     });
   }
 
   if (points.length === 1) {
+    const prices = getDisplayPrices(market);
+
     points.push({
-    time: new Date().toISOString(),
-      yesPercent: getDisplayPrices(market).yesPercent,
+      time: new Date().toISOString(),
+      yesPercent: prices.yesPercent,
+      noPercent: prices.noPercent,
     });
   }
 
@@ -282,10 +320,12 @@ async function initPostgres() {
       amount numeric NOT NULL,
       price_cents numeric NOT NULL,
       yes_price_after_cents numeric NOT NULL DEFAULT 50,
+      no_price_after_cents numeric,
       shares numeric NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
   `);
+  await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS no_price_after_cents numeric;');
   await pool.query('CREATE INDEX IF NOT EXISTS markets_created_at_idx ON markets (created_at DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS votes_market_created_at_idx ON votes (market_id, created_at DESC);');
 }
@@ -415,7 +455,15 @@ const storage = {
             WHERE latest.market_id = m.id
             ORDER BY latest.created_at DESC
             LIMIT 1
-          ) AS last_yes_price
+          ) AS last_yes_price,
+          (
+            SELECT COALESCE(latest.no_price_after_cents, latest.price_cents)
+            FROM votes latest
+            WHERE latest.market_id = m.id
+              AND (latest.no_price_after_cents IS NOT NULL OR latest.outcome = 'NO')
+            ORDER BY latest.created_at DESC
+            LIMIT 1
+          ) AS last_no_price
         FROM markets m
         LEFT JOIN users u ON u.id = m.created_by
         LEFT JOIN votes v ON v.market_id = m.id
@@ -440,6 +488,17 @@ const storage = {
         lastYesPrice: [...db.votes]
           .filter((vote) => vote.marketId === market.id)
           .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]?.yesPriceAfterCents ?? null,
+        lastNoPrice: (() => {
+          const latest = [...db.votes]
+            .filter((vote) => vote.marketId === market.id)
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+          const latestNo = [...db.votes]
+            .filter((vote) => vote.marketId === market.id && inferNoPriceAfter(vote) != null)
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+          return latest ? inferNoPriceAfter(latest) ?? inferNoPriceAfter(latestNo) : null;
+        })(),
         creatorName: db.users.find((user) => user.id === market.createdBy)?.name || null,
       }));
   },
@@ -492,7 +551,15 @@ const storage = {
             WHERE latest.market_id = m.id
             ORDER BY latest.created_at DESC
             LIMIT 1
-          ) AS last_yes_price
+          ) AS last_yes_price,
+          (
+            SELECT COALESCE(latest.no_price_after_cents, latest.price_cents)
+            FROM votes latest
+            WHERE latest.market_id = m.id
+              AND (latest.no_price_after_cents IS NOT NULL OR latest.outcome = 'NO')
+            ORDER BY latest.created_at DESC
+            LIMIT 1
+          ) AS last_no_price
         FROM markets m
         LEFT JOIN users u ON u.id = m.created_by
         LEFT JOIN votes v ON v.market_id = m.id
@@ -514,6 +581,17 @@ const storage = {
       lastYesPrice: [...db.votes]
         .filter((vote) => vote.marketId === id)
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]?.yesPriceAfterCents ?? null,
+      lastNoPrice: (() => {
+        const latest = [...db.votes]
+          .filter((vote) => vote.marketId === id)
+          .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+        const latestNo = [...db.votes]
+          .filter((vote) => vote.marketId === id && inferNoPriceAfter(vote) != null)
+          .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+        return latest ? inferNoPriceAfter(latest) ?? inferNoPriceAfter(latestNo) : null;
+      })(),
       creatorName: db.users.find((user) => user.id === market.createdBy)?.name || null,
     });
   },
@@ -572,13 +650,26 @@ const storage = {
         assertMarketIsOpen(market);
 
         const latestTradeResult = await client.query(
-          'SELECT yes_price_after_cents FROM votes WHERE market_id = $1 ORDER BY created_at DESC LIMIT 1',
+          'SELECT outcome, price_cents, yes_price_after_cents, no_price_after_cents FROM votes WHERE market_id = $1 ORDER BY created_at DESC LIMIT 1',
+          [marketId],
+        );
+        const latestNoTradeResult = await client.query(
+          `SELECT outcome, price_cents, yes_price_after_cents, no_price_after_cents
+           FROM votes
+           WHERE market_id = $1 AND (no_price_after_cents IS NOT NULL OR outcome = 'NO')
+           ORDER BY created_at DESC
+           LIMIT 1`,
           [marketId],
         );
         const currentYesPrice = clampPercent(asNumber(latestTradeResult.rows[0]?.yes_price_after_cents, 50));
-        const { priceCents, shares, yesPriceAfterCents } = calculateTrade({
+        const latestNoPrice = inferNoPriceAfter(latestTradeResult.rows[0]) ?? inferNoPriceAfter(latestNoTradeResult.rows[0]);
+        const currentNoPrice = latestNoPrice != null
+          ? clampPercent(latestNoPrice)
+          : 50;
+        const { priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
           amount,
           currentYesPrice,
+          currentNoPrice,
           outcome,
           totalVolume: market.yesPool + market.noPool,
         });
@@ -586,9 +677,9 @@ const storage = {
         const noPool = outcome === 'NO' ? market.noPool + amount : market.noPool;
 
         await client.query(
-          `INSERT INTO votes (id, market_id, user_id, outcome, amount, price_cents, yes_price_after_cents, shares, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [id, marketId, userId, outcome, amount, priceCents, yesPriceAfterCents, shares, createdAt],
+          `INSERT INTO votes (id, market_id, user_id, outcome, amount, price_cents, yes_price_after_cents, no_price_after_cents, shares, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [id, marketId, userId, outcome, amount, priceCents, yesPriceAfterCents, noPriceAfterCents, shares, createdAt],
         );
         await client.query('UPDATE markets SET yes_pool = $1, no_pool = $2 WHERE id = $3', [yesPool, noPool, marketId]);
         await client.query('COMMIT');
@@ -617,10 +708,18 @@ const storage = {
     const latestTrade = [...db.votes]
       .filter((vote) => vote.marketId === marketId)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+    const latestNoTrade = [...db.votes]
+      .filter((vote) => vote.marketId === marketId && inferNoPriceAfter(vote) != null)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
     const currentYesPrice = clampPercent(asNumber(latestTrade?.yesPriceAfterCents, 50));
-    const { priceCents, shares, yesPriceAfterCents } = calculateTrade({
+    const latestNoPrice = inferNoPriceAfter(latestTrade) ?? inferNoPriceAfter(latestNoTrade);
+    const currentNoPrice = latestNoPrice != null
+      ? clampPercent(latestNoPrice)
+      : 50;
+    const { priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
       amount,
       currentYesPrice,
+      currentNoPrice,
       outcome,
       totalVolume: normalizedMarket.yesPool + normalizedMarket.noPool,
     });
@@ -639,6 +738,7 @@ const storage = {
       amount,
       priceCents,
       yesPriceAfterCents,
+      noPriceAfterCents,
       shares: roundMoney(shares),
       createdAt,
     });
@@ -726,10 +826,11 @@ async function marketDetailResponse(id) {
 
   if (!market) return null;
 
-  const [recentTrades, historyTrades] = await Promise.all([
+  const [recentTrades, latestHistoryTrades] = await Promise.all([
     storage.getTrades(id, 'desc', 8),
-    storage.getTrades(id, 'asc', 80),
+    storage.getTrades(id, 'desc', 80),
   ]);
+  const historyTrades = [...latestHistoryTrades].reverse();
 
   return marketDto(market, { recentTrades, historyTrades });
 }

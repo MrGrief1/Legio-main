@@ -432,7 +432,7 @@ export function MarketDetail() {
       time: formatShortDate(point.time),
       isoTime: point.time,
       yes: point.yesPercent,
-      no: 100 - point.yesPercent,
+      no: point.noPercent ?? 100 - point.yesPercent,
     }));
   }, [market]);
 

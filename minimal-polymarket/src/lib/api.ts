@@ -20,6 +20,7 @@ export type MarketOutcome = {
 export type MarketHistoryPoint = {
   time: string;
   yesPercent: number;
+  noPercent?: number;
 };
 
 export type MarketTrade = {

@@ -7,7 +7,7 @@ Minimal prediction-market app with a React frontend and Express backend.
 - Email/password registration and login.
 - Creating real post-markets from the UI.
 - Listing markets from the backend instead of mock data.
-- Yes/No voting trades with price, shares, volume, and probability updates.
+- Yes/No trades with entry price, shares, volume, and last-traded probability updates.
 - Postgres on Railway via `DATABASE_URL`, with local JSON storage fallback.
 
 ## Local Development
@@ -49,4 +49,4 @@ The Express server serves `/api/*` and the built React app from `dist`.
 
 ## Voting Model
 
-Polymarket itself uses a CLOB where users buy and sell Yes/No outcome tokens. This app implements a deployable MVP inspired by that model: users choose Yes or No, enter an amount, receive shares at the current displayed price, and the market probability moves based on total support on each side. It is intentionally not connected to Polymarket's live CLOB or blockchain settlement.
+Polymarket itself uses a CLOB where users buy and sell Yes/No outcome tokens. This app implements a deployable MVP inspired by that model: users choose Yes or No, enter an amount, receive shares at the current entry price, and the chart tracks independent last-price series for each outcome. It is intentionally not connected to Polymarket's live CLOB or blockchain settlement.
