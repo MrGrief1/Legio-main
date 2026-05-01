@@ -160,14 +160,14 @@ export function FeaturedMarket() {
             />
             <div>
               <div className="text-xs text-pm-text-muted mb-0.5">Политика • Суды</div>
-              <h2 className="text-lg lg:text-xl font-bold text-white leading-tight">
+              <h2 className="text-lg lg:text-xl font-bold text-pm-text-strong leading-tight">
                 Джеймс Коми приговорен к тюремному заключению ...
               </h2>
             </div>
           </div>
           <div className="flex gap-3 text-pm-text-muted shrink-0 ml-4">
-            <LinkIcon className="w-5 h-5 cursor-pointer hover:text-white transition-colors" />
-            <Bookmark className="w-5 h-5 cursor-pointer hover:text-white transition-colors" />
+            <LinkIcon className="w-5 h-5 cursor-pointer hover:text-pm-text-strong transition-colors" />
+            <Bookmark className="w-5 h-5 cursor-pointer hover:text-pm-text-strong transition-colors" />
           </div>
         </div>
 
@@ -209,30 +209,30 @@ export function FeaturedMarket() {
                   <div key={arrayIndex} className="flex flex-col gap-4">
                     <a href="#" className="group block cursor-pointer">
                       <div className="flex items-center gap-2 text-xs text-pm-text-muted mb-1.5">
-                        <span className="flex items-center justify-center font-bold text-pm-text bg-white/10 rounded-[3px] h-[16px] px-1.5 text-[10px]">AP</span>
+                        <span className="flex items-center justify-center font-bold text-pm-text bg-pm-soft-badge rounded-[3px] h-[16px] px-1.5 text-[10px]">AP</span>
                         <span className="leading-[16px]">AP News • 2д назад</span>
                       </div>
-                      <p className="text-[13px] text-pm-text group-hover:text-white transition-colors leading-snug">
+                      <p className="text-[13px] text-pm-text group-hover:text-pm-text-strong transition-colors leading-snug">
                         Ex-FBI Director Comey indicted again, in a probe over an online post officials call a Trump threat
                       </p>
                     </a>
                     
                     <a href="#" className="group block cursor-pointer">
                       <div className="flex items-center gap-2 text-xs text-pm-text-muted mb-1.5">
-                        <span className="flex items-center justify-center font-serif font-bold text-pm-text bg-white/10 rounded-[3px] h-[16px] px-1.5 text-[10px] italic">wp</span>
+                        <span className="flex items-center justify-center font-serif font-bold text-pm-text bg-pm-soft-badge rounded-[3px] h-[16px] px-1.5 text-[10px] italic">wp</span>
                         <span className="leading-[16px]">The Washington Post • 2д назад</span>
                       </div>
-                      <p className="text-[13px] text-pm-text group-hover:text-white transition-colors leading-snug">
+                      <p className="text-[13px] text-pm-text group-hover:text-pm-text-strong transition-colors leading-snug">
                         Former Fauci aide charged in alleged effort to thwart pandemic inquiries
                       </p>
                     </a>
 
                     <a href="#" className="group block cursor-pointer">
                       <div className="flex items-center gap-2 text-xs text-pm-text-muted mb-1.5">
-                        <span className="flex items-center justify-center font-bold text-pm-text bg-white/10 rounded-[3px] h-[16px] px-1.5 text-[10px] tracking-wider">BBC</span>
+                        <span className="flex items-center justify-center font-bold text-pm-text bg-pm-soft-badge rounded-[3px] h-[16px] px-1.5 text-[10px] tracking-wider">BBC</span>
                         <span className="leading-[16px]">BBC • 2д назад</span>
                       </div>
-                      <p className="text-[13px] text-pm-text group-hover:text-white transition-colors leading-snug">
+                      <p className="text-[13px] text-pm-text group-hover:text-pm-text-strong transition-colors leading-snug">
                         Former FBI director James Comey charged with threatening Trump's life in Instagram post
                       </p>
                     </a>
@@ -260,9 +260,9 @@ export function FeaturedMarket() {
                 <LineChart data={mockChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <XAxis 
                     dataKey="time" 
-                    axisLine={{ stroke: '#2a2b31' }} 
+                    axisLine={{ stroke: 'var(--color-pm-border)' }} 
                     tickLine={false} 
-                    tick={{ fontSize: 11, fill: '#8b8f98' }} 
+                    tick={{ fontSize: 11, fill: 'var(--color-pm-text-muted)' }} 
                     dy={10} 
                   />
                   <YAxis 
@@ -271,7 +271,7 @@ export function FeaturedMarket() {
                     tickFormatter={(val) => `${val}%`}
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fontSize: 11, fill: '#8b8f98' }} 
+                    tick={{ fontSize: 11, fill: 'var(--color-pm-text-muted)' }} 
                     orientation="right"
                     width={40}
                   />
@@ -307,7 +307,7 @@ export function FeaturedMarket() {
                   <path
                     d={chartHover.pathD}
                     fill="none"
-                    stroke="#3f444d"
+                    stroke="var(--color-pm-chart-future)"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2.8}
@@ -319,18 +319,18 @@ export function FeaturedMarket() {
               {chartHover.active && (
                 <>
                   <div
-                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-white/10"
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-pm-overlay-line"
                     style={{ left: chartHover.x }}
                   />
                   <div
-                    className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-pm-blue shadow-[0_0_0_3px_rgba(37,99,235,0.18)]"
+                    className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-pm-surface bg-pm-blue shadow-[0_0_0_3px_rgba(37,99,235,0.18)]"
                     style={{ left: chartHover.x, top: chartHover.y }}
                   />
                   <div
                     className={
                       featuredTooltipOnLeft
-                        ? 'pointer-events-none absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
-                        : 'pointer-events-none absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                        ? 'pointer-events-none absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
+                        : 'pointer-events-none absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
                     }
                     style={{
                       left: chartHover.x,

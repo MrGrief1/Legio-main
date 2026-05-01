@@ -1,6 +1,6 @@
 {
   "name": "Minimal Polymarket",
-  "description": "A minimalist dark-themed prediction market interface inspired by Polymarket.",
+  "description": "A minimalist themeable prediction market interface inspired by Polymarket.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

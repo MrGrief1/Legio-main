@@ -220,7 +220,7 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
               key={`future-${point.name}`}
               d={point.pathD}
               fill="none"
-              stroke="#3f444d"
+              stroke="var(--color-pm-chart-future)"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2.8}
@@ -229,7 +229,7 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
           ))}
         </svg>
       )}
-      <div className="absolute top-0 bottom-8 w-px bg-white/10" style={{ left: hover.x }} />
+      <div className="absolute top-0 bottom-8 w-px bg-pm-overlay-line" style={{ left: hover.x }} />
       <div
         className="absolute -translate-x-1/2 text-xs font-bold text-pm-text-muted"
         style={{ left: hover.x, top: -2 }}
@@ -251,8 +251,8 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
             <div
               className={
                 labelsOnLeft
-                  ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
-                  : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]'
+                  ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
+                  : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
               }
               style={labelPosition}
             >
@@ -280,21 +280,21 @@ function TradePanel({
   const noPrice = Math.max(1, Math.min(99, 100 - yesPrice));
 
   return (
-    <aside className="sticky top-24 self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_rgba(0,0,0,0.24)]">
+    <aside className="sticky top-24 self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface-hover text-xl font-bold text-white">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
           {icon}
         </div>
         <div className="min-w-0">
-          <h2 className="truncate text-base font-bold text-white">{selected}</h2>
+          <h2 className="truncate text-base font-bold text-pm-text-strong">{selected}</h2>
           <p className="text-xs font-medium text-pm-text-muted">Торговое меню</p>
         </div>
       </div>
 
       <div className="flex items-center justify-between border-b border-pm-border px-4 pt-3">
         <div className="flex gap-5 text-base font-bold">
-          <button className="border-b-2 border-white pb-2.5 text-white">Купить</button>
-          <button className="pb-2.5 text-pm-text-muted transition-colors hover:text-white">Продать</button>
+          <button className="border-b-2 border-pm-text-strong pb-2.5 text-pm-text-strong">Купить</button>
+          <button className="pb-2.5 text-pm-text-muted transition-colors hover:text-pm-text-strong">Продать</button>
         </div>
         <button className="flex items-center gap-1 pb-2.5 text-sm font-semibold text-pm-text">
           Рынок <ChevronDown className="h-4 w-4" />
@@ -306,13 +306,13 @@ function TradePanel({
           <button className="h-12 rounded-lg bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90">
             Да {yesPrice}¢
           </button>
-          <button className="h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-white">
+          <button className="h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
             Нет {noPrice}¢
           </button>
         </div>
 
         <div className="flex items-end justify-between gap-4">
-          <label className="text-base font-bold text-white" htmlFor="trade-amount">
+          <label className="text-base font-bold text-pm-text-strong" htmlFor="trade-amount">
             Сумма
           </label>
           <input
@@ -327,7 +327,7 @@ function TradePanel({
           {['+$1', '+$5', '+$10', '+$100'].map((amount) => (
             <button
               key={amount}
-              className="h-9 rounded-lg border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-white"
+              className="h-9 rounded-lg border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
             >
               {amount}
             </button>
@@ -421,14 +421,14 @@ export function MarketDetail() {
         <section className="min-w-0 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface text-lg font-bold text-white">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface text-lg font-bold text-pm-text-strong">
                 {market.icon}
               </div>
               <div className="min-w-0">
                 <div className="mb-1 text-sm font-semibold text-pm-text-muted">
                   {market.category} <span className="mx-1">•</span> {market.subcategory}
                 </div>
-                <h1 className="text-xl font-bold leading-tight text-white sm:text-2xl">{market.title}</h1>
+                <h1 className="text-xl font-bold leading-tight text-pm-text-strong sm:text-2xl">{market.title}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm font-semibold text-pm-text-muted">
                   <span>{market.volume} Объём</span>
                   <span>•</span>
@@ -438,13 +438,13 @@ export function MarketDetail() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-pm-text">
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-white">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
                 <Code2 className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-white">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
                 <LinkIcon className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-white">
+              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong">
                 <Bookmark className="h-5 w-5" />
               </button>
             </div>
@@ -456,7 +456,7 @@ export function MarketDetail() {
                 <div key={outcome.name} className="flex items-center gap-2 text-sm font-semibold text-pm-text">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index] }} />
                   <span>{outcome.name}</span>
-                  <span className="font-bold text-white">{outcome.percent}%</span>
+                  <span className="font-bold text-pm-text-strong">{outcome.percent}%</span>
                 </div>
               ))}
             </div>
@@ -472,12 +472,12 @@ export function MarketDetail() {
                   data={chartData}
                   margin={{ top: 16, right: 8, left: 0, bottom: 0 }}
                 >
-                  <CartesianGrid stroke="#2a2b31" strokeDasharray="3 4" vertical={false} />
+                  <CartesianGrid stroke="var(--color-pm-chart-grid)" strokeDasharray="3 4" vertical={false} />
                   <XAxis
                     dataKey="time"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: '#8b8f98', fontSize: 12, fontWeight: 600 }}
+                    tick={{ fill: 'var(--color-pm-text-muted)', fontSize: 12, fontWeight: 600 }}
                     dy={10}
                   />
                   <YAxis
@@ -487,7 +487,7 @@ export function MarketDetail() {
                     tickFormatter={(value) => `${value}%`}
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: '#8b8f98', fontSize: 12, fontWeight: 600 }}
+                    tick={{ fill: 'var(--color-pm-text-muted)', fontSize: 12, fontWeight: 600 }}
                     width={46}
                   />
                   <Tooltip
@@ -526,7 +526,7 @@ export function MarketDetail() {
                 {['1Ч', '6Ч', '1Д', '1Н', '1М', 'ВСЕ'].map((range) => (
                   <button
                     key={range}
-                    className={range === 'ВСЕ' ? 'font-bold text-white' : 'transition-colors hover:text-white'}
+                    className={range === 'ВСЕ' ? 'font-bold text-pm-text-strong' : 'transition-colors hover:text-pm-text-strong'}
                   >
                     {range}
                   </button>
@@ -546,11 +546,11 @@ export function MarketDetail() {
                   className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
                 >
                   <div>
-                    <h2 className="text-base font-bold text-white sm:text-lg">{outcome.name}</h2>
+                    <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
                     <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{outcome.volume} Объём</p>
                   </div>
                   <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
-                    <span className="text-2xl font-bold text-white sm:text-3xl">{outcome.percent}%</span>
+                    <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
                     <span className={outcome.trend >= 0 ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
                       {outcome.trend >= 0 ? '▲' : '▼'} {Math.abs(outcome.trend)}%
                     </span>
@@ -570,13 +570,13 @@ export function MarketDetail() {
 
           <div className="space-y-5">
             <div className="flex items-center gap-6 border-b border-pm-border text-lg font-bold">
-              <button className="border-b-2 border-white pb-3 text-white">Правила</button>
-              <button className="pb-3 text-pm-text-muted transition-colors hover:text-white">Рыночный контекст</button>
+              <button className="border-b-2 border-pm-text-strong pb-3 text-pm-text-strong">Правила</button>
+              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">Рыночный контекст</button>
             </div>
 
             <div className="rounded-2xl border border-pm-border bg-pm-surface">
               <div className="flex items-center justify-between border-b border-pm-border p-4">
-                <div className="flex items-center gap-2 font-bold text-white">
+                <div className="flex items-center gap-2 font-bold text-pm-text-strong">
                   <Info className="h-5 w-5 text-pm-blue" />
                   Дополнительный контекст
                 </div>
@@ -597,17 +597,17 @@ export function MarketDetail() {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-5 text-lg font-bold">
-              <button className="text-white">Комментарии (45)</button>
-              <button className="text-pm-text-muted transition-colors hover:text-white">Крупнейшие держатели</button>
-              <button className="text-pm-text-muted transition-colors hover:text-white">Позиции</button>
-              <button className="text-pm-text-muted transition-colors hover:text-white">Активность</button>
+              <button className="text-pm-text-strong">Комментарии (45)</button>
+              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Крупнейшие держатели</button>
+              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Позиции</button>
+              <button className="text-pm-text-muted transition-colors hover:text-pm-text-strong">Активность</button>
             </div>
 
             <div className="flex items-center gap-3 rounded-xl border border-pm-border bg-pm-surface px-4 py-3">
               <MessageCircle className="h-5 w-5 text-pm-text-muted" />
               <input
                 placeholder="Добавить комментарий..."
-                className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-pm-text-muted"
+                className="min-w-0 flex-1 bg-transparent text-sm text-pm-text-strong outline-none placeholder:text-pm-text-muted"
               />
               <Smile className="h-5 w-5 text-pm-text-muted" />
               <button className="rounded-lg bg-pm-blue px-4 py-2 text-sm font-bold text-white">Опубликовать</button>

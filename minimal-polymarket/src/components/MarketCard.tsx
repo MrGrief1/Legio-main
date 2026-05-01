@@ -26,7 +26,7 @@ function ProbabilityGauge({ percent, label }: { percent: number; label: string }
           d="M 14 34 A 28 28 0 0 1 70 34"
           fill="none"
           pathLength={100}
-          stroke="#3a3c43"
+          stroke="var(--color-pm-gauge-track)"
           strokeLinecap="round"
           strokeWidth="4.5"
         />
@@ -43,7 +43,7 @@ function ProbabilityGauge({ percent, label }: { percent: number; label: string }
         <text
           x="42"
           y="43"
-          fill="#ffffff"
+          fill="var(--color-pm-text-strong)"
           fontSize="20"
           fontWeight="700"
           textAnchor="middle"
@@ -53,7 +53,7 @@ function ProbabilityGauge({ percent, label }: { percent: number; label: string }
         <text
           x="42"
           y="58"
-          fill="#8b8f98"
+          fill="var(--color-pm-text-muted)"
           fontSize="12"
           fontWeight="600"
           textAnchor="middle"
@@ -67,7 +67,7 @@ function ProbabilityGauge({ percent, label }: { percent: number; label: string }
 
 function MarketIcon({ icon }: { icon: string | React.ReactNode }) {
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#2a2b31] text-2xl text-white">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-pm-surface-hover text-2xl text-pm-text-strong">
       {typeof icon === 'string' ? icon : icon}
     </div>
   );
@@ -90,11 +90,11 @@ export function MarketCard({
   return (
     <Link 
       to={`/market/${id}`} 
-      className="group flex h-full min-h-[188px] flex-col rounded-xl border border-pm-border bg-pm-surface p-3.5 text-pm-text shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-all hover:-translate-y-0.5 hover:border-[#3b3d45] hover:bg-pm-surface-hover hover:shadow-[0_14px_34px_rgba(0,0,0,0.28)]"
+      className="group flex h-full min-h-[188px] flex-col rounded-xl border border-pm-border bg-pm-surface p-3.5 text-pm-text shadow-[0_1px_2px_var(--color-pm-card-shadow)] transition-all hover:-translate-y-0.5 hover:border-pm-text-muted hover:bg-pm-surface-hover hover:shadow-[0_14px_34px_var(--color-pm-card-shadow-strong)]"
     >
       <div className="mb-3 flex items-start gap-3">
         <MarketIcon icon={icon} />
-        <h3 className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-white line-clamp-3 group-hover:text-pm-blue">
+        <h3 className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-pm-text-strong line-clamp-3 group-hover:text-pm-blue">
           {title}
         </h3>
         {layout === 'binary' && (
@@ -116,7 +116,7 @@ export function MarketCard({
           {listOptions?.map((opt, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 text-[15px]">
               <span className="truncate font-medium text-pm-text">{opt.name}</span>
-              <span className="min-w-10 text-right font-bold text-white">{opt.percent}%</span>
+              <span className="min-w-10 text-right font-bold text-pm-text-strong">{opt.percent}%</span>
               <span className="rounded-md bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">Да.</span>
               <span className="rounded-md bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">Нет.</span>
             </div>
@@ -148,8 +148,8 @@ export function MarketCard({
           )}
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-2 text-pm-text-muted">
-          <Gift className="h-4 w-4 transition-colors hover:text-white" />
-          <Bookmark className="h-4 w-4 transition-colors hover:text-white" />
+          <Gift className="h-4 w-4 transition-colors hover:text-pm-text-strong" />
+          <Bookmark className="h-4 w-4 transition-colors hover:text-pm-text-strong" />
         </div>
       </div>
     </Link>

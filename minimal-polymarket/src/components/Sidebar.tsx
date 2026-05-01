@@ -11,7 +11,7 @@ export function Sidebar() {
     >
       {/* Breaking News */}
       <div>
-        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-white cursor-pointer hover:text-pm-blue transition-colors">
+        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong cursor-pointer hover:text-pm-blue transition-colors">
           Срочные новости <ChevronRight className="w-4 h-4" />
         </h3>
         <div className="space-y-0.5">
@@ -27,10 +27,10 @@ export function Sidebar() {
             >
               <span className="text-pm-text-muted text-xs font-mono">{i + 1}</span>
               <div className="flex-1">
-                <p className="text-[13px] text-pm-text group-hover:text-white leading-tight">{news.title}</p>
+                <p className="text-[13px] text-pm-text group-hover:text-pm-text-strong leading-tight">{news.title}</p>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-sm font-semibold text-white leading-tight">{news.percent}</div>
+                <div className="text-sm font-semibold text-pm-text-strong leading-tight">{news.percent}</div>
                 <div className={`text-[11px] font-medium flex items-center justify-end gap-0.5 ${news.trend === 'up' ? 'text-pm-green' : 'text-pm-red'}`}>
                   {news.trend === 'up' ? "↗" : "↘"} {news.trendVal}
                 </div>
@@ -44,7 +44,7 @@ export function Sidebar() {
 
       {/* Hot Topics */}
       <div className="flex flex-1 flex-col">
-        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-white cursor-pointer hover:text-pm-blue transition-colors">
+        <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong cursor-pointer hover:text-pm-blue transition-colors">
           Горячие темы <ChevronRight className="w-4 h-4" />
         </h3>
         <div className="space-y-0.5">
@@ -62,7 +62,7 @@ export function Sidebar() {
             >
               <div className="flex items-center gap-2">
                 <span className="text-pm-text-muted text-xs font-mono">{i + 1}</span>
-                <span className="text-[13px] text-pm-text group-hover:text-white font-medium">{topic.title}</span>
+                <span className="text-[13px] text-pm-text group-hover:text-pm-text-strong font-medium">{topic.title}</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-pm-text-muted">
                 {topic.vol}
@@ -76,7 +76,7 @@ export function Sidebar() {
         <motion.button 
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          className="mt-auto w-full rounded-full border border-pm-border py-2 text-sm font-medium text-white transition-colors hover:bg-pm-surface"
+          className="mt-auto w-full rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
         >
            Смотреть все
         </motion.button>

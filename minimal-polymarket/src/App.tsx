@@ -3,11 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useLayoutEffect } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import { AuthPage } from './pages/AuthPage';
 import { Home } from './pages/Home';
 import { MarketDetail } from './pages/MarketDetail';
+
+type Theme = 'dark' | 'light';
+
+const THEME_STORAGE_KEY = 'pm-theme';
+
+function getInitialTheme(): Theme {
+  if (typeof window === 'undefined') return 'dark';
+
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+
+  if (storedTheme === 'dark' || storedTheme === 'light') {
+    return storedTheme;
+  }
+
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -34,14 +51,28 @@ function ScrollToTop() {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
+  const handleThemeToggle = useCallback(() => {
+    setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark');
+  }, []);
+
   return (
     <Router>
       <div className="min-h-screen bg-pm-bg flex flex-col font-sans">
         <ScrollToTop />
-        <Navbar />
+        <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/register" element={<AuthPage mode="register" />} />
             <Route path="/market/:id" element={<MarketDetail />} />
           </Routes>
         </main>

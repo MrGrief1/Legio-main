@@ -8,10 +8,40 @@
   --color-pm-surface-hover: #2a2b31;
   --color-pm-border: #2a2b31;
   --color-pm-text: #e1e1e1;
+  --color-pm-text-strong: #ffffff;
   --color-pm-text-muted: #8b8f98;
   --color-pm-blue: #2563eb;
   --color-pm-green: #22c55e;
   --color-pm-red: #ef4444;
+  --color-pm-chart-grid: #2a2b31;
+  --color-pm-chart-future: #3f444d;
+  --color-pm-overlay-line: rgba(255, 255, 255, 0.1);
+  --color-pm-gauge-track: #3a3c43;
+  --color-pm-soft-badge: rgba(255, 255, 255, 0.1);
+  --color-pm-card-shadow: rgba(0, 0, 0, 0.18);
+  --color-pm-card-shadow-strong: rgba(0, 0, 0, 0.28);
+}
+
+html {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-pm-bg: #f5f7fb;
+  --color-pm-surface: #ffffff;
+  --color-pm-surface-hover: #eef3f8;
+  --color-pm-border: #dbe3ee;
+  --color-pm-text: #334155;
+  --color-pm-text-strong: #0f172a;
+  --color-pm-text-muted: #64748b;
+  --color-pm-chart-grid: #d7dee9;
+  --color-pm-chart-future: #aab5c4;
+  --color-pm-overlay-line: rgba(15, 23, 42, 0.14);
+  --color-pm-gauge-track: #d4dde8;
+  --color-pm-soft-badge: rgba(15, 23, 42, 0.07);
+  --color-pm-card-shadow: rgba(15, 23, 42, 0.09);
+  --color-pm-card-shadow-strong: rgba(15, 23, 42, 0.13);
 }
 
 body {

@@ -146,16 +146,16 @@ export function Home() {
         transition={{ delay: 0.2 }}
         className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4"
       >
-        <h1 className="text-2xl font-semibold text-white">Все рынки</h1>
+        <h1 className="text-2xl font-semibold text-pm-text-strong">Все рынки</h1>
         
         <div className="flex items-center gap-2">
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-white transition-colors border border-pm-border border-transparent">
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-pm-text-strong transition-colors border border-pm-border border-transparent">
             <Search className="w-5 h-5" />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-white transition-colors border border-pm-border border-transparent">
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-pm-text-strong transition-colors border border-pm-border border-transparent">
             <SlidersHorizontal className="w-5 h-5" />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-white transition-colors border border-pm-border border-transparent">
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-10 h-10 flex items-center justify-center rounded-lg bg-pm-surface hover:bg-pm-surface-hover text-pm-text hover:text-pm-text-strong transition-colors border border-pm-border border-transparent">
             <Bookmark className="w-5 h-5" />
           </motion.button>
         </div>
@@ -172,7 +172,7 @@ export function Home() {
           Все
         </button>
         {["Трамп", "Иран", "Fed", "UCL", "Джеймс Коми", "ОПЕК", "Индийские выборы", "Ормузский пролив", "Маск против Альтмана"].map(tag => (
-          <button key={tag} className="px-4 py-1.5 rounded-full hover:bg-pm-surface text-pm-text hover:text-white text-sm font-medium whitespace-nowrap transition-colors">
+          <button key={tag} className="px-4 py-1.5 rounded-full hover:bg-pm-surface text-pm-text hover:text-pm-text-strong text-sm font-medium whitespace-nowrap transition-colors">
             {tag}
           </button>
         ))}
@@ -202,7 +202,7 @@ export function Home() {
         <motion.button 
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="px-6 py-3 rounded-full bg-pm-surface hover:bg-pm-surface-hover border border-pm-border text-white font-medium transition-colors"
+          className="px-6 py-3 rounded-full bg-pm-surface hover:bg-pm-surface-hover border border-pm-border text-pm-text-strong font-medium transition-colors"
         >
           Показать больше рынков
         </motion.button>

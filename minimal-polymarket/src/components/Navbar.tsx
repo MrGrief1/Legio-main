@@ -1,8 +1,17 @@
-import { Link } from 'react-router-dom';
-import { Search, Info, Globe, Menu } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Search, Info, Globe, Moon, Sun, UserRound } from 'lucide-react';
 import { motion } from 'motion/react';
 
-export function Navbar() {
+type NavbarProps = {
+  theme: 'dark' | 'light';
+  onThemeToggle: () => void;
+};
+
+export function Navbar({ theme, onThemeToggle }: NavbarProps) {
+  const isLightTheme = theme === 'light';
+  const { pathname } = useLocation();
+  const isAuthRoute = pathname === '/login' || pathname === '/register';
+
   return (
     <motion.div 
       initial={{ y: -20, opacity: 0 }}
@@ -20,7 +29,7 @@ export function Navbar() {
                 viewBox="0 0 32 32"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
-                className="text-white"
+                className="text-pm-text-strong"
               >
                 <path
                   fillRule="evenodd"
@@ -30,7 +39,7 @@ export function Navbar() {
                 />
               </svg>
             </motion.div>
-            <span className="font-semibold text-lg hidden sm:block text-white">Polymarket</span>
+            <span className="font-semibold text-lg hidden sm:block text-pm-text-strong">Polymarket</span>
           </Link>
 
           {/* Search Bar */}
@@ -39,48 +48,80 @@ export function Navbar() {
             <input
               type="text"
               placeholder="Поиск polymarkets..."
-              className="w-full bg-transparent text-sm outline-none text-white placeholder:text-pm-text-muted"
+              className="w-full bg-transparent text-sm outline-none text-pm-text-strong placeholder:text-pm-text-muted"
             />
             <span className="text-pm-text-muted text-xs bg-pm-surface-hover px-1.5 py-0.5 rounded">/</span>
           </div>
 
           {/* Right Actions */}
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-            <motion.button whileHover={{ scale: 1.05 }} className="hidden lg:flex items-center gap-1.5 text-sm text-pm-text hover:text-white font-medium px-3 py-2 rounded-lg hover:bg-pm-surface transition-colors">
+            <motion.button whileHover={{ scale: 1.05 }} className="hidden lg:flex items-center gap-1.5 text-sm text-pm-text hover:text-pm-text-strong font-medium px-3 py-2 rounded-lg hover:bg-pm-surface transition-colors">
               <Info className="w-4 h-4 text-pm-blue" />
               Как это работает
             </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} className="text-sm font-semibold text-pm-text hover:text-white px-4 py-2">
-              Войти
+            <motion.div whileHover={{ scale: 1.05 }} className="hidden sm:block">
+              <Link
+                to="/login"
+                className={
+                  pathname === '/login'
+                    ? 'inline-flex px-4 py-2 text-sm font-semibold text-pm-text-strong'
+                    : 'inline-flex px-4 py-2 text-sm font-semibold text-pm-text hover:text-pm-text-strong'
+                }
+              >
+                Войти
+              </Link>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
+              <Link
+                to="/register"
+                className="inline-flex rounded-lg bg-pm-blue px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                Зарегистрироваться
+              </Link>
+            </motion.div>
+            <Link
+              to="/login"
+              aria-label="Войти"
+              className="p-2 text-pm-text hover:text-pm-text-strong bg-pm-surface hover:bg-pm-surface-hover rounded-lg transition-colors sm:hidden"
+            >
+              <UserRound className="w-5 h-5" />
+            </Link>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              aria-label={isLightTheme ? 'Включить тёмную тему' : 'Включить светлую тему'}
+              title={isLightTheme ? 'Тёмная тема' : 'Светлая тема'}
+              onClick={onThemeToggle}
+              className="p-2 text-pm-text hover:text-pm-text-strong bg-pm-surface hover:bg-pm-surface-hover rounded-lg transition-colors"
+            >
+              {isLightTheme ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="text-sm font-semibold bg-pm-blue text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-              Зарегистрироваться
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="p-2 text-pm-text hover:text-white bg-pm-surface hover:bg-pm-surface-hover rounded-lg transition-colors">
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="p-2 text-pm-text hover:text-pm-text-strong bg-pm-surface hover:bg-pm-surface-hover rounded-lg transition-colors">
               <Globe className="w-5 h-5" />
             </motion.button>
           </div>
         </div>
 
-        {/* Categories Nav */}
-        <div className="flex items-center gap-6 mt-4 overflow-x-auto no-scrollbar text-sm font-medium text-pm-text-muted border-t border-pm-border pt-3">
-          <Link to="/" className="text-white whitespace-nowrap hidden sm:flex items-center gap-1">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
-            Тенденции
-          </Link>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Последние новости</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Новое</button>
-          <div className="w-px h-4 bg-pm-border mx-1"></div>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Политика</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Спорт</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Криптовалюта</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Киберспорт</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Иран</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Финансы</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Геополитика</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Технологии</button>
-          <button className="hover:text-white whitespace-nowrap transition-colors">Культура</button>
-        </div>
+        {!isAuthRoute && (
+          <div className="flex items-center gap-6 mt-4 overflow-x-auto no-scrollbar text-sm font-medium text-pm-text-muted border-t border-pm-border pt-3">
+            <Link to="/" className="text-pm-text-strong whitespace-nowrap hidden sm:flex items-center gap-1">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
+              Тенденции
+            </Link>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Последние новости</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Новое</button>
+            <div className="w-px h-4 bg-pm-border mx-1"></div>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Политика</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Спорт</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Криптовалюта</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Киберспорт</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Иран</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Финансы</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Геополитика</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Технологии</button>
+            <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Культура</button>
+          </div>
+        )}
       </div>
     </motion.div>
   );
