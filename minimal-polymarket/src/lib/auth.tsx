@@ -16,17 +16,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
 
     api.me()
       .then(({ user: profile }) => setUser(profile))
       .catch(() => {
-        window.localStorage.removeItem(AUTH_TOKEN_KEY);
         setUser(null);
       })
       .finally(() => setIsLoading(false));
@@ -37,16 +31,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     async login(input) {
       const response = await api.login(input);
-      window.localStorage.setItem(AUTH_TOKEN_KEY, response.token);
       setUser(response.user);
     },
     async register(input) {
       const response = await api.register(input);
-      window.localStorage.setItem(AUTH_TOKEN_KEY, response.token);
       setUser(response.user);
     },
     logout() {
       window.localStorage.removeItem(AUTH_TOKEN_KEY);
+      void api.logout().catch(() => {});
       setUser(null);
     },
   }), [isLoading, user]);

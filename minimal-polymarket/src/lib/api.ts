@@ -122,7 +122,6 @@ export type AdminOverview = {
 
 type AuthResponse = {
   user: User;
-  token: string;
 };
 
 export class ApiError extends Error {
@@ -135,26 +134,17 @@ export class ApiError extends Error {
   }
 }
 
-function getStoredToken() {
-  if (typeof window === 'undefined') return '';
-  return window.localStorage.getItem(AUTH_TOKEN_KEY) || '';
-}
-
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  const token = getStoredToken();
 
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
   }
 
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
   const response = await fetch(path, {
     ...options,
     headers,
+    credentials: 'same-origin',
   });
   const contentType = response.headers.get('content-type') || '';
   const body = contentType.includes('application/json') ? await response.json() : null;
@@ -183,6 +173,12 @@ export const api = {
 
   async me() {
     return apiRequest<{ user: User }>('/api/auth/me');
+  },
+
+  async logout() {
+    return apiRequest<void>('/api/auth/logout', {
+      method: 'POST',
+    });
   },
 
   async getAdminOverview() {

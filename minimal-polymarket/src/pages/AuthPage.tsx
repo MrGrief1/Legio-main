@@ -223,8 +223,9 @@ export function AuthPage({ mode }: AuthPageProps) {
                   type={passwordVisible ? 'text' : 'password'}
                   autoComplete={isRegister ? 'new-password' : 'current-password'}
                   required
-                  minLength={8}
-                  placeholder="Минимум 8 символов"
+                  minLength={isRegister ? 12 : 1}
+                  maxLength={128}
+                  placeholder={isRegister ? 'Минимум 12 символов' : 'Пароль'}
                   className="min-w-0 flex-1 bg-transparent text-base font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />
                 <button
@@ -246,7 +247,8 @@ export function AuthPage({ mode }: AuthPageProps) {
                   type={passwordVisible ? 'text' : 'password'}
                   autoComplete="new-password"
                   required
-                  minLength={8}
+                  minLength={12}
+                  maxLength={128}
                   placeholder="Повтори пароль"
                   className="w-full bg-transparent text-base font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />

@@ -26,21 +26,29 @@ Without `DATABASE_URL`, local data is stored in `server/data/db.json`. That file
 Copy `.env.example` to `.env` when you need local env values.
 
 ```bash
-JWT_SECRET="a-long-random-secret"
+JWT_SECRET="generate-with-openssl-rand-base64-48"
 DATABASE_URL=""
 ALLOW_JSON_STORAGE="false"
 DATABASE_SSL="false"
+INITIAL_ADMIN_EMAIL=""
+INITIAL_ADMIN_PASSWORD=""
+INITIAL_ADMIN_NAME="Legio Admin"
+APP_ORIGIN="http://localhost:3000"
 PORT="3000"
 ```
+
+Admin access is not granted to the first public registration. Set `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` to create or rotate the admin account from private environment variables.
 
 ## Railway Deploy
 
 1. Create a new Railway project from this repo.
 2. Add a Postgres service.
 3. In the app service variables, add `DATABASE_URL` as a reference to the Postgres service connection string.
-4. Add `JWT_SECRET` as a long random value.
-5. Do not set `ALLOW_JSON_STORAGE=true` on Railway unless you intentionally want temporary test data.
-6. Railway can use:
+4. Add `JWT_SECRET` as a long random value, for example `openssl rand -base64 48`.
+5. Add `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` for the admin account.
+6. Set `APP_ORIGIN` to the public site origin, for example `https://your-app.railway.app`.
+7. Do not set `ALLOW_JSON_STORAGE=true` on Railway unless you intentionally want temporary test data.
+8. Railway can use:
 
 ```bash
 npm run build

@@ -17,13 +17,29 @@ const jsonDbPath = path.join(dataDir, 'db.json');
 const isProduction = process.env.NODE_ENV === 'production';
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
 const port = Number(process.env.PORT || 3000);
-const authSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'local-dev-secret-change-before-deploy';
 const sessionTtlSeconds = 60 * 60 * 24 * 14;
+const sessionCookieName = 'legio_session';
+const secureCookies = (isProduction || isRailway) && process.env.COOKIE_SECURE !== 'false';
+const allowBearerTokens = process.env.ALLOW_BEARER_TOKENS === 'true';
+const minPasswordLength = 12;
+const maxPasswordLength = 128;
 const defaultStartingBalance = 10000;
 const defaultMarketLiquidity = 1000;
 const defaultMinOrderSize = 1;
 const defaultTickSize = 1;
 const marketStatuses = new Set(['open', 'paused', 'resolved', 'canceled']);
+const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const configuredAppOrigin = normalizeOrigin(process.env.APP_ORIGIN || '');
+const configuredAllowedOrigins = new Set(
+  String(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean),
+);
+const authSecret = resolveAuthSecret();
+const bootstrapAdminEmail = normalizeEmail(process.env.INITIAL_ADMIN_EMAIL || '');
+const bootstrapAdminPassword = String(process.env.INITIAL_ADMIN_PASSWORD || '');
+const bootstrapAdminName = String(process.env.INITIAL_ADMIN_NAME || 'Legio Admin').trim() || 'Legio Admin';
 
 const databaseUrl =
   process.env.DATABASE_URL
@@ -45,16 +61,49 @@ const pool = databaseUrl
     })
   : null;
 
+function resolveAuthSecret() {
+  const secret = String(process.env.JWT_SECRET || process.env.SESSION_SECRET || '');
+  const weakSecrets = new Set([
+    'change-me',
+    'change-me-to-a-long-random-secret',
+    'local-dev-secret-change-before-deploy',
+  ]);
+
+  if (!secret) {
+    if (isProduction || isRailway) {
+      throw new Error('JWT_SECRET must be set to a long random value in production.');
+    }
+
+    const devSecret = crypto.randomBytes(32).toString('base64url');
+    console.warn('JWT_SECRET is not set. Using an ephemeral development secret; sessions will reset on restart.');
+    return devSecret;
+  }
+
+  if (secret.length < 32 || weakSecrets.has(secret)) {
+    if (isProduction || isRailway) {
+      throw new Error('JWT_SECRET is too weak. Use at least 32 random characters.');
+    }
+
+    console.warn('JWT_SECRET is weak. Replace it with at least 32 random characters before deployment.');
+  }
+
+  return secret;
+}
+
 function base64Url(input) {
   return Buffer.from(input).toString('base64url');
 }
 
 function signToken(user) {
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const now = Math.floor(Date.now() / 1000);
   const payload = base64Url(JSON.stringify({
-    sub: user.id,
-    email: user.email,
-    exp: Math.floor(Date.now() / 1000) + sessionTtlSeconds,
+    sub: String(user.id),
+    email: String(user.email),
+    iat: now,
+    exp: now + sessionTtlSeconds,
+    iss: 'legio-markets',
+    aud: 'legio-web',
   }));
   const signature = crypto
     .createHmac('sha256', authSecret)
@@ -65,7 +114,11 @@ function signToken(user) {
 }
 
 function verifyToken(token) {
-  const [header, payload, signature] = token.split('.');
+  const parts = String(token || '').split('.');
+
+  if (parts.length !== 3) return null;
+
+  const [header, payload, signature] = parts;
 
   if (!header || !payload || !signature) return null;
 
@@ -81,9 +134,23 @@ function verifyToken(token) {
   }
 
   try {
+    const decodedHeader = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
     const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const exp = Number(session.exp);
+    const now = Math.floor(Date.now() / 1000);
 
-    if (!session.sub || Number(session.exp) < Math.floor(Date.now() / 1000)) {
+    if (decodedHeader.alg !== 'HS256' || decodedHeader.typ !== 'JWT') {
+      return null;
+    }
+
+    if (
+      typeof session.sub !== 'string'
+      || !/^usr_[a-f0-9]{32}$/.test(session.sub)
+      || !Number.isFinite(exp)
+      || exp < now
+      || session.iss !== 'legio-markets'
+      || session.aud !== 'legio-web'
+    ) {
       return null;
     }
 
@@ -117,6 +184,164 @@ function newId(prefix) {
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
+}
+
+function normalizeOrigin(origin) {
+  const value = String(origin || '').trim();
+
+  if (!value) return '';
+
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return '';
+  }
+}
+
+function parseCookies(header) {
+  const cookies = {};
+
+  for (const part of String(header || '').split(';')) {
+    const [rawName, ...rawValue] = part.split('=');
+    const name = rawName?.trim();
+
+    if (!name || rawValue.length === 0) continue;
+
+    const value = rawValue.join('=').trim();
+
+    try {
+      cookies[name] = decodeURIComponent(value);
+    } catch {
+      cookies[name] = value;
+    }
+  }
+
+  return cookies;
+}
+
+function serializeSessionCookie(value, maxAgeSeconds) {
+  const parts = [
+    `${sessionCookieName}=${encodeURIComponent(value)}`,
+    'HttpOnly',
+    'Path=/',
+    'SameSite=Strict',
+    `Max-Age=${maxAgeSeconds}`,
+  ];
+
+  if (secureCookies) {
+    parts.push('Secure');
+  }
+
+  return parts.join('; ');
+}
+
+function setSessionCookie(res, token) {
+  res.setHeader('Set-Cookie', serializeSessionCookie(token, sessionTtlSeconds));
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', `${serializeSessionCookie('', 0)}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+}
+
+function getRequestToken(req) {
+  const cookies = parseCookies(req.get('cookie'));
+
+  if (cookies[sessionCookieName]) {
+    return cookies[sessionCookieName];
+  }
+
+  if (!allowBearerTokens) return '';
+
+  const header = req.get('authorization') || '';
+  return header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+}
+
+function getExpectedOrigin(req) {
+  if (configuredAppOrigin) return configuredAppOrigin;
+
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = req.get('host');
+
+  return host ? normalizeOrigin(`${protocol}://${host}`) : '';
+}
+
+function isTrustedOrigin(req) {
+  const origin = normalizeOrigin(req.get('origin') || '');
+
+  if (!origin) {
+    return !(isProduction || isRailway);
+  }
+
+  if (origin === configuredAppOrigin || configuredAllowedOrigins.has(origin)) {
+    return true;
+  }
+
+  return origin === getExpectedOrigin(req);
+}
+
+function getClientIp(req) {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function createRateLimiter({ windowMs, max, key, message }) {
+  const buckets = new Map();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const identifier = key(req);
+    const bucket = buckets.get(identifier);
+
+    if (!bucket || bucket.resetAt <= now) {
+      buckets.set(identifier, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    if (bucket.count >= max) {
+      res.setHeader('Retry-After', String(Math.ceil((bucket.resetAt - now) / 1000)));
+      res.status(429).json({ error: message });
+      return;
+    }
+
+    bucket.count += 1;
+
+    if (buckets.size > 10000) {
+      for (const [bucketKey, current] of buckets) {
+        if (current.resetAt <= now) {
+          buckets.delete(bucketKey);
+        }
+      }
+    }
+
+    next();
+  };
+}
+
+function validateId(value, prefix) {
+  const id = String(value || '');
+  const pattern = new RegExp(`^${prefix}_[a-f0-9]{32}$`);
+
+  if (!pattern.test(id)) {
+    throw validationError('Некорректный идентификатор.');
+  }
+
+  return id;
+}
+
+function validatePasswordForRegistration(password) {
+  if (password.length < minPasswordLength) {
+    throw validationError(`Пароль должен быть минимум ${minPasswordLength} символов.`);
+  }
+
+  if (password.length > maxPasswordLength) {
+    throw validationError(`Пароль должен быть не длиннее ${maxPasswordLength} символов.`);
+  }
+
+  if (!/[a-zа-я]/iu.test(password) || !/[0-9]/.test(password)) {
+    throw validationError('Пароль должен содержать буквы и цифры.');
+  }
 }
 
 function publicUser(user) {
@@ -483,18 +708,6 @@ async function initPostgres() {
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS no_price_after_cents numeric;');
   await pool.query('CREATE INDEX IF NOT EXISTS markets_created_at_idx ON markets (created_at DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS votes_market_created_at_idx ON votes (market_id, created_at DESC);');
-  await pool.query(`
-    WITH first_user AS (
-      SELECT id
-      FROM users
-      ORDER BY created_at ASC
-      LIMIT 1
-    )
-    UPDATE users
-    SET is_admin = true
-    WHERE id IN (SELECT id FROM first_user)
-      AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = true);
-  `);
 }
 
 async function ensureJsonDb() {
@@ -526,17 +739,6 @@ async function readJsonDb() {
     }
   }
 
-  if (db.users.length > 0 && !db.users.some((user) => user.isAdmin)) {
-    const firstUser = [...db.users].sort((left, right) => (
-      new Date(left.createdAt || 0).getTime() - new Date(right.createdAt || 0).getTime()
-    ))[0];
-
-    if (firstUser) {
-      firstUser.isAdmin = true;
-      changed = true;
-    }
-  }
-
   if (changed) {
     await writeJsonDb(db);
   }
@@ -563,25 +765,40 @@ async function initStorage() {
   await readJsonDb();
 }
 
+async function ensureConfiguredAdmin() {
+  if (!bootstrapAdminEmail && !bootstrapAdminPassword) return;
+
+  if (!bootstrapAdminEmail || !bootstrapAdminPassword) {
+    throw new Error('Set both INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD, or remove both.');
+  }
+
+  if (!validateEmail(bootstrapAdminEmail)) {
+    throw new Error('INITIAL_ADMIN_EMAIL must be a valid email address.');
+  }
+
+  validatePasswordForRegistration(bootstrapAdminPassword);
+
+  await storage.ensureBootstrapAdmin({
+    name: bootstrapAdminName.slice(0, 40),
+    email: bootstrapAdminEmail,
+    passwordHash: hashPassword(bootstrapAdminPassword),
+  });
+
+  console.log(`Configured admin account is enforced for ${bootstrapAdminEmail}`);
+}
+
 const storage = {
   async createUser({ name, email, passwordHash }) {
     const id = newId('usr');
     const createdAt = new Date().toISOString();
 
     if (pool) {
-      const client = await pool.connect();
-
       try {
-        await client.query('BEGIN');
-        await client.query('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE');
-        const countResult = await client.query('SELECT COUNT(*)::int AS count FROM users');
-        const isAdmin = asNumber(countResult.rows[0]?.count) === 0;
-        const result = await client.query(
+        const result = await pool.query(
           'INSERT INTO users (id, name, email, password_hash, is_admin, points_balance, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, is_admin, points_balance, created_at',
-          [id, name, email, passwordHash, isAdmin, defaultStartingBalance, createdAt],
+          [id, name, email, passwordHash, false, defaultStartingBalance, createdAt],
         );
         const user = result.rows[0];
-        await client.query('COMMIT');
 
         return {
           id: user.id,
@@ -592,15 +809,12 @@ const storage = {
           createdAt: user.created_at,
         };
       } catch (error) {
-        await client.query('ROLLBACK');
         if (error.code === '23505') {
           const duplicateError = new Error('EMAIL_EXISTS');
           duplicateError.status = 409;
           throw duplicateError;
         }
         throw error;
-      } finally {
-        client.release();
       }
     }
 
@@ -616,7 +830,7 @@ const storage = {
       name,
       email,
       passwordHash,
-      isAdmin: db.users.length === 0,
+      isAdmin: false,
       balance: defaultStartingBalance,
       createdAt,
     };
@@ -624,6 +838,44 @@ const storage = {
     await writeJsonDb(db);
 
     return user;
+  },
+
+  async ensureBootstrapAdmin({ name, email, passwordHash }) {
+    const id = newId('usr');
+    const createdAt = new Date().toISOString();
+
+    if (pool) {
+      await pool.query(
+        `INSERT INTO users (id, name, email, password_hash, is_admin, points_balance, created_at)
+         VALUES ($1, $2, $3, $4, true, $5, $6)
+         ON CONFLICT (email)
+         DO UPDATE SET name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, is_admin = true`,
+        [id, name, email, passwordHash, defaultStartingBalance, createdAt],
+      );
+      return;
+    }
+
+    const db = await readJsonDb();
+    const user = db.users.find((item) => item.email === email);
+
+    if (user) {
+      user.name = name;
+      user.passwordHash = passwordHash;
+      user.isAdmin = true;
+      user.balance = asNumber(user.balance, defaultStartingBalance);
+    } else {
+      db.users.push({
+        id,
+        name,
+        email,
+        passwordHash,
+        isAdmin: true,
+        balance: defaultStartingBalance,
+        createdAt,
+      });
+    }
+
+    await writeJsonDb(db);
   },
 
   async findUserByEmail(email) {
@@ -1518,8 +1770,7 @@ function asyncRoute(handler) {
 }
 
 async function requireAuth(req, res, next) {
-  const header = req.get('authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  const token = getRequestToken(req);
   const session = verifyToken(token);
 
   if (!session) {
@@ -1548,8 +1799,7 @@ function requireAdmin(req, res, next) {
 }
 
 async function optionalAuth(req, res, next) {
-  const header = req.get('authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  const token = getRequestToken(req);
   const session = token ? verifyToken(token) : null;
 
   if (!session) {
@@ -1582,23 +1832,94 @@ async function marketDetailResponse(id, viewerUserId = null) {
 }
 
 const app = express();
+const authIpLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  key: (req) => `auth-ip:${getClientIp(req)}`,
+  message: 'Слишком много попыток входа. Попробуй позже.',
+});
+const loginAccountLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  key: (req) => `login-account:${getClientIp(req)}:${normalizeEmail(req.body?.email)}`,
+  message: 'Слишком много попыток для этого аккаунта. Попробуй позже.',
+});
+const writeLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 120,
+  key: (req) => `write:${getClientIp(req)}`,
+  message: 'Слишком много запросов. Попробуй через минуту.',
+});
+const adminLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 60,
+  key: (req) => `admin:${req.user?.id || getClientIp(req)}`,
+  message: 'Слишком много админских действий. Попробуй через минуту.',
+});
+const tradeLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  key: (req) => `trade:${req.user?.id || getClientIp(req)}`,
+  message: 'Слишком много сделок. Попробуй через минуту.',
+});
 
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '1mb' }));
+app.disable('x-powered-by');
+app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+
+  if (isProduction || isRailway) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: blob:",
+        "connect-src 'self'",
+      ].join('; '),
+    );
+  }
+
   next();
+});
+app.use((req, res, next) => {
+  if (!unsafeMethods.has(req.method) || isTrustedOrigin(req)) {
+    next();
+    return;
+  }
+
+  res.status(403).json({ error: 'Запрос отклонён защитой от подделки.' });
+});
+app.use((req, res, next) => {
+  if (!unsafeMethods.has(req.method)) {
+    next();
+    return;
+  }
+
+  writeLimiter(req, res, next);
 });
 
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
-    storage: pool ? 'postgres' : 'json',
+    ...(isProduction || isRailway ? {} : { storage: pool ? 'postgres' : 'json' }),
     now: new Date().toISOString(),
   });
 });
 
-app.post('/api/auth/register', asyncRoute(async (req, res) => {
+app.post('/api/auth/register', authIpLimiter, asyncRoute(async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
@@ -1607,26 +1928,32 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     throw validationError('Имя должно быть от 2 до 40 символов.');
   }
 
-  if (!validateEmail(email)) {
+  if (!validateEmail(email) || email.length > 254) {
     throw validationError('Укажи корректный email.');
   }
 
-  if (password.length < 8) {
-    throw validationError('Пароль должен быть минимум 8 символов.');
-  }
+  validatePasswordForRegistration(password);
 
   const user = await storage.createUser({ name, email, passwordHash: hashPassword(password) });
   const publicProfile = publicUser(user);
+  const token = signToken(publicProfile);
+
+  setSessionCookie(res, token);
 
   res.status(201).json({
     user: publicProfile,
-    token: signToken(publicProfile),
   });
 }));
 
-app.post('/api/auth/login', asyncRoute(async (req, res) => {
+app.post('/api/auth/login', authIpLimiter, loginAccountLimiter, asyncRoute(async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
+
+  if (!validateEmail(email) || password.length === 0 || password.length > maxPasswordLength) {
+    res.status(401).json({ error: 'Неверный email или пароль.' });
+    return;
+  }
+
   const user = await storage.findUserByEmail(email);
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
@@ -1635,26 +1962,34 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   }
 
   const publicProfile = publicUser(user);
+  const token = signToken(publicProfile);
+
+  setSessionCookie(res, token);
 
   res.json({
     user: publicProfile,
-    token: signToken(publicProfile),
   });
 }));
+
+app.post('/api/auth/logout', (req, res) => {
+  clearSessionCookie(res);
+  res.status(204).end();
+});
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-app.get('/api/admin/overview', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.get('/api/admin/overview', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
   const overview = await storage.getAdminOverview();
 
   res.json(overview);
 }));
 
-app.patch('/api/admin/users/:id/admin', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.patch('/api/admin/users/:id/admin', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const userId = validateId(req.params.id, 'usr');
   const user = await storage.setUserAdmin({
-    userId: req.params.id,
+    userId,
     isAdmin: req.body.isAdmin === true,
     actorUserId: req.user.id,
   });
@@ -1662,7 +1997,8 @@ app.patch('/api/admin/users/:id/admin', requireAuth, requireAdmin, asyncRoute(as
   res.json({ user });
 }));
 
-app.patch('/api/admin/users/:id/balance', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.patch('/api/admin/users/:id/balance', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const userId = validateId(req.params.id, 'usr');
   const balance = roundMoney(Number(req.body.balance));
 
   if (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000) {
@@ -1670,14 +2006,15 @@ app.patch('/api/admin/users/:id/balance', requireAuth, requireAdmin, asyncRoute(
   }
 
   const user = await storage.updateUserBalance({
-    userId: req.params.id,
+    userId,
     balance,
   });
 
   res.json({ user });
 }));
 
-app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
   const status = String(req.body.status || '').trim();
 
   if (!marketStatuses.has(status)) {
@@ -1685,15 +2022,17 @@ app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, asyncRoute
   }
 
   const market = await storage.updateMarketStatus({
-    marketId: req.params.id,
+    marketId,
     status,
   });
 
   res.json({ market: marketDto(market) });
 }));
 
-app.delete('/api/admin/markets/:id', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-  await storage.deleteMarket(req.params.id);
+app.delete('/api/admin/markets/:id', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
+
+  await storage.deleteMarket(marketId);
 
   res.status(204).end();
 }));
@@ -1704,7 +2043,7 @@ app.get(['/api/markets', '/api/posts'], asyncRoute(async (req, res) => {
   res.json({ markets: markets.map((market) => marketDto(market)) });
 }));
 
-app.post(['/api/markets', '/api/posts'], requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.post(['/api/markets', '/api/posts'], requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
   const input = parseMarketInput(req.body);
   const market = await storage.createMarket({ ...input, createdBy: req.user.id });
   const detail = await marketDetailResponse(market.id, req.user.id);
@@ -1713,7 +2052,8 @@ app.post(['/api/markets', '/api/posts'], requireAuth, requireAdmin, asyncRoute(a
 }));
 
 app.get(['/api/markets/:id', '/api/posts/:id'], optionalAuth, asyncRoute(async (req, res) => {
-  const market = await marketDetailResponse(req.params.id, req.user?.id);
+  const marketId = validateId(req.params.id, 'mkt');
+  const market = await marketDetailResponse(marketId, req.user?.id);
 
   if (!market) {
     res.status(404).json({ error: 'Рынок не найден.' });
@@ -1723,7 +2063,8 @@ app.get(['/api/markets/:id', '/api/posts/:id'], optionalAuth, asyncRoute(async (
   res.json({ market });
 }));
 
-app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, asyncRoute(async (req, res) => {
+app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, tradeLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
   const outcome = String(req.body.outcome || '').toUpperCase();
   const side = String(req.body.side || 'BUY').toUpperCase();
   const amount = roundMoney(Number(req.body.amount));
@@ -1741,14 +2082,14 @@ app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/v
   }
 
   await storage.placeTrade({
-    marketId: req.params.id,
+    marketId,
     userId: req.user.id,
     outcome,
     side,
     amount,
   });
 
-  const market = await marketDetailResponse(req.params.id, req.user.id);
+  const market = await marketDetailResponse(marketId, req.user.id);
   res.status(201).json({ market });
 }));
 
@@ -1776,7 +2117,9 @@ app.use((error, req, res, next) => {
   }
 
   res.status(status).json({
-    error: messageByCode[error.message] || error.message || 'Что-то пошло не так.',
+    error: status >= 500
+      ? 'Что-то пошло не так.'
+      : messageByCode[error.message] || error.message || 'Что-то пошло не так.',
   });
 });
 
@@ -1817,6 +2160,7 @@ async function attachFrontend() {
 }
 
 await initStorage();
+await ensureConfiguredAdmin();
 await attachFrontend();
 
 app.listen(port, '0.0.0.0', () => {
