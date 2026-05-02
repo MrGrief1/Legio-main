@@ -4,7 +4,7 @@ import { api, AUTH_TOKEN_KEY, type User } from './api';
 type AuthContextValue = {
   user: User | null;
   isLoading: boolean;
-  login: (input: { email: string; password: string }) => Promise<void>;
+  login: (input: { email: string; password: string; rememberMe?: boolean }) => Promise<void>;
   register: (input: { name: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
 };

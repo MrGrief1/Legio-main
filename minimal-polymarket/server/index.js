@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,10 +21,12 @@ const configuredJsonDataDir = cleanEnvValue(
 );
 const dataDir = configuredJsonDataDir ? path.resolve(configuredJsonDataDir) : path.join(__dirname, 'data');
 const jsonDbPath = path.join(dataDir, 'db.json');
+const devSessionSecretPath = path.join(dataDir, 'dev-session-secret');
 const isProduction = process.env.NODE_ENV === 'production';
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
 const port = Number(process.env.PORT || 3000);
-const sessionTtlSeconds = 60 * 60 * 24 * 14;
+const defaultSessionTtlSeconds = 60 * 60 * 24;
+const rememberedSessionTtlSeconds = 60 * 60 * 24 * 30;
 const sessionCookieName = 'legio_session';
 const secureCookies = (isProduction || isRailway) && process.env.COOKIE_SECURE !== 'false';
 const allowBearerTokens = process.env.ALLOW_BEARER_TOKENS === 'true';
@@ -96,8 +99,29 @@ function resolveAuthSecret() {
       throw new Error('JWT_SECRET must be set to a long random value in production.');
     }
 
+    try {
+      const devSecret = cleanEnvValue(fsSync.readFileSync(devSessionSecretPath, 'utf8'));
+
+      if (devSecret.length >= 32 && !weakSecrets.has(devSecret)) {
+        console.warn('JWT_SECRET is not set. Using persistent development secret from server/data/dev-session-secret.');
+        return devSecret;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Could not read development session secret: ${error.message}`);
+      }
+    }
+
     const devSecret = crypto.randomBytes(32).toString('base64url');
-    console.warn('JWT_SECRET is not set. Using an ephemeral development secret; sessions will reset on restart.');
+
+    try {
+      fsSync.mkdirSync(dataDir, { recursive: true });
+      fsSync.writeFileSync(devSessionSecretPath, `${devSecret}\n`, { mode: 0o600 });
+      console.warn('JWT_SECRET is not set. Created persistent development secret at server/data/dev-session-secret.');
+    } catch (error) {
+      console.warn(`JWT_SECRET is not set. Using an ephemeral development secret; sessions will reset on restart. ${error.message}`);
+    }
+
     return devSecret;
   }
 
@@ -116,14 +140,15 @@ function base64Url(input) {
   return Buffer.from(input).toString('base64url');
 }
 
-function signToken(user) {
+function signToken(user, ttlSeconds = defaultSessionTtlSeconds) {
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
+  const ttl = Math.max(60, Math.floor(Number(ttlSeconds) || defaultSessionTtlSeconds));
   const payload = base64Url(JSON.stringify({
     sub: String(user.id),
     email: String(user.email),
     iat: now,
-    exp: now + sessionTtlSeconds,
+    exp: now + ttl,
     iss: 'legio-markets',
     aud: 'legio-web',
   }));
@@ -248,8 +273,11 @@ function serializeSessionCookie(value, maxAgeSeconds) {
     'HttpOnly',
     'Path=/',
     'SameSite=Strict',
-    `Max-Age=${maxAgeSeconds}`,
   ];
+
+  if (Number.isFinite(maxAgeSeconds)) {
+    parts.push(`Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`);
+  }
 
   if (secureCookies) {
     parts.push('Secure');
@@ -258,8 +286,8 @@ function serializeSessionCookie(value, maxAgeSeconds) {
   return parts.join('; ');
 }
 
-function setSessionCookie(res, token) {
-  res.setHeader('Set-Cookie', serializeSessionCookie(token, sessionTtlSeconds));
+function setSessionCookie(res, token, maxAgeSeconds) {
+  res.setHeader('Set-Cookie', serializeSessionCookie(token, maxAgeSeconds));
 }
 
 function clearSessionCookie(res) {
@@ -1962,7 +1990,7 @@ app.post('/api/auth/register', authIpLimiter, asyncRoute(async (req, res) => {
 
   const user = await storage.createUser({ name, email, passwordHash: hashPassword(password) });
   const publicProfile = publicUser(user);
-  const token = signToken(publicProfile);
+  const token = signToken(publicProfile, defaultSessionTtlSeconds);
 
   setSessionCookie(res, token);
 
@@ -1974,6 +2002,7 @@ app.post('/api/auth/register', authIpLimiter, asyncRoute(async (req, res) => {
 app.post('/api/auth/login', authIpLimiter, loginAccountLimiter, asyncRoute(async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
+  const rememberMe = req.body.rememberMe === true;
 
   if (!validateEmail(email) || password.length === 0 || password.length > maxPasswordLength) {
     res.status(401).json({ error: 'Неверный email или пароль.' });
@@ -1988,9 +2017,10 @@ app.post('/api/auth/login', authIpLimiter, loginAccountLimiter, asyncRoute(async
   }
 
   const publicProfile = publicUser(user);
-  const token = signToken(publicProfile);
+  const ttlSeconds = rememberMe ? rememberedSessionTtlSeconds : defaultSessionTtlSeconds;
+  const token = signToken(publicProfile, ttlSeconds);
 
-  setSessionCookie(res, token);
+  setSessionCookie(res, token, rememberMe ? ttlSeconds : undefined);
 
   res.json({
     user: publicProfile,

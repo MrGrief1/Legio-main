@@ -94,6 +94,7 @@ export function AuthPage({ mode }: AuthPageProps) {
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
     const confirmPassword = String(formData.get('confirmPassword') ?? '');
+    const rememberMe = formData.get('rememberMe') === 'on';
 
     if (isRegister && password !== confirmPassword) {
       setFormMessage('Пароли не совпадают.');
@@ -106,7 +107,7 @@ export function AuthPage({ mode }: AuthPageProps) {
       if (isRegister) {
         await auth.register({ name, email, password });
       } else {
-        await auth.login({ email, password });
+        await auth.login({ email, password, rememberMe });
       }
 
       setFormMessage(copy.success);
@@ -259,6 +260,7 @@ export function AuthPage({ mode }: AuthPageProps) {
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
+                  name={isRegister ? 'termsAccepted' : 'rememberMe'}
                   required={isRegister}
                   className="h-4 w-4 rounded border-pm-border bg-pm-bg accent-pm-blue"
                 />

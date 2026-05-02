@@ -164,7 +164,7 @@ export const api = {
     });
   },
 
-  async login(input: { email: string; password: string }) {
+  async login(input: { email: string; password: string; rememberMe?: boolean }) {
     return apiRequest<AuthResponse>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(input),
