@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Globe,
   House,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   Sun,
   UserRound,
+  X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../lib/auth';
@@ -37,10 +39,70 @@ function dockLinkClass(isActive: boolean) {
 export function Navbar({ theme, onThemeToggle }: NavbarProps) {
   const isLightTheme = theme === 'light';
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, logout } = useAuth();
   const isAuthRoute = pathname === '/login' || pathname === '/register';
   const isAdminRoute = pathname === '/admin';
   const isCreateRoute = pathname === '/create';
+  const isHowItWorksRoute = pathname === '/how-it-works';
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '');
+  const desktopSearchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSearchQuery(searchParams.get('q') ?? '');
+  }, [searchParams]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditableTarget = target
+        && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableTarget) {
+        event.preventDefault();
+        desktopSearchRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+
+    if (pathname === '/') {
+      const nextParams = new URLSearchParams(searchParams);
+      const trimmedValue = value.trim();
+
+      if (trimmedValue) {
+        nextParams.set('q', value);
+      } else {
+        nextParams.delete('q');
+      }
+
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedQuery = searchQuery.trim();
+
+    navigate(trimmedQuery ? `/?q=${encodeURIComponent(trimmedQuery)}` : '/');
+  };
+
+  const handleSearchClear = () => {
+    setSearchQuery('');
+
+    if (pathname === '/') {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('q');
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   return (
     <>
@@ -73,24 +135,52 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
               <span className="text-base font-semibold text-pm-text-strong sm:hidden">Legio</span>
             </Link>
 
-            <div className="hidden max-w-2xl flex-1 items-center rounded-full border border-transparent bg-pm-surface px-4 py-2 transition-colors focus-within:border-pm-border focus-within:bg-pm-bg md:flex">
+            <form
+              role="search"
+              onSubmit={handleSearchSubmit}
+              className="hidden max-w-2xl flex-1 items-center rounded-full border border-transparent bg-pm-surface px-4 py-2 transition-colors focus-within:border-pm-border focus-within:bg-pm-bg md:flex"
+            >
               <Search className="mr-3 h-5 w-5 text-pm-text-muted" />
               <input
+                ref={desktopSearchRef}
+                value={searchQuery}
+                onChange={(event) => handleSearchChange(event.target.value)}
                 type="text"
+                aria-label="Поиск рынков"
                 placeholder="Поиск рынков..."
                 className="w-full bg-transparent text-sm text-pm-text-strong outline-none placeholder:text-pm-text-muted"
               />
-              <span className="rounded bg-pm-surface-hover px-1.5 py-0.5 text-xs text-pm-text-muted">/</span>
-            </div>
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={handleSearchClear}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                  aria-label="Очистить поиск"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : (
+                <span className="rounded bg-pm-surface-hover px-1.5 py-0.5 text-xs text-pm-text-muted">/</span>
+              )}
+            </form>
 
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
-              <motion.button
+              <motion.div
                 whileHover={{ scale: 1.05 }}
-                className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-pm-text transition-colors hover:bg-pm-surface hover:text-pm-text-strong lg:flex"
+                className="hidden lg:block"
               >
-                <Info className="h-4 w-4 text-pm-blue" />
-                Как это работает
-              </motion.button>
+                <Link
+                  to="/how-it-works"
+                  className={
+                    isHowItWorksRoute
+                      ? 'flex items-center gap-1.5 rounded-lg bg-pm-surface px-3 py-2 text-sm font-medium text-pm-text-strong'
+                      : 'flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-pm-text transition-colors hover:bg-pm-surface hover:text-pm-text-strong'
+                  }
+                >
+                  <Info className="h-4 w-4 text-pm-blue" />
+                  Как это работает
+                </Link>
+              </motion.div>
 
               {user ? (
                 <>
@@ -213,12 +303,23 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                 </svg>
                 Тенденции
               </Link>
+              <Link
+                to="/how-it-works"
+                className={
+                  isHowItWorksRoute
+                    ? 'flex items-center gap-1 whitespace-nowrap text-pm-text-strong lg:hidden'
+                    : 'flex items-center gap-1 whitespace-nowrap transition-colors hover:text-pm-text-strong lg:hidden'
+                }
+              >
+                <Info className="h-4 w-4 text-pm-blue" />
+                Как это работает
+              </Link>
               <button className="whitespace-nowrap transition-colors hover:text-pm-text-strong">Новое</button>
               <div className="mx-1 h-4 w-px bg-pm-border" />
               {categoryItems.map((item) => (
-                <button key={item} className="whitespace-nowrap transition-colors hover:text-pm-text-strong">
+                <Link key={item} to={`/?category=${encodeURIComponent(item)}`} className="whitespace-nowrap transition-colors hover:text-pm-text-strong">
                   {item}
-                </button>
+                </Link>
               ))}
             </div>
           )}

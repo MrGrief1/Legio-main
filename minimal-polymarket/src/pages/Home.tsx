@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Search, SlidersHorizontal, PlusCircle } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Search, SlidersHorizontal, PlusCircle, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { MarketCard } from '../components/MarketCard';
 import { Sidebar } from '../components/Sidebar';
@@ -46,10 +46,11 @@ const itemVariants = {
 export function Home() {
   const { user } = useAuth();
   const [markets, setMarkets] = useState<Market[]>([]);
-  const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('Все');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const query = searchParams.get('q') ?? '';
+  const activeCategory = searchParams.get('category') ?? 'Все';
 
   useEffect(() => {
     let ignore = false;
@@ -74,9 +75,29 @@ export function Home() {
 
   const categories = useMemo(() => {
     const uniqueCategories = Array.from(new Set(markets.map((market) => market.category))).filter(Boolean);
+    const categoryFromUrl = searchParams.get('category');
+
+    if (categoryFromUrl && categoryFromUrl !== 'Все' && !uniqueCategories.includes(categoryFromUrl)) {
+      return ['Все', categoryFromUrl, ...uniqueCategories];
+    }
 
     return ['Все', ...uniqueCategories];
-  }, [markets]);
+  }, [markets, searchParams]);
+
+  const updateSearchParam = (key: 'q' | 'category', value: string, replace = true) => {
+    const nextParams = new URLSearchParams(searchParams);
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue || trimmedValue === 'Все') {
+      nextParams.delete(key);
+    } else {
+      nextParams.set(key, value);
+    }
+
+    setSearchParams(nextParams, { replace });
+  };
+
+  const isFiltering = query.trim().length > 0 || activeCategory !== 'Все';
 
   const filteredMarkets = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -98,16 +119,18 @@ export function Home() {
       animate={{ opacity: 1 }}
       className="mx-auto max-w-[1400px] px-3 py-3 sm:px-6 sm:py-5"
     >
-      <div className="mb-5 grid grid-cols-1 gap-5 lg:mb-6 lg:grid-cols-3 lg:gap-6">
-        <div className="lg:col-span-2">
-          <FeaturedMarket market={markets[0]} />
+      {!isFiltering && (
+        <div className="mb-5 grid grid-cols-1 gap-5 lg:mb-6 lg:grid-cols-3 lg:gap-6">
+          <div className="lg:col-span-2">
+            <FeaturedMarket market={markets[0]} />
+          </div>
+          <div className="hidden h-full lg:col-span-1 lg:block">
+            <Sidebar markets={markets} />
+          </div>
         </div>
-        <div className="hidden h-full lg:col-span-1 lg:block">
-          <Sidebar markets={markets} />
-        </div>
-      </div>
+      )}
 
-      <div className="mb-5 h-px w-full bg-pm-border" />
+      {!isFiltering && <div className="mb-5 h-px w-full bg-pm-border" />}
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -116,9 +139,15 @@ export function Home() {
         className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center"
       >
         <div>
-          <h1 className="text-2xl font-semibold text-pm-text-strong">Все рынки</h1>
+          <h1 className="text-2xl font-semibold text-pm-text-strong">
+            {isFiltering ? 'Результаты' : 'Все рынки'}
+          </h1>
           <p className="mt-1 text-sm font-medium text-pm-text-muted">
-            {isLoading ? 'Загружаю...' : `${markets.length} реальных постов-рынков`}
+            {isLoading
+              ? 'Загружаю...'
+              : isFiltering
+                ? `${filteredMarkets.length} из ${markets.length} рынков`
+                : `${markets.length} реальных постов-рынков`}
           </p>
         </div>
 
@@ -127,10 +156,22 @@ export function Home() {
             <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => updateSearchParam('q', event.target.value)}
+              type="search"
+              aria-label="Поиск рынков"
               placeholder="Поиск"
               className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
             />
+            {query && (
+              <button
+                type="button"
+                onClick={() => updateSearchParam('q', '')}
+                className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                aria-label="Очистить поиск"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -161,7 +202,7 @@ export function Home() {
         {categories.map((category) => (
           <button
             key={category}
-            onClick={() => setActiveCategory(category)}
+            onClick={() => updateSearchParam('category', category, false)}
             className={
               category === activeCategory
                 ? 'whitespace-nowrap rounded-full border border-[rgba(37,99,235,0.2)] bg-[rgba(37,99,235,0.15)] px-4 py-1.5 text-sm font-medium text-pm-blue'

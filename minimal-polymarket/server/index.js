@@ -12,7 +12,13 @@ dotenv.config({ quiet: true });
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-const dataDir = path.join(__dirname, 'data');
+const configuredJsonDataDir = cleanEnvValue(
+  process.env.LEGIO_DATA_DIR
+  || process.env.DATA_DIR
+  || process.env.RAILWAY_VOLUME_MOUNT_PATH
+  || '',
+);
+const dataDir = configuredJsonDataDir ? path.resolve(configuredJsonDataDir) : path.join(__dirname, 'data');
 const jsonDbPath = path.join(dataDir, 'db.json');
 const isProduction = process.env.NODE_ENV === 'production';
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
@@ -29,26 +35,27 @@ const defaultMinOrderSize = 1;
 const defaultTickSize = 1;
 const marketStatuses = new Set(['open', 'paused', 'resolved', 'canceled']);
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const configuredAppOrigin = normalizeOrigin(process.env.APP_ORIGIN || '');
+const configuredAppOrigin = normalizeOrigin(cleanEnvValue(process.env.APP_ORIGIN));
 const configuredAllowedOrigins = new Set(
-  String(process.env.ALLOWED_ORIGINS || '')
+  cleanEnvValue(process.env.ALLOWED_ORIGINS)
     .split(',')
-    .map((origin) => normalizeOrigin(origin))
+    .map((origin) => normalizeOrigin(cleanEnvValue(origin)))
     .filter(Boolean),
 );
 const authSecret = resolveAuthSecret();
-const bootstrapAdminEmail = normalizeEmail(process.env.INITIAL_ADMIN_EMAIL || '');
-const bootstrapAdminPassword = String(process.env.INITIAL_ADMIN_PASSWORD || '');
-const bootstrapAdminName = String(process.env.INITIAL_ADMIN_NAME || 'Legio Admin').trim() || 'Legio Admin';
+const bootstrapAdminEmail = normalizeEmail(cleanEnvValue(process.env.INITIAL_ADMIN_EMAIL));
+const bootstrapAdminPassword = cleanEnvValue(process.env.INITIAL_ADMIN_PASSWORD);
+const bootstrapAdminName = cleanEnvValue(process.env.INITIAL_ADMIN_NAME || 'Legio Admin') || 'Legio Admin';
 
 const databaseUrl =
-  process.env.DATABASE_URL
-  || process.env.POSTGRES_URL
-  || process.env.DATABASE_PRIVATE_URL
-  || process.env.POSTGRES_PRIVATE_URL
+  cleanEnvValue(process.env.DATABASE_URL)
+  || cleanEnvValue(process.env.POSTGRES_URL)
+  || cleanEnvValue(process.env.DATABASE_PRIVATE_URL)
+  || cleanEnvValue(process.env.POSTGRES_PRIVATE_URL)
   || '';
 const hasPgEnvironment = Boolean(process.env.PGHOST && process.env.PGDATABASE && process.env.PGUSER);
-const allowJsonStorage = process.env.ALLOW_JSON_STORAGE === 'true';
+const hasPersistentJsonStorage = Boolean(configuredJsonDataDir);
+const allowJsonStorage = cleanEnvValue(process.env.ALLOW_JSON_STORAGE) === 'true' || hasPersistentJsonStorage;
 const shouldRequirePersistentStorage = !allowJsonStorage && (isProduction || isRailway);
 const pool = databaseUrl
   ? new Pool({
@@ -61,8 +68,23 @@ const pool = databaseUrl
     })
   : null;
 
+function cleanEnvValue(value) {
+  let result = String(value ?? '').trim();
+
+  for (let i = 0; i < 2; i += 1) {
+    const first = result[0];
+    const last = result.at(-1);
+
+    if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
+      result = result.slice(1, -1).trim();
+    }
+  }
+
+  return result;
+}
+
 function resolveAuthSecret() {
-  const secret = String(process.env.JWT_SECRET || process.env.SESSION_SECRET || '');
+  const secret = cleanEnvValue(process.env.JWT_SECRET || process.env.SESSION_SECRET || '');
   const weakSecrets = new Set([
     'change-me',
     'change-me-to-a-long-random-secret',
@@ -758,8 +780,12 @@ async function initStorage() {
 
   if (shouldRequirePersistentStorage) {
     throw new Error(
-      'Persistent database is required in production/Railway. Add a Railway Postgres service and expose DATABASE_URL to this app service, or set ALLOW_JSON_STORAGE=true only for temporary testing.',
+      'Persistent database is required in production/Railway. Add Railway Postgres and expose DATABASE_URL, or attach a Railway Volume so RAILWAY_VOLUME_MOUNT_PATH is available.',
     );
+  }
+
+  if ((isProduction || isRailway) && !hasPersistentJsonStorage) {
+    console.warn('Using JSON storage outside a persistent volume. Data can be lost after redeploys.');
   }
 
   await readJsonDb();
@@ -2164,6 +2190,6 @@ await ensureConfiguredAdmin();
 await attachFrontend();
 
 app.listen(port, '0.0.0.0', () => {
-  const storageName = pool ? 'Postgres' : 'local JSON';
+  const storageName = pool ? 'Postgres' : `JSON at ${jsonDbPath}`;
   console.log(`Legio server running on http://localhost:${port} with ${storageName} storage`);
 });

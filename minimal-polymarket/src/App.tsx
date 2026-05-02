@@ -11,6 +11,7 @@ import { AuthPage } from './pages/AuthPage';
 import { AdminPage } from './pages/AdminPage';
 import { CreateMarket } from './pages/CreateMarket';
 import { Home } from './pages/Home';
+import { HowItWorks } from './pages/HowItWorks';
 import { MarketDetail } from './pages/MarketDetail';
 
 type Theme = 'dark' | 'light';
@@ -65,6 +66,7 @@ function AppShell({ theme, onThemeToggle }: { theme: Theme; onThemeToggle: () =>
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/create" element={<CreateMarket />} />
+          <Route path="/how-it-works" element={<HowItWorks />} />
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/register" element={<AuthPage mode="register" />} />
           <Route path="/market/:id" element={<MarketDetail />} />

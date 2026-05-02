@@ -34,6 +34,7 @@ INITIAL_ADMIN_EMAIL=""
 INITIAL_ADMIN_PASSWORD=""
 INITIAL_ADMIN_NAME="Legio Admin"
 APP_ORIGIN="http://localhost:3000"
+LEGIO_DATA_DIR=""
 PORT="3000"
 ```
 
@@ -47,8 +48,9 @@ Admin access is not granted to the first public registration. Set `INITIAL_ADMIN
 4. Add `JWT_SECRET` as a long random value, for example `openssl rand -base64 48`.
 5. Add `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` for the admin account.
 6. Set `APP_ORIGIN` to the public site origin, for example `https://your-app.railway.app`.
-7. Do not set `ALLOW_JSON_STORAGE=true` on Railway unless you intentionally want temporary test data.
-8. Railway can use:
+7. Prefer Railway Postgres for production. If you use a Railway Volume instead, the app writes JSON storage to `RAILWAY_VOLUME_MOUNT_PATH` automatically.
+8. Do not set `ALLOW_JSON_STORAGE=true` on Railway unless you intentionally want temporary test data.
+9. Railway can use:
 
 ```bash
 npm run build
@@ -57,7 +59,7 @@ npm start
 
 The Express server serves `/api/*` and the built React app from `dist`.
 
-In production/Railway the server refuses to start without Postgres. That prevents the app from silently writing to Railway's ephemeral filesystem and losing users, markets, and trades after a redeploy.
+In production/Railway the server refuses to start without Postgres or an attached Volume. That prevents the app from silently writing to Railway's ephemeral filesystem and losing users, markets, and trades after a redeploy.
 
 ## Voting Model
 
