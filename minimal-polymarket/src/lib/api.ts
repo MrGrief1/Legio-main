@@ -1,11 +1,13 @@
 export const AUTH_TOKEN_KEY = 'legio-auth-token';
 
 export type Outcome = 'YES' | 'NO';
+export type TradeSide = 'BUY' | 'SELL';
 
 export type User = {
   id: string;
   name: string;
   email: string;
+  balance: number;
   createdAt: string;
 };
 
@@ -28,10 +30,16 @@ export type MarketTrade = {
   userId: string;
   userName: string;
   outcome: Outcome;
+  side: TradeSide;
   amount: number;
   priceCents: number;
   shares: number;
   createdAt: string;
+};
+
+export type MarketViewerPosition = {
+  shares: number;
+  avgPriceCents: number;
 };
 
 export type Market = {
@@ -39,6 +47,9 @@ export type Market = {
   title: string;
   description: string;
   category: string;
+  resolutionSource: string;
+  resolutionRules: string;
+  startDate: string;
   closeDate: string;
   status: 'open' | 'resolved';
   createdAt: string;
@@ -51,9 +62,18 @@ export type Market = {
   noPrice: number;
   yesPercent: number;
   noPercent: number;
+  liquidity: number;
+  initialProbability: number;
+  tickSize: number;
+  minOrderSize: number;
+  quotes: Record<Outcome, { bid: number; ask: number }>;
   outcomes: MarketOutcome[];
   recentTrades: MarketTrade[];
   history: MarketHistoryPoint[];
+  viewer: {
+    balance: number;
+    positions: Record<Outcome, MarketViewerPosition>;
+  } | null;
 };
 
 type AuthResponse = {
@@ -133,7 +153,14 @@ export const api = {
     title: string;
     description: string;
     category: string;
+    resolutionSource: string;
+    resolutionRules: string;
+    startDate?: string;
     closeDate: string;
+    liquidity: number;
+    initialProbability: number;
+    tickSize: number;
+    minOrderSize: number;
   }) {
     return apiRequest<{ market: Market }>('/api/markets', {
       method: 'POST',
@@ -141,10 +168,17 @@ export const api = {
     });
   },
 
-  async vote(marketId: string, input: { outcome: Outcome; amount: number }) {
-    return apiRequest<{ market: Market }>(`/api/markets/${marketId}/votes`, {
+  async trade(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number }) {
+    return apiRequest<{ market: Market }>(`/api/markets/${marketId}/trades`, {
       method: 'POST',
       body: JSON.stringify(input),
+    });
+  },
+
+  async vote(marketId: string, input: { outcome: Outcome; amount: number }) {
+    return apiRequest<{ market: Market }>(`/api/markets/${marketId}/trades`, {
+      method: 'POST',
+      body: JSON.stringify({ ...input, side: 'BUY' }),
     });
   },
 };

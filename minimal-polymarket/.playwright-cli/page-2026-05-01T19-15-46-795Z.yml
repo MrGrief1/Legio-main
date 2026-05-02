@@ -1,0 +1,36 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - link "Polymarket" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - img [ref=e9]
+        - generic [ref=e11]: Polymarket
+      - generic [ref=e12]:
+        - img [ref=e13]
+        - textbox "Поиск рынков..." [ref=e16]
+        - generic [ref=e17]: /
+      - generic [ref=e18]:
+        - button "Как это работает" [ref=e19]:
+          - img [ref=e20]
+          - text: Как это работает
+        - link "Войти" [ref=e23] [cursor=pointer]:
+          - /url: /login
+        - link "Зарегистрироваться" [ref=e25] [cursor=pointer]:
+          - /url: /register
+        - button "Включить тёмную тему" [ref=e26]:
+          - img [ref=e27]
+        - button [ref=e29]:
+          - img [ref=e30]
+    - generic [ref=e33]:
+      - link "Тенденции" [ref=e34] [cursor=pointer]:
+        - /url: /
+        - img [ref=e35]
+        - text: Тенденции
+      - button "Новое" [ref=e38]
+      - button "Политика" [ref=e40]
+      - button "Спорт" [ref=e41]
+      - button "Криптовалюта" [ref=e42]
+      - button "Финансы" [ref=e43]
+      - button "Геополитика" [ref=e44]
+      - button "Технологии" [ref=e45]
+  - main [ref=e46]

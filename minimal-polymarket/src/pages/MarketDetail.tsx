@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   CartesianGrid,
+  Customized,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -22,7 +23,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, ApiError, type Market, type Outcome } from '../lib/api';
+import { api, ApiError, type Market, type Outcome, type TradeSide } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
 function formatMoney(value: number) {
@@ -71,15 +72,21 @@ type ChartRow = {
 
 type ChartHoverPoint = {
   color: string;
+  key: 'yes' | 'no';
   pathD: string;
+  pathLength: number;
+  totalLength: number;
   name: string;
   value: number;
+  svgX: number;
   x: number;
   y: number;
 };
 
 type ChartHoverState = {
   visible: boolean;
+  isLeaving: boolean;
+  exitProgress: number;
   x: number;
   svgX: number;
   viewBox: {
@@ -94,6 +101,8 @@ type ChartHoverState = {
 
 const hiddenChartHover: ChartHoverState = {
   visible: false,
+  isLeaving: false,
+  exitProgress: 0,
   x: 0,
   svgX: 0,
   viewBox: {
@@ -110,6 +119,9 @@ const chartSeries = [
   { key: 'yes', name: 'Да', color: '#22c55e' },
   { key: 'no', name: 'Нет', color: '#ef4444' },
 ] as const;
+
+const chartHoverExitDurationMs = 420;
+const chartHoverExitDuration = chartHoverExitDurationMs / 1000;
 
 function clampChartValue(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -131,7 +143,7 @@ function getInterpolatedChartPoint(data: ChartRow[], progress: number) {
   };
 }
 
-function getPointAtPathX(path: SVGPathElement, targetX: number) {
+function getPathMeasureAtX(path: SVGPathElement, targetX: number) {
   const totalLength = path.getTotalLength();
   const firstPoint = path.getPointAtLength(0);
   const lastPoint = path.getPointAtLength(totalLength);
@@ -152,7 +164,13 @@ function getPointAtPathX(path: SVGPathElement, targetX: number) {
     }
   }
 
-  return path.getPointAtLength((start + end) / 2);
+  const pathLength = (start + end) / 2;
+
+  return {
+    pathLength,
+    point: path.getPointAtLength(pathLength),
+    totalLength,
+  };
 }
 
 function getSvgViewport(svg: SVGSVGElement) {
@@ -168,75 +186,113 @@ function getSvgViewport(svg: SVGSVGElement) {
 
 function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
   const labelsOnLeft = hover.x > 680;
+  const detailOpacity = hover.isLeaving ? 0 : 1;
+  const detailTransition = { duration: hover.isLeaving ? 0.12 : 0 };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 bottom-0">
-      {hover.viewBox.width > 0 && (
-        <svg
-          className="absolute inset-0"
-          viewBox={`${hover.viewBox.x} ${hover.viewBox.y} ${hover.viewBox.width} ${hover.viewBox.height}`}
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <clipPath id="market-detail-future-line" clipPathUnits="userSpaceOnUse">
-              <rect
-                x={hover.svgX}
-                y={hover.viewBox.y}
-                width={Math.max(0, hover.viewBox.x + hover.viewBox.width - hover.svgX)}
-                height={hover.viewBox.height}
-              />
-            </clipPath>
-          </defs>
-          {hover.points.map((point) => (
-            <path
-              key={`future-${point.name}`}
-              d={point.pathD}
-              fill="none"
-              stroke="var(--color-pm-chart-future)"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2.8}
-              clipPath="url(#market-detail-future-line)"
-            />
-          ))}
-        </svg>
-      )}
-      <div className="absolute top-0 bottom-8 w-px bg-pm-overlay-line" style={{ left: hover.x }} />
-      <div
+    <div className="pointer-events-none absolute inset-x-0 top-0 bottom-0 z-10">
+      <motion.div
+        animate={{ opacity: detailOpacity }}
+        className="absolute top-0 bottom-8 w-px bg-pm-overlay-line"
+        initial={false}
+        style={{ left: hover.x }}
+        transition={detailTransition}
+      />
+      <motion.div
+        animate={{ opacity: detailOpacity }}
         className="absolute -translate-x-1/2 text-xs font-bold text-pm-text-muted"
+        initial={false}
         style={{ left: hover.x, top: -2 }}
+        transition={detailTransition}
       >
         {formatShortDate(hover.time)}
-      </div>
+      </motion.div>
 
       {hover.points.map((point) => {
+        const labelTop = point.name === 'Да' ? point.y - 34 : point.y + 8;
         const labelPosition = labelsOnLeft
-          ? { left: point.x, top: point.y - 12, transform: 'translateX(calc(-100% - 12px))' }
-          : { left: point.x, top: point.y - 12 };
+          ? { left: point.x, top: labelTop, transform: 'translateX(calc(-100% - 12px))' }
+          : { left: point.x, top: labelTop };
 
         return (
           <div key={point.name}>
-            <div
+            <motion.div
+              animate={{ opacity: detailOpacity }}
               className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-pm-surface"
+              initial={false}
               style={{ left: point.x, top: point.y, backgroundColor: point.color }}
+              transition={detailTransition}
             />
-            <div
+            <motion.div
+              animate={{ opacity: detailOpacity }}
               className={
                 labelsOnLeft
                   ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
                   : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
               }
+              initial={false}
               style={labelPosition}
+              transition={detailTransition}
             >
               <span className="h-3 w-1 rounded-full" style={{ backgroundColor: point.color }} />
               <span>{point.name}</span>
               <span>{Math.round(point.value)}%</span>
-            </div>
+            </motion.div>
           </div>
         );
       })}
     </div>
   );
+}
+
+function ChartFutureLines({ hover }: { hover: ChartHoverState }) {
+  if (!hover.visible || hover.viewBox.width <= 0) return null;
+
+  return (
+    <g className="market-detail-future-lines" pointerEvents="none">
+      {hover.points.map((point) => {
+        const remainingLength = Math.max(0, point.totalLength - point.pathLength);
+        const revealedLength = remainingLength * hover.exitProgress;
+
+        return (
+          <g key={`future-${point.key}`}>
+            <path
+              d={point.pathD}
+              fill="none"
+              stroke="var(--color-pm-chart-future)"
+              strokeDasharray={`${remainingLength} ${point.totalLength}`}
+              strokeDashoffset={-point.pathLength}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.8}
+            />
+            {hover.isLeaving && revealedLength > 0 && (
+              <path
+                d={point.pathD}
+                fill="none"
+                stroke={point.color}
+                strokeDasharray={`${revealedLength} ${point.totalLength}`}
+                strokeDashoffset={-point.pathLength}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.8}
+              />
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function getChartLineDash(hover: ChartHoverState, key: 'yes' | 'no') {
+  if (!hover.visible) return undefined;
+
+  const point = hover.points.find((item) => item.key === key);
+
+  if (!point) return undefined;
+
+  return `${point.pathLength} ${Math.max(0, point.totalLength - point.pathLength)}`;
 }
 
 function TradePanel({
@@ -248,15 +304,20 @@ function TradePanel({
 }) {
   const { user } = useAuth();
   const [outcome, setOutcome] = useState<Outcome>('YES');
+  const [side, setSide] = useState<TradeSide>('BUY');
   const [amount, setAmount] = useState('10');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isClosed = market.status !== 'open' || new Date(market.closeDate).getTime() <= Date.now();
-  const price = outcome === 'YES' ? market.yesPrice : market.noPrice;
+  const quote = market.quotes[outcome][side === 'BUY' ? 'ask' : 'bid'];
   const numericAmount = Number(amount);
-  const previewShares = Number.isFinite(numericAmount) && numericAmount > 0
-    ? numericAmount / (price / 100)
-    : 0;
+  const viewerPosition = market.viewer?.positions[outcome]?.shares ?? 0;
+  const previewShares = side === 'BUY' && Number.isFinite(numericAmount) && numericAmount > 0
+    ? numericAmount / (quote / 100)
+    : numericAmount;
+  const previewValue = side === 'SELL' && Number.isFinite(numericAmount) && numericAmount > 0
+    ? numericAmount * (quote / 100)
+    : numericAmount;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -270,13 +331,14 @@ function TradePanel({
     setIsSubmitting(true);
 
     try {
-      const response = await api.vote(market.id, {
+      const response = await api.trade(market.id, {
         outcome,
+        side,
         amount: numericAmount,
       });
 
       onMarketUpdated(response.market);
-      setMessage('Сделка записана. Вероятность обновилась.');
+      setMessage(side === 'BUY' ? 'Покупка исполнена.' : 'Продажа исполнена.');
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : 'Не удалось записать сделку.');
     } finally {
@@ -292,11 +354,32 @@ function TradePanel({
         </div>
         <div className="min-w-0">
           <h2 className="truncate text-base font-bold text-pm-text-strong">Голосование</h2>
-          <p className="text-xs font-medium text-pm-text-muted">Market order, Yes/No</p>
+          <p className="text-xs font-medium text-pm-text-muted">Market order, play-money</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 p-4">
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-pm-bg/45 p-1">
+          {(['BUY', 'SELL'] as TradeSide[]).map((nextSide) => (
+            <button
+              key={nextSide}
+              type="button"
+              onClick={() => {
+                setSide(nextSide);
+                setAmount(nextSide === 'BUY' ? '10' : '1');
+                setMessage('');
+              }}
+              className={
+                side === nextSide
+                  ? 'h-9 rounded-lg bg-pm-surface text-sm font-bold text-pm-text-strong shadow-[0_1px_2px_var(--color-pm-card-shadow)]'
+                  : 'h-9 rounded-lg text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+              }
+            >
+              {nextSide === 'BUY' ? 'Купить' : 'Продать'}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -307,7 +390,7 @@ function TradePanel({
                 : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            Да {market.yesPrice}¢
+            Да {market.quotes.YES[side === 'BUY' ? 'ask' : 'bid']}¢
           </button>
           <button
             type="button"
@@ -318,13 +401,13 @@ function TradePanel({
                 : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            Нет {market.noPrice}¢
+            Нет {market.quotes.NO[side === 'BUY' ? 'ask' : 'bid']}¢
           </button>
         </div>
 
         <div className="flex items-end justify-between gap-4">
           <label className="text-base font-bold text-pm-text-strong" htmlFor="trade-amount">
-            Сумма
+            {side === 'BUY' ? 'Сумма' : 'Доли'}
           </label>
           <input
             id="trade-amount"
@@ -335,31 +418,44 @@ function TradePanel({
             max="10000"
             type="number"
             step="1"
+            required
             className="w-36 bg-transparent text-right text-4xl font-bold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
           />
         </div>
 
         <div className="grid grid-cols-4 gap-2">
-          {[1, 5, 10, 100].map((nextAmount) => (
+          {(side === 'BUY' ? [1, 5, 10, 100] : [1, 5, 10, Math.max(1, Math.floor(viewerPosition))]).map((nextAmount, index) => (
             <button
-              key={nextAmount}
+              key={`${side}-${nextAmount}-${index}`}
               type="button"
               onClick={() => setAmount(String(nextAmount))}
               className="h-9 rounded-lg border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
             >
-              +${nextAmount}
+              {side === 'BUY' ? `+${nextAmount}` : `${nextAmount}`}
             </button>
           ))}
         </div>
 
         <div className="rounded-xl border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
           <div className="flex justify-between gap-3">
-            <span>Цена входа</span>
-            <span className="text-pm-text-strong">{price}¢</span>
+            <span>{side === 'BUY' ? 'Ask' : 'Bid'}</span>
+            <span className="text-pm-text-strong">{quote}¢</span>
           </div>
           <div className="mt-1 flex justify-between gap-3">
             <span>Доли</span>
             <span className="text-pm-text-strong">{previewShares.toFixed(2)}</span>
+          </div>
+          <div className="mt-1 flex justify-between gap-3">
+            <span>{side === 'BUY' ? 'Баланс' : 'Получишь'}</span>
+            <span className="text-pm-text-strong">
+              {side === 'BUY'
+                ? `${Math.round(market.viewer?.balance ?? user?.balance ?? 0).toLocaleString('ru-RU')} pts`
+                : `${previewValue.toFixed(2)} pts`}
+            </span>
+          </div>
+          <div className="mt-1 flex justify-between gap-3">
+            <span>Позиция</span>
+            <span className="text-pm-text-strong">{viewerPosition.toFixed(2)}</span>
           </div>
         </div>
 
@@ -367,11 +463,12 @@ function TradePanel({
           <div
             className={
               message.includes('записана')
+              || message.includes('исполнена')
                 ? 'flex items-center gap-2 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
                 : 'rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
             }
           >
-            {message.includes('записана') && <CheckCircle2 className="h-4 w-4" />}
+            {(message.includes('записана') || message.includes('исполнена')) && <CheckCircle2 className="h-4 w-4" />}
             {message}
           </div>
         )}
@@ -381,7 +478,7 @@ function TradePanel({
           disabled={isSubmitting || isClosed}
           className="h-12 w-full rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isClosed ? 'Рынок закрыт' : isSubmitting ? 'Записываю...' : user ? 'Сделка' : 'Войти и голосовать'}
+          {isClosed ? 'Рынок закрыт' : isSubmitting ? 'Исполняю...' : user ? (side === 'BUY' ? 'Купить' : 'Продать') : 'Войти и торговать'}
         </button>
 
         {!user && (
@@ -400,7 +497,23 @@ export function MarketDetail() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const chartRef = useRef<HTMLDivElement>(null);
+  const chartHoverExitTimeoutRef = useRef<number | null>(null);
+  const chartHoverExitFrameRef = useRef<number | null>(null);
   const [chartHover, setChartHover] = useState<ChartHoverState>(hiddenChartHover);
+
+  const clearChartHoverExitTimeout = () => {
+    if (chartHoverExitTimeoutRef.current === null) return;
+
+    window.clearTimeout(chartHoverExitTimeoutRef.current);
+    chartHoverExitTimeoutRef.current = null;
+  };
+
+  const clearChartHoverExitFrame = () => {
+    if (chartHoverExitFrameRef.current === null) return;
+
+    window.cancelAnimationFrame(chartHoverExitFrameRef.current);
+    chartHoverExitFrameRef.current = null;
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -424,6 +537,11 @@ export function MarketDetail() {
       ignore = true;
     };
   }, [id]);
+
+  useEffect(() => () => {
+    clearChartHoverExitTimeout();
+    clearChartHoverExitFrame();
+  }, []);
 
   const chartData = useMemo<ChartRow[]>(() => {
     if (!market) return [];
@@ -456,7 +574,8 @@ export function MarketDetail() {
     const lastPoint = firstPath.getPointAtLength(firstPath.getTotalLength());
     const minPathX = Math.min(firstPoint.x, lastPoint.x);
     const maxPathX = Math.max(firstPoint.x, lastPoint.x);
-    const progress = Math.max(0, Math.min(1, (targetSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
+    const hoverSvgX = Math.max(minPathX, Math.min(maxPathX, targetSvgX));
+    const progress = Math.max(0, Math.min(1, (hoverSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
     const activePoint = getInterpolatedChartPoint(chartData, progress);
     const points = chartSeries.reduce<ChartHoverPoint[]>((result, series) => {
       const path =
@@ -465,15 +584,19 @@ export function MarketDetail() {
 
       if (!path) return result;
 
-      const point = getPointAtPathX(path, targetSvgX);
-      const x = svgRect.left - containerRect.left + ((point.x - viewport.x) / viewport.width) * svgRect.width;
+      const { pathLength, point, totalLength } = getPathMeasureAtX(path, hoverSvgX);
+      const x = svgRect.left - containerRect.left + ((hoverSvgX - viewport.x) / viewport.width) * svgRect.width;
       const y = svgRect.top - containerRect.top + ((point.y - viewport.y) / viewport.height) * svgRect.height;
 
       result.push({
         color: series.color,
+        key: series.key,
         pathD: path.getAttribute('d') ?? '',
+        pathLength,
+        totalLength,
         name: series.name,
         value: activePoint[series.key],
+        svgX: hoverSvgX,
         x,
         y,
       });
@@ -483,14 +606,51 @@ export function MarketDetail() {
 
     if (points.length === 0) return;
 
+    clearChartHoverExitTimeout();
+    clearChartHoverExitFrame();
     setChartHover({
       visible: true,
+      isLeaving: false,
+      exitProgress: 0,
       x: points[0].x,
-      svgX: targetSvgX,
+      svgX: points[0].svgX,
       viewBox: viewport,
       time: activePoint.time,
       points,
     });
+  };
+
+  const handleChartPointerLeave = () => {
+    if (!chartHover.visible) return;
+
+    clearChartHoverExitTimeout();
+    clearChartHoverExitFrame();
+    setChartHover((previous) => (
+      previous.visible ? { ...previous, isLeaving: true, exitProgress: 0 } : previous
+    ));
+
+    const startedAt = window.performance.now();
+    const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
+    const animateExit = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / chartHoverExitDurationMs);
+      const easedProgress = easeOutCubic(progress);
+
+      setChartHover((previous) => (
+        previous.isLeaving ? { ...previous, exitProgress: easedProgress } : previous
+      ));
+
+      if (progress < 1) {
+        chartHoverExitFrameRef.current = window.requestAnimationFrame(animateExit);
+        return;
+      }
+
+      chartHoverExitFrameRef.current = null;
+      setChartHover((previous) => (
+        previous.isLeaving ? { ...previous, visible: false, isLeaving: false, exitProgress: 0 } : previous
+      ));
+    };
+
+    chartHoverExitFrameRef.current = window.requestAnimationFrame(animateExit);
   };
 
   if (isLoading) {
@@ -521,9 +681,9 @@ export function MarketDetail() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.25 }}
-      className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6"
+      className="min-h-full bg-pm-page"
     >
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-6 px-4 py-3 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 space-y-4">
           <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
             <ArrowLeft className="h-4 w-4" />
@@ -582,7 +742,7 @@ export function MarketDetail() {
               ref={chartRef}
               className="relative h-[220px] w-full sm:h-[260px]"
               onPointerMove={handleChartPointerMove}
-              onPointerLeave={() => setChartHover((previous) => ({ ...previous, visible: false }))}
+              onPointerLeave={handleChartPointerLeave}
             >
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
@@ -614,6 +774,7 @@ export function MarketDetail() {
                     type="stepAfter"
                     dataKey="yes"
                     stroke="#22c55e"
+                    strokeDasharray={getChartLineDash(chartHover, 'yes')}
                     strokeWidth={2.5}
                     dot={false}
                     activeDot={false}
@@ -624,11 +785,13 @@ export function MarketDetail() {
                     type="stepAfter"
                     dataKey="no"
                     stroke="#ef4444"
+                    strokeDasharray={getChartLineDash(chartHover, 'no')}
                     strokeWidth={2.5}
                     dot={false}
                     activeDot={false}
                     isAnimationActive={false}
                   />
+                  <Customized component={<ChartFutureLines hover={chartHover} />} />
                 </LineChart>
               </ResponsiveContainer>
               {chartHover.visible && (
@@ -686,8 +849,17 @@ export function MarketDetail() {
                 <span className="text-sm font-semibold text-pm-text-muted">Yes/No</span>
               </div>
               <div className="space-y-4 p-4 text-sm leading-relaxed text-pm-text">
-                {market.description ? (
-                  <p>{market.description}</p>
+                {market.resolutionSource && (
+                  <div>
+                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Источник</div>
+                    <p>{market.resolutionSource}</p>
+                  </div>
+                )}
+                {market.resolutionRules || market.description ? (
+                  <div>
+                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Правила</div>
+                    <p>{market.resolutionRules || market.description}</p>
+                  </div>
                 ) : (
                   <p>Автор не добавил дополнительных правил. Рынок должен разрешаться по формулировке вопроса.</p>
                 )}
@@ -707,6 +879,7 @@ export function MarketDetail() {
                     <div className="flex min-w-0 items-center gap-2">
                       <UserRound className="h-4 w-4 shrink-0 text-pm-text-muted" />
                       <span className="truncate text-sm font-bold text-pm-text-strong">{trade.userName}</span>
+                      <span className="text-sm font-bold text-pm-text-muted">{trade.side === 'BUY' ? 'купил' : 'продал'}</span>
                       <span className={trade.outcome === 'YES' ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
                         {trade.outcome === 'YES' ? 'Да' : 'Нет'}
                       </span>

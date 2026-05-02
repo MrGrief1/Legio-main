@@ -18,7 +18,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT || 3000);
 const authSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'local-dev-secret-change-before-deploy';
 const sessionTtlSeconds = 60 * 60 * 24 * 14;
-const marketPrior = 50;
+const defaultStartingBalance = 10000;
+const defaultMarketLiquidity = 1000;
+const defaultMinOrderSize = 1;
+const defaultTickSize = 1;
 
 const databaseUrl = process.env.DATABASE_URL;
 const pool = databaseUrl
@@ -107,6 +110,7 @@ function publicUser(user) {
     id: user.id,
     name: user.name,
     email: user.email,
+    balance: roundMoney(asNumber(user.balance ?? user.pointsBalance, defaultStartingBalance)),
     createdAt: new Date(user.createdAt).toISOString(),
   };
 }
@@ -124,9 +128,28 @@ function clampPercent(value) {
   return Math.max(1, Math.min(99, Math.round(value)));
 }
 
+function clampPriceCents(value) {
+  return Math.max(1, Math.min(99, value));
+}
+
+function roundPriceToTick(value, market) {
+  const tickSize = Math.max(0.1, asNumber(market.tickSize, defaultTickSize));
+  const price = Math.round(clampPriceCents(value) / tickSize) * tickSize;
+
+  return roundMoney(clampPriceCents(price));
+}
+
+function roundDeltaToTick(value, market) {
+  const tickSize = Math.max(0.1, asNumber(market.tickSize, defaultTickSize));
+
+  return roundMoney(Math.min(12, Math.max(0, Math.round(value / tickSize) * tickSize)));
+}
+
 function getDisplayPrices(market) {
-  const yesPrice = clampPercent(market.lastYesPrice ?? 50);
-  const noPrice = clampPercent(market.lastNoPrice ?? 50);
+  const initialYes = clampPercent(market.initialProbability ?? 50);
+  const initialNo = clampPercent(100 - initialYes);
+  const yesPrice = roundPriceToTick(market.lastYesPrice ?? initialYes, market);
+  const noPrice = roundPriceToTick(market.lastNoPrice ?? initialNo, market);
 
   return {
     yesPrice,
@@ -136,23 +159,57 @@ function getDisplayPrices(market) {
   };
 }
 
-function calculateTrade({ amount, currentYesPrice, currentNoPrice, outcome, totalVolume }) {
-  const liquidity = 75 + Math.sqrt(Math.max(0, totalVolume)) * 12;
-  const impact = Math.max(1, Math.min(18, Math.round((amount / liquidity) * 8)));
-  const counterImpact = Math.max(0, Math.floor(impact * 0.35));
-  const yesPriceAfterCents = clampPercent(
-    currentYesPrice + (outcome === 'YES' ? impact : -counterImpact),
-  );
-  const noPriceAfterCents = clampPercent(
-    currentNoPrice + (outcome === 'NO' ? impact : -counterImpact),
-  );
-  const priceCents = outcome === 'YES' ? yesPriceAfterCents : noPriceAfterCents;
+function getQuote({ market, outcome, side, yesPrice, noPrice }) {
+  const liquidity = Math.max(100, asNumber(market.liquidity, defaultMarketLiquidity));
+  const baseSpread = liquidity >= 5000 ? 2 : liquidity >= 2000 ? 3 : 4;
+  const fairPrice = outcome === 'YES' ? yesPrice : noPrice;
+  const price = side === 'BUY' ? fairPrice + baseSpread : fairPrice - baseSpread;
+
+  return roundPriceToTick(price, market);
+}
+
+function calculateTrade({
+  market,
+  side,
+  outcome,
+  spendAmount,
+  shareAmount,
+  currentYesPrice,
+  currentNoPrice,
+  totalVolume,
+}) {
+  const quotedPrice = getQuote({
+    market,
+    outcome,
+    side,
+    yesPrice: currentYesPrice,
+    noPrice: currentNoPrice,
+  });
+  const shares = side === 'BUY'
+    ? spendAmount / (quotedPrice / 100)
+    : shareAmount;
+  const amount = side === 'BUY'
+    ? spendAmount
+    : shareAmount * (quotedPrice / 100);
+  const liquidity = Math.max(100, asNumber(market.liquidity, defaultMarketLiquidity))
+    + Math.sqrt(Math.max(0, totalVolume)) * 10;
+  const impactBase = side === 'BUY' ? amount : shareAmount * quotedPrice / 100;
+  const impact = roundDeltaToTick((impactBase / liquidity) * 80, market);
+  const counterImpact = roundDeltaToTick(impact * 0.35, market);
+  const direction = side === 'BUY' ? 1 : -1;
+  const yesPriceAfterCents = roundPriceToTick(currentYesPrice + (
+    outcome === 'YES' ? impact * direction : -counterImpact * direction
+  ), market);
+  const noPriceAfterCents = roundPriceToTick(currentNoPrice + (
+    outcome === 'NO' ? impact * direction : -counterImpact * direction
+  ), market);
 
   return {
-    priceCents,
+    amount: roundMoney(amount),
+    priceCents: quotedPrice,
     yesPriceAfterCents,
     noPriceAfterCents,
-    shares: amount / (priceCents / 100),
+    shares,
   };
 }
 
@@ -173,10 +230,17 @@ function normalizeMarket(row) {
     title: row.title,
     description: row.description || '',
     category: row.category || 'Общее',
+    resolutionSource: row.resolution_source || row.resolutionSource || '',
+    resolutionRules: row.resolution_rules || row.resolutionRules || row.description || '',
     closeDate: row.close_date || row.closeDate,
+    startDate: row.start_date || row.startDate || row.created_at || row.createdAt,
     status: row.status || 'open',
     yesPool: asNumber(row.yes_pool ?? row.yesPool),
     noPool: asNumber(row.no_pool ?? row.noPool),
+    liquidity: asNumber(row.liquidity, defaultMarketLiquidity),
+    initialProbability: clampPercent(asNumber(row.initial_probability ?? row.initialProbability, 50)),
+    tickSize: asNumber(row.tick_size ?? row.tickSize, defaultTickSize),
+    minOrderSize: asNumber(row.min_order_size ?? row.minOrderSize, defaultMinOrderSize),
     createdBy: row.created_by || row.createdBy,
     creatorName: row.creator_name || row.creatorName || null,
     createdAt: row.created_at || row.createdAt,
@@ -199,6 +263,7 @@ function normalizeTrade(row) {
     userId: row.user_id || row.userId,
     userName: row.user_name || row.userName || 'Пользователь',
     outcome: row.outcome,
+    side: row.side || row.action || 'BUY',
     amount: roundMoney(asNumber(row.amount)),
     priceCents: asNumber(row.price_cents ?? row.priceCents),
     yesPriceAfterCents,
@@ -216,6 +281,7 @@ function marketDto(market, options = {}) {
     userId: trade.userId,
     userName: trade.userName,
     outcome: trade.outcome,
+    side: trade.side,
     amount: trade.amount,
     priceCents: trade.priceCents,
     shares: trade.shares,
@@ -228,7 +294,10 @@ function marketDto(market, options = {}) {
     title: market.title,
     description: market.description,
     category: market.category,
+    resolutionSource: market.resolutionSource,
+    resolutionRules: market.resolutionRules,
     closeDate: new Date(market.closeDate).toISOString(),
+    startDate: new Date(market.startDate || market.createdAt).toISOString(),
     status: market.status,
     createdAt: new Date(market.createdAt).toISOString(),
     createdBy: market.createdBy
@@ -241,19 +310,34 @@ function marketDto(market, options = {}) {
     noPool: roundMoney(market.noPool),
     volume,
     tradeCount: market.tradeCount,
+    liquidity: market.liquidity,
+    initialProbability: market.initialProbability,
+    tickSize: market.tickSize,
+    minOrderSize: market.minOrderSize,
     ...prices,
+    quotes: {
+      YES: {
+        bid: getQuote({ market, outcome: 'YES', side: 'SELL', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
+        ask: getQuote({ market, outcome: 'YES', side: 'BUY', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
+      },
+      NO: {
+        bid: getQuote({ market, outcome: 'NO', side: 'SELL', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
+        ask: getQuote({ market, outcome: 'NO', side: 'BUY', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
+      },
+    },
     outcomes: [
       { name: 'Да', outcome: 'YES', percent: prices.yesPercent, priceCents: prices.yesPrice, pool: roundMoney(market.yesPool) },
       { name: 'Нет', outcome: 'NO', percent: prices.noPercent, priceCents: prices.noPrice, pool: roundMoney(market.noPool) },
     ],
     recentTrades,
     history,
+    viewer: options.viewer || null,
   };
 }
 
 function buildHistory(market, trades) {
-  let latestYes = 50;
-  let latestNo = 50;
+  let latestYes = clampPercent(market.initialProbability ?? 50);
+  let latestNo = clampPercent(100 - latestYes);
   const points = [{
     time: new Date(market.createdAt).toISOString(),
     yesPercent: latestYes,
@@ -294,6 +378,7 @@ async function initPostgres() {
       name text NOT NULL,
       email text NOT NULL UNIQUE,
       password_hash text NOT NULL,
+      points_balance numeric NOT NULL DEFAULT 10000,
       created_at timestamptz NOT NULL DEFAULT now()
     );
   `);
@@ -303,10 +388,17 @@ async function initPostgres() {
       title text NOT NULL,
       description text NOT NULL DEFAULT '',
       category text NOT NULL DEFAULT 'Общее',
+      resolution_source text NOT NULL DEFAULT '',
+      resolution_rules text NOT NULL DEFAULT '',
+      start_date timestamptz,
       close_date timestamptz NOT NULL,
       status text NOT NULL DEFAULT 'open',
       yes_pool numeric NOT NULL DEFAULT 0,
       no_pool numeric NOT NULL DEFAULT 0,
+      liquidity numeric NOT NULL DEFAULT 1000,
+      initial_probability numeric NOT NULL DEFAULT 50,
+      tick_size numeric NOT NULL DEFAULT 1,
+      min_order_size numeric NOT NULL DEFAULT 1,
       created_by text REFERENCES users(id) ON DELETE SET NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -317,6 +409,7 @@ async function initPostgres() {
       market_id text NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
       user_id text REFERENCES users(id) ON DELETE SET NULL,
       outcome text NOT NULL CHECK (outcome IN ('YES', 'NO')),
+      side text NOT NULL DEFAULT 'BUY',
       amount numeric NOT NULL,
       price_cents numeric NOT NULL,
       yes_price_after_cents numeric NOT NULL DEFAULT 50,
@@ -325,6 +418,26 @@ async function initPostgres() {
       created_at timestamptz NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS positions (
+      user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      market_id text NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
+      outcome text NOT NULL CHECK (outcome IN ('YES', 'NO')),
+      shares numeric NOT NULL DEFAULT 0,
+      avg_price_cents numeric NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, market_id, outcome)
+    );
+  `);
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS points_balance numeric NOT NULL DEFAULT 10000;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolution_source text NOT NULL DEFAULT \'\';');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolution_rules text NOT NULL DEFAULT \'\';');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS start_date timestamptz;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS liquidity numeric NOT NULL DEFAULT 1000;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS initial_probability numeric NOT NULL DEFAULT 50;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS tick_size numeric NOT NULL DEFAULT 1;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS min_order_size numeric NOT NULL DEFAULT 1;');
+  await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS side text NOT NULL DEFAULT \'BUY\';');
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS no_price_after_cents numeric;');
   await pool.query('CREATE INDEX IF NOT EXISTS markets_created_at_idx ON markets (created_at DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS votes_market_created_at_idx ON votes (market_id, created_at DESC);');
@@ -336,7 +449,7 @@ async function ensureJsonDb() {
   try {
     await fs.access(jsonDbPath);
   } catch {
-    await fs.writeFile(jsonDbPath, JSON.stringify({ users: [], markets: [], votes: [] }, null, 2));
+    await fs.writeFile(jsonDbPath, JSON.stringify({ users: [], markets: [], votes: [], positions: [] }, null, 2));
   }
 }
 
@@ -344,7 +457,14 @@ async function readJsonDb() {
   await ensureJsonDb();
   const content = await fs.readFile(jsonDbPath, 'utf8');
 
-  return JSON.parse(content);
+  const db = JSON.parse(content);
+
+  db.users ||= [];
+  db.markets ||= [];
+  db.votes ||= [];
+  db.positions ||= [];
+
+  return db;
 }
 
 async function writeJsonDb(db) {
@@ -368,8 +488,8 @@ const storage = {
     if (pool) {
       try {
         const result = await pool.query(
-          'INSERT INTO users (id, name, email, password_hash, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, created_at',
-          [id, name, email, passwordHash, createdAt],
+          'INSERT INTO users (id, name, email, password_hash, points_balance, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, points_balance, created_at',
+          [id, name, email, passwordHash, defaultStartingBalance, createdAt],
         );
         const user = result.rows[0];
 
@@ -377,6 +497,7 @@ const storage = {
           id: user.id,
           name: user.name,
           email: user.email,
+          balance: user.points_balance,
           createdAt: user.created_at,
         };
       } catch (error) {
@@ -396,7 +517,7 @@ const storage = {
       throw duplicateError;
     }
 
-    const user = { id, name, email, passwordHash, createdAt };
+    const user = { id, name, email, passwordHash, balance: defaultStartingBalance, createdAt };
     db.users.push(user);
     await writeJsonDb(db);
 
@@ -405,7 +526,7 @@ const storage = {
 
   async findUserByEmail(email) {
     if (pool) {
-      const result = await pool.query('SELECT id, name, email, password_hash, created_at FROM users WHERE email = $1', [email]);
+      const result = await pool.query('SELECT id, name, email, password_hash, points_balance, created_at FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
 
       return user
@@ -414,6 +535,7 @@ const storage = {
             name: user.name,
             email: user.email,
             passwordHash: user.password_hash,
+            balance: user.points_balance,
             createdAt: user.created_at,
           }
         : null;
@@ -425,7 +547,7 @@ const storage = {
 
   async findUserById(id) {
     if (pool) {
-      const result = await pool.query('SELECT id, name, email, created_at FROM users WHERE id = $1', [id]);
+      const result = await pool.query('SELECT id, name, email, points_balance, created_at FROM users WHERE id = $1', [id]);
       const user = result.rows[0];
 
       return user
@@ -433,6 +555,7 @@ const storage = {
             id: user.id,
             name: user.name,
             email: user.email,
+            balance: user.points_balance,
             createdAt: user.created_at,
           }
         : null;
@@ -503,7 +626,20 @@ const storage = {
       }));
   },
 
-  async createMarket({ title, description, category, closeDate, createdBy }) {
+  async createMarket({
+    title,
+    description,
+    category,
+    resolutionSource,
+    resolutionRules,
+    startDate,
+    closeDate,
+    liquidity,
+    initialProbability,
+    tickSize,
+    minOrderSize,
+    createdBy,
+  }) {
     const id = newId('mkt');
     const createdAt = new Date().toISOString();
     const market = {
@@ -511,10 +647,17 @@ const storage = {
       title,
       description,
       category,
+      resolutionSource,
+      resolutionRules,
+      startDate: new Date(startDate || createdAt).toISOString(),
       closeDate: new Date(closeDate).toISOString(),
       status: 'open',
       yesPool: 0,
       noPool: 0,
+      liquidity,
+      initialProbability,
+      tickSize,
+      minOrderSize,
       createdBy,
       createdAt,
       tradeCount: 0,
@@ -522,10 +665,28 @@ const storage = {
 
     if (pool) {
       const result = await pool.query(
-        `INSERT INTO markets (id, title, description, category, close_date, status, yes_pool, no_pool, created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5, 'open', 0, 0, $6, $7)
+        `INSERT INTO markets (
+          id, title, description, category, resolution_source, resolution_rules, start_date, close_date,
+          status, yes_pool, no_pool, liquidity, initial_probability, tick_size, min_order_size, created_by, created_at
+        )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
-        [id, title, description, category, market.closeDate, createdBy, createdAt],
+        [
+          id,
+          title,
+          description,
+          category,
+          resolutionSource,
+          resolutionRules,
+          market.startDate,
+          market.closeDate,
+          liquidity,
+          initialProbability,
+          tickSize,
+          minOrderSize,
+          createdBy,
+          createdAt,
+        ],
       );
 
       return normalizeMarket({ ...result.rows[0], trade_count: 0, creator_name: null });
@@ -628,17 +789,62 @@ const storage = {
     return trades;
   },
 
-  async placeVote({ marketId, userId, outcome, amount }) {
+  async getViewerState(marketId, userId) {
+    if (!userId) return null;
+
+    if (pool) {
+      const [userResult, positionsResult] = await Promise.all([
+        pool.query('SELECT points_balance FROM users WHERE id = $1', [userId]),
+        pool.query('SELECT outcome, shares, avg_price_cents FROM positions WHERE user_id = $1 AND market_id = $2', [userId, marketId]),
+      ]);
+      const positions = { YES: { shares: 0, avgPriceCents: 0 }, NO: { shares: 0, avgPriceCents: 0 } };
+
+      for (const row of positionsResult.rows) {
+        positions[row.outcome] = {
+          shares: roundMoney(asNumber(row.shares)),
+          avgPriceCents: asNumber(row.avg_price_cents),
+        };
+      }
+
+      return {
+        balance: roundMoney(asNumber(userResult.rows[0]?.points_balance, defaultStartingBalance)),
+        positions,
+      };
+    }
+
+    const db = await readJsonDb();
+    const user = db.users.find((item) => item.id === userId);
+    const positions = { YES: { shares: 0, avgPriceCents: 0 }, NO: { shares: 0, avgPriceCents: 0 } };
+
+    for (const row of db.positions.filter((position) => position.userId === userId && position.marketId === marketId)) {
+      positions[row.outcome] = {
+        shares: roundMoney(asNumber(row.shares)),
+        avgPriceCents: asNumber(row.avgPriceCents),
+      };
+    }
+
+    return {
+      balance: roundMoney(asNumber(user?.balance, defaultStartingBalance)),
+      positions,
+    };
+  },
+
+  async placeTrade({ marketId, userId, outcome, side, amount }) {
     const createdAt = new Date().toISOString();
-    const id = newId('vot');
+    const id = newId('trd');
 
     if (pool) {
       const client = await pool.connect();
 
       try {
         await client.query('BEGIN');
-        const marketResult = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
+        const [marketResult, userResult, positionResult] = await Promise.all([
+          client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]),
+          client.query('SELECT points_balance FROM users WHERE id = $1 FOR UPDATE', [userId]),
+          client.query('SELECT shares, avg_price_cents FROM positions WHERE user_id = $1 AND market_id = $2 AND outcome = $3 FOR UPDATE', [userId, marketId, outcome]),
+        ]);
         const row = marketResult.rows[0];
+        const userRow = userResult.rows[0];
 
         if (!row) {
           const notFoundError = new Error('MARKET_NOT_FOUND');
@@ -646,8 +852,18 @@ const storage = {
           throw notFoundError;
         }
 
+        if (!userRow) {
+          const notFoundError = new Error('USER_NOT_FOUND');
+          notFoundError.status = 404;
+          throw notFoundError;
+        }
+
         const market = normalizeMarket(row);
         assertMarketIsOpen(market);
+        const existingPosition = positionResult.rows[0] || { shares: 0, avg_price_cents: 0 };
+        const currentShares = asNumber(existingPosition.shares);
+        const currentAvgPrice = asNumber(existingPosition.avg_price_cents);
+        const userBalance = asNumber(userRow.points_balance, defaultStartingBalance);
 
         const latestTradeResult = await client.query(
           'SELECT outcome, price_cents, yes_price_after_cents, no_price_after_cents FROM votes WHERE market_id = $1 ORDER BY created_at DESC LIMIT 1',
@@ -661,25 +877,70 @@ const storage = {
            LIMIT 1`,
           [marketId],
         );
-        const currentYesPrice = clampPercent(asNumber(latestTradeResult.rows[0]?.yes_price_after_cents, 50));
+        const currentYesPrice = roundPriceToTick(
+          asNumber(latestTradeResult.rows[0]?.yes_price_after_cents, market.initialProbability),
+          market,
+        );
         const latestNoPrice = inferNoPriceAfter(latestTradeResult.rows[0]) ?? inferNoPriceAfter(latestNoTradeResult.rows[0]);
         const currentNoPrice = latestNoPrice != null
-          ? clampPercent(latestNoPrice)
-          : 50;
-        const { priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
-          amount,
+          ? roundPriceToTick(latestNoPrice, market)
+          : roundPriceToTick(100 - market.initialProbability, market);
+        const spendAmount = side === 'BUY' ? amount : 0;
+        const shareAmount = side === 'SELL' ? amount : 0;
+
+        if (side === 'SELL' && currentShares + 0.000001 < shareAmount) {
+          const positionError = new Error('INSUFFICIENT_POSITION');
+          positionError.status = 409;
+          throw positionError;
+        }
+
+        const { amount: tradeAmount, priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
+          market,
+          side,
+          spendAmount,
+          shareAmount,
           currentYesPrice,
           currentNoPrice,
           outcome,
           totalVolume: market.yesPool + market.noPool,
         });
-        const yesPool = outcome === 'YES' ? market.yesPool + amount : market.yesPool;
-        const noPool = outcome === 'NO' ? market.noPool + amount : market.noPool;
+
+        if (tradeAmount < market.minOrderSize) {
+          const sizeError = new Error('ORDER_TOO_SMALL');
+          sizeError.status = 400;
+          throw sizeError;
+        }
+
+        if (side === 'BUY' && userBalance + 0.000001 < tradeAmount) {
+          const balanceError = new Error('INSUFFICIENT_BALANCE');
+          balanceError.status = 409;
+          throw balanceError;
+        }
+
+        const yesPool = outcome === 'YES' ? market.yesPool + tradeAmount : market.yesPool;
+        const noPool = outcome === 'NO' ? market.noPool + tradeAmount : market.noPool;
+        const nextBalance = side === 'BUY'
+          ? userBalance - tradeAmount
+          : userBalance + tradeAmount;
+        const nextShares = side === 'BUY'
+          ? currentShares + shares
+          : currentShares - shares;
+        const nextAvgPrice = side === 'BUY' && nextShares > 0
+          ? ((currentShares * currentAvgPrice) + (shares * priceCents)) / nextShares
+          : currentAvgPrice;
 
         await client.query(
-          `INSERT INTO votes (id, market_id, user_id, outcome, amount, price_cents, yes_price_after_cents, no_price_after_cents, shares, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [id, marketId, userId, outcome, amount, priceCents, yesPriceAfterCents, noPriceAfterCents, shares, createdAt],
+          `INSERT INTO votes (id, market_id, user_id, outcome, side, amount, price_cents, yes_price_after_cents, no_price_after_cents, shares, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [id, marketId, userId, outcome, side, tradeAmount, priceCents, yesPriceAfterCents, noPriceAfterCents, shares, createdAt],
+        );
+        await client.query('UPDATE users SET points_balance = $1 WHERE id = $2', [roundMoney(nextBalance), userId]);
+        await client.query(
+          `INSERT INTO positions (user_id, market_id, outcome, shares, avg_price_cents, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (user_id, market_id, outcome)
+           DO UPDATE SET shares = EXCLUDED.shares, avg_price_cents = EXCLUDED.avg_price_cents, updated_at = EXCLUDED.updated_at`,
+          [userId, marketId, outcome, roundMoney(nextShares), nextAvgPrice, createdAt],
         );
         await client.query('UPDATE markets SET yes_pool = $1, no_pool = $2 WHERE id = $3', [yesPool, noPool, marketId]);
         await client.query('COMMIT');
@@ -695,6 +956,7 @@ const storage = {
 
     const db = await readJsonDb();
     const market = db.markets.find((item) => item.id === marketId);
+    const user = db.users.find((item) => item.id === userId);
 
     if (!market) {
       const notFoundError = new Error('MARKET_NOT_FOUND');
@@ -702,8 +964,23 @@ const storage = {
       throw notFoundError;
     }
 
+    if (!user) {
+      const notFoundError = new Error('USER_NOT_FOUND');
+      notFoundError.status = 404;
+      throw notFoundError;
+    }
+
     const normalizedMarket = normalizeMarket(market);
     assertMarketIsOpen(normalizedMarket);
+    user.balance = asNumber(user.balance, defaultStartingBalance);
+    const position = db.positions.find((item) => item.userId === userId && item.marketId === marketId && item.outcome === outcome)
+      || {
+        userId,
+        marketId,
+        outcome,
+        shares: 0,
+        avgPriceCents: 0,
+      };
 
     const latestTrade = [...db.votes]
       .filter((vote) => vote.marketId === marketId)
@@ -711,23 +988,63 @@ const storage = {
     const latestNoTrade = [...db.votes]
       .filter((vote) => vote.marketId === marketId && inferNoPriceAfter(vote) != null)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-    const currentYesPrice = clampPercent(asNumber(latestTrade?.yesPriceAfterCents, 50));
+    const currentYesPrice = roundPriceToTick(
+      asNumber(latestTrade?.yesPriceAfterCents, normalizedMarket.initialProbability),
+      normalizedMarket,
+    );
     const latestNoPrice = inferNoPriceAfter(latestTrade) ?? inferNoPriceAfter(latestNoTrade);
     const currentNoPrice = latestNoPrice != null
-      ? clampPercent(latestNoPrice)
-      : 50;
-    const { priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
-      amount,
+      ? roundPriceToTick(latestNoPrice, normalizedMarket)
+      : roundPriceToTick(100 - normalizedMarket.initialProbability, normalizedMarket);
+    const spendAmount = side === 'BUY' ? amount : 0;
+    const shareAmount = side === 'SELL' ? amount : 0;
+
+    if (side === 'SELL' && asNumber(position.shares) + 0.000001 < shareAmount) {
+      const positionError = new Error('INSUFFICIENT_POSITION');
+      positionError.status = 409;
+      throw positionError;
+    }
+
+    const { amount: tradeAmount, priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
+      market: normalizedMarket,
+      side,
+      spendAmount,
+      shareAmount,
       currentYesPrice,
       currentNoPrice,
       outcome,
       totalVolume: normalizedMarket.yesPool + normalizedMarket.noPool,
     });
 
+    if (tradeAmount < normalizedMarket.minOrderSize) {
+      const sizeError = new Error('ORDER_TOO_SMALL');
+      sizeError.status = 400;
+      throw sizeError;
+    }
+
+    if (side === 'BUY' && user.balance + 0.000001 < tradeAmount) {
+      const balanceError = new Error('INSUFFICIENT_BALANCE');
+      balanceError.status = 409;
+      throw balanceError;
+    }
+
     if (outcome === 'YES') {
-      market.yesPool = roundMoney(asNumber(market.yesPool) + amount);
+      market.yesPool = roundMoney(asNumber(market.yesPool) + tradeAmount);
     } else {
-      market.noPool = roundMoney(asNumber(market.noPool) + amount);
+      market.noPool = roundMoney(asNumber(market.noPool) + tradeAmount);
+    }
+
+    user.balance = roundMoney(side === 'BUY' ? user.balance - tradeAmount : user.balance + tradeAmount);
+    const previousShares = asNumber(position.shares);
+    const previousAvgPrice = asNumber(position.avgPriceCents);
+    position.shares = roundMoney(side === 'BUY' ? previousShares + shares : previousShares - shares);
+    position.avgPriceCents = side === 'BUY' && position.shares > 0
+      ? ((previousShares * previousAvgPrice) + (shares * priceCents)) / position.shares
+      : previousAvgPrice;
+    position.updatedAt = createdAt;
+
+    if (!db.positions.some((item) => item.userId === userId && item.marketId === marketId && item.outcome === outcome)) {
+      db.positions.push(position);
     }
 
     db.votes.push({
@@ -735,7 +1052,8 @@ const storage = {
       marketId,
       userId,
       outcome,
-      amount,
+      side,
+      amount: tradeAmount,
       priceCents,
       yesPriceAfterCents,
       noPriceAfterCents,
@@ -762,10 +1080,21 @@ function parseMarketInput(body) {
   const title = String(body.title || '').trim();
   const description = String(body.description || '').trim();
   const category = String(body.category || 'Общее').trim();
+  const resolutionSource = String(body.resolutionSource || '').trim();
+  const resolutionRules = String(body.resolutionRules || description || '').trim();
+  const startDate = body.startDate ? new Date(body.startDate) : new Date();
   const closeDate = new Date(body.closeDate);
+  const liquidity = Math.round(asNumber(body.liquidity, defaultMarketLiquidity));
+  const initialProbability = clampPercent(asNumber(body.initialProbability, 50));
+  const tickSize = asNumber(body.tickSize, defaultTickSize);
+  const minOrderSize = asNumber(body.minOrderSize, defaultMinOrderSize);
 
-  if (title.length < 8 || title.length > 180) {
-    throw validationError('Вопрос должен быть от 8 до 180 символов.');
+  if (title.length < 12 || title.length > 180) {
+    throw validationError('Вопрос должен быть от 12 до 180 символов.');
+  }
+
+  if (!title.endsWith('?')) {
+    throw validationError('Вопрос должен заканчиваться знаком вопроса.');
   }
 
   if (description.length > 2000) {
@@ -776,15 +1105,46 @@ function parseMarketInput(body) {
     throw validationError('Категория должна быть от 2 до 48 символов.');
   }
 
-  if (Number.isNaN(closeDate.getTime()) || closeDate.getTime() <= Date.now()) {
-    throw validationError('Дата завершения должна быть в будущем.');
+  if (resolutionSource.length < 4 || resolutionSource.length > 300) {
+    throw validationError('Укажи публичный источник резолюции.');
+  }
+
+  if (resolutionRules.length < 40 || resolutionRules.length > 2500) {
+    throw validationError('Правила резолюции должны быть от 40 до 2500 символов.');
+  }
+
+  if (Number.isNaN(startDate.getTime()) || startDate.getTime() < Date.now() - 60_000) {
+    throw validationError('Дата запуска не может быть в прошлом.');
+  }
+
+  if (Number.isNaN(closeDate.getTime()) || closeDate.getTime() <= startDate.getTime() + 60 * 60 * 1000) {
+    throw validationError('Завершение должно быть минимум через час после запуска.');
+  }
+
+  if (liquidity < 100 || liquidity > 100000) {
+    throw validationError('Виртуальная ликвидность должна быть от 100 до 100 000.');
+  }
+
+  if (![1, 0.5, 0.1].includes(tickSize)) {
+    throw validationError('Tick size должен быть 1, 0.5 или 0.1 цента.');
+  }
+
+  if (minOrderSize < 1 || minOrderSize > 1000) {
+    throw validationError('Минимальный размер сделки должен быть от 1 до 1000 очков.');
   }
 
   return {
     title,
     description,
     category,
+    resolutionSource,
+    resolutionRules,
+    startDate: startDate.toISOString(),
     closeDate: closeDate.toISOString(),
+    liquidity,
+    initialProbability,
+    tickSize,
+    minOrderSize,
   };
 }
 
@@ -821,18 +1181,38 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-async function marketDetailResponse(id) {
+async function optionalAuth(req, res, next) {
+  const header = req.get('authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  const session = token ? verifyToken(token) : null;
+
+  if (!session) {
+    next();
+    return;
+  }
+
+  const user = await storage.findUserById(session.sub);
+
+  if (user) {
+    req.user = publicUser(user);
+  }
+
+  next();
+}
+
+async function marketDetailResponse(id, viewerUserId = null) {
   const market = await storage.getMarket(id);
 
   if (!market) return null;
 
-  const [recentTrades, latestHistoryTrades] = await Promise.all([
+  const [recentTrades, latestHistoryTrades, viewer] = await Promise.all([
     storage.getTrades(id, 'desc', 8),
     storage.getTrades(id, 'desc', 80),
+    storage.getViewerState(id, viewerUserId),
   ]);
   const historyTrades = [...latestHistoryTrades].reverse();
 
-  return marketDto(market, { recentTrades, historyTrades });
+  return marketDto(market, { recentTrades, historyTrades, viewer });
 }
 
 const app = express();
@@ -909,13 +1289,13 @@ app.get(['/api/markets', '/api/posts'], asyncRoute(async (req, res) => {
 app.post(['/api/markets', '/api/posts'], requireAuth, asyncRoute(async (req, res) => {
   const input = parseMarketInput(req.body);
   const market = await storage.createMarket({ ...input, createdBy: req.user.id });
-  const detail = await marketDetailResponse(market.id);
+  const detail = await marketDetailResponse(market.id, req.user.id);
 
   res.status(201).json({ market: detail });
 }));
 
-app.get(['/api/markets/:id', '/api/posts/:id'], asyncRoute(async (req, res) => {
-  const market = await marketDetailResponse(req.params.id);
+app.get(['/api/markets/:id', '/api/posts/:id'], optionalAuth, asyncRoute(async (req, res) => {
+  const market = await marketDetailResponse(req.params.id, req.user?.id);
 
   if (!market) {
     res.status(404).json({ error: 'Рынок не найден.' });
@@ -925,26 +1305,32 @@ app.get(['/api/markets/:id', '/api/posts/:id'], asyncRoute(async (req, res) => {
   res.json({ market });
 }));
 
-app.post(['/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, asyncRoute(async (req, res) => {
+app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, asyncRoute(async (req, res) => {
   const outcome = String(req.body.outcome || '').toUpperCase();
+  const side = String(req.body.side || 'BUY').toUpperCase();
   const amount = roundMoney(Number(req.body.amount));
 
   if (outcome !== 'YES' && outcome !== 'NO') {
     throw validationError('Выбери Да или Нет.');
   }
 
-  if (!Number.isFinite(amount) || amount < 1 || amount > 10000) {
-    throw validationError('Сумма должна быть от $1 до $10 000.');
+  if (side !== 'BUY' && side !== 'SELL') {
+    throw validationError('Выбери покупку или продажу.');
   }
 
-  await storage.placeVote({
+  if (!Number.isFinite(amount) || amount < 1 || amount > 10000) {
+    throw validationError(side === 'BUY' ? 'Сумма должна быть от 1 до 10 000 очков.' : 'Количество долей должно быть от 1 до 10 000.');
+  }
+
+  await storage.placeTrade({
     marketId: req.params.id,
     userId: req.user.id,
     outcome,
+    side,
     amount,
   });
 
-  const market = await marketDetailResponse(req.params.id);
+  const market = await marketDetailResponse(req.params.id, req.user.id);
   res.status(201).json({ market });
 }));
 
@@ -959,6 +1345,10 @@ app.use((error, req, res, next) => {
     EMAIL_EXISTS: 'Такой email уже зарегистрирован.',
     MARKET_NOT_FOUND: 'Рынок не найден.',
     MARKET_CLOSED: 'Рынок закрыт для новых сделок.',
+    USER_NOT_FOUND: 'Пользователь не найден.',
+    INSUFFICIENT_BALANCE: 'Недостаточно очков на балансе.',
+    INSUFFICIENT_POSITION: 'Недостаточно долей для продажи.',
+    ORDER_TOO_SMALL: 'Сделка меньше минимального размера рынка.',
   };
 
   if (status >= 500) {
