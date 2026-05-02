@@ -8,7 +8,7 @@ Minimal prediction-market app with a React frontend and Express backend.
 - Creating real post-markets from the UI.
 - Listing markets from the backend instead of mock data.
 - Yes/No trades with entry price, shares, volume, and last-traded probability updates.
-- Postgres on Railway via `DATABASE_URL`, with local JSON storage fallback.
+- Postgres on Railway via `DATABASE_URL`, with local JSON storage fallback only for development.
 
 ## Local Development
 
@@ -28,6 +28,7 @@ Copy `.env.example` to `.env` when you need local env values.
 ```bash
 JWT_SECRET="a-long-random-secret"
 DATABASE_URL=""
+ALLOW_JSON_STORAGE="false"
 DATABASE_SSL="false"
 PORT="3000"
 ```
@@ -36,9 +37,10 @@ PORT="3000"
 
 1. Create a new Railway project from this repo.
 2. Add a Postgres service.
-3. Make sure the app service has `DATABASE_URL` from Railway Postgres.
+3. In the app service variables, add `DATABASE_URL` as a reference to the Postgres service connection string.
 4. Add `JWT_SECRET` as a long random value.
-5. Railway can use:
+5. Do not set `ALLOW_JSON_STORAGE=true` on Railway unless you intentionally want temporary test data.
+6. Railway can use:
 
 ```bash
 npm run build
@@ -46,6 +48,8 @@ npm start
 ```
 
 The Express server serves `/api/*` and the built React app from `dist`.
+
+In production/Railway the server refuses to start without Postgres. That prevents the app from silently writing to Railway's ephemeral filesystem and losing users, markets, and trades after a redeploy.
 
 ## Voting Model
 

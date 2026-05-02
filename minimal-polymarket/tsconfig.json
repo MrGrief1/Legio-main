@@ -22,5 +22,16 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "src",
+    "server"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "node_modules.*",
+    ".playwright-cli",
+    "output"
+  ]
 }

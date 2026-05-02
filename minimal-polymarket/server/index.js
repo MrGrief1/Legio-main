@@ -15,6 +15,7 @@ const rootDir = path.resolve(__dirname, '..');
 const dataDir = path.join(__dirname, 'data');
 const jsonDbPath = path.join(dataDir, 'db.json');
 const isProduction = process.env.NODE_ENV === 'production';
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
 const port = Number(process.env.PORT || 3000);
 const authSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'local-dev-secret-change-before-deploy';
 const sessionTtlSeconds = 60 * 60 * 24 * 14;
@@ -24,10 +25,22 @@ const defaultMinOrderSize = 1;
 const defaultTickSize = 1;
 const marketStatuses = new Set(['open', 'paused', 'resolved', 'canceled']);
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl =
+  process.env.DATABASE_URL
+  || process.env.POSTGRES_URL
+  || process.env.DATABASE_PRIVATE_URL
+  || process.env.POSTGRES_PRIVATE_URL
+  || '';
+const hasPgEnvironment = Boolean(process.env.PGHOST && process.env.PGDATABASE && process.env.PGUSER);
+const allowJsonStorage = process.env.ALLOW_JSON_STORAGE === 'true';
+const shouldRequirePersistentStorage = !allowJsonStorage && (isProduction || isRailway);
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
+      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    })
+  : hasPgEnvironment
+  ? new Pool({
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     })
   : null;
@@ -539,6 +552,12 @@ async function initStorage() {
   if (pool) {
     await initPostgres();
     return;
+  }
+
+  if (shouldRequirePersistentStorage) {
+    throw new Error(
+      'Persistent database is required in production/Railway. Add a Railway Postgres service and expose DATABASE_URL to this app service, or set ALLOW_JSON_STORAGE=true only for temporary testing.',
+    );
   }
 
   await readJsonDb();
