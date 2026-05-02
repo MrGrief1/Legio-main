@@ -29,7 +29,7 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="flex min-h-[320px] flex-col justify-center rounded-xl border border-dashed border-pm-border bg-pm-surface p-6"
+        className="flex min-h-[260px] flex-col justify-center rounded-xl border border-dashed border-pm-border bg-pm-surface p-5 sm:min-h-[320px] sm:p-6"
       >
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
           <PlusCircle className="h-6 w-6" />
@@ -58,17 +58,17 @@ export function FeaturedMarket({ market }: { market?: Market }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="rounded-xl border border-pm-border bg-pm-surface p-4 transition-colors hover:border-pm-text-muted lg:p-5"
+      className="rounded-xl border border-pm-border bg-pm-surface p-3.5 transition-colors hover:border-pm-text-muted sm:p-4 lg:p-5"
     >
-      <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="mb-4 flex items-start justify-between gap-3 sm:mb-5 sm:gap-4">
         <div className="min-w-0">
           <div className="mb-2 text-sm font-semibold text-pm-text-muted">{market.category}</div>
           <Link to={`/market/${market.id}`} className="group">
-            <h2 className="text-xl font-bold leading-tight text-pm-text-strong group-hover:text-pm-blue lg:text-2xl">
+            <h2 className="text-lg font-bold leading-tight text-pm-text-strong group-hover:text-pm-blue sm:text-xl lg:text-2xl">
               {market.title}
             </h2>
           </Link>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold text-pm-text-muted">
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm font-semibold text-pm-text-muted">
             <span>{formatMoney(market.volume)} Объём</span>
             <span>•</span>
             <span>{market.tradeCount} сделок</span>

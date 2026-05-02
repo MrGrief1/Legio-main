@@ -96,13 +96,13 @@ export function Home() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6 sm:py-5"
+      className="mx-auto max-w-[1400px] px-3 py-3 sm:px-6 sm:py-5"
     >
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:mb-6 lg:grid-cols-3 lg:gap-6">
         <div className="lg:col-span-2">
           <FeaturedMarket market={markets[0]} />
         </div>
-        <div className="h-full lg:col-span-1">
+        <div className="hidden h-full lg:col-span-1 lg:block">
           <Sidebar markets={markets} />
         </div>
       </div>
@@ -122,7 +122,7 @@ export function Home() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_40px] gap-2 sm:w-auto sm:flex sm:items-center">
           <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-surface px-3 md:w-[320px]">
             <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
             <input
@@ -143,7 +143,7 @@ export function Home() {
           {user?.isAdmin && (
             <Link
               to="/create"
-              className="flex h-10 items-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+              className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
             >
               <PlusCircle className="h-4 w-4" />
               Создать

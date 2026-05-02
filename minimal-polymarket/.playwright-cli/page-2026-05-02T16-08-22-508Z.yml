@@ -1,0 +1,13 @@
+- generic [ref=e3]:
+  - generic [ref=e4]: "[plugin:vite:react-babel] Cannot find module './cjs/react-refresh-babel.development.js' Require stack: - /Users/maks/Documents/Legio-main/minimal-polymarket/node_modules/react-refresh/babel.js"
+  - generic [ref=e5]: /Users/maks/Documents/Legio-main/minimal-polymarket/src/main.tsx
+  - generic [ref=e6]: at Module._resolveFilename (node:internal/modules/cjs/loader:1383:15) at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19) at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22) at Module._load (node:internal/modules/cjs/loader:1192:37) at TracingChannel.traceSync (node:diagnostics_channel:328:14) at wrapModuleLoad (node:internal/modules/cjs/loader:237:24) at Module.require (node:internal/modules/cjs/loader:1463:12) at require (node:internal/modules/helpers:147:16) at Object.<anonymous> (/Users/maks/Documents/Legio-main/minimal-polymarket/node_modules/react-refresh/babel.js:6:20) at Module._compile (node:internal/modules/cjs/loader:1706:14
+  - generic [ref=e7]:
+    - text: Click outside, press Esc key, or fix the code to dismiss.
+    - text: You can also disable this overlay by setting
+    - code [ref=e8]: server.hmr.overlay
+    - text: to
+    - code [ref=e9]: "false"
+    - text: in
+    - code [ref=e10]: vite.config.ts
+    - text: .

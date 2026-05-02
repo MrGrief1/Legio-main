@@ -6,7 +6,7 @@
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
-import { AuthProvider } from './lib/auth';
+import { AuthProvider, useAuth } from './lib/auth';
 import { AuthPage } from './pages/AuthPage';
 import { AdminPage } from './pages/AdminPage';
 import { CreateMarket } from './pages/CreateMarket';
@@ -53,6 +53,27 @@ function ScrollToTop() {
   return null;
 }
 
+function AppShell({ theme, onThemeToggle }: { theme: Theme; onThemeToggle: () => void }) {
+  const { user } = useAuth();
+
+  return (
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-pm-bg font-sans">
+      <ScrollToTop />
+      <Navbar theme={theme} onThemeToggle={onThemeToggle} />
+      <main className={user?.isAdmin ? 'flex-1 pb-20 sm:pb-0' : 'flex-1'}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/create" element={<CreateMarket />} />
+          <Route path="/login" element={<AuthPage mode="login" />} />
+          <Route path="/register" element={<AuthPage mode="register" />} />
+          <Route path="/market/:id" element={<MarketDetail />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
 
@@ -69,20 +90,7 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <div className="min-h-screen bg-pm-bg flex flex-col font-sans">
-          <ScrollToTop />
-          <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
-          <main className="flex-1">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/admin" element={<AdminPage />} />
-              <Route path="/create" element={<CreateMarket />} />
-              <Route path="/login" element={<AuthPage mode="login" />} />
-              <Route path="/register" element={<AuthPage mode="register" />} />
-              <Route path="/market/:id" element={<MarketDetail />} />
-            </Routes>
-          </main>
-        </div>
+        <AppShell theme={theme} onThemeToggle={handleThemeToggle} />
       </AuthProvider>
     </Router>
   );

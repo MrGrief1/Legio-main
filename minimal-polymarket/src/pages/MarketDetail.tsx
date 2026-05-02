@@ -347,7 +347,7 @@ function TradePanel({
   };
 
   return (
-    <aside className="sticky top-24 self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
+    <aside className="self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
           {categoryIcon(market.category)}
@@ -683,14 +683,14 @@ export function MarketDetail() {
       transition={{ duration: 0.25 }}
       className="min-h-full bg-pm-page"
     >
-      <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-6 px-4 py-3 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-5 px-3 py-3 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
         <section className="min-w-0 space-y-4">
           <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
             <ArrowLeft className="h-4 w-4" />
             Все рынки
           </Link>
 
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface text-lg font-bold text-pm-text-strong">
                 {categoryIcon(market.category)}

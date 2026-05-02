@@ -126,8 +126,8 @@ export function MarketCard({
         </div>
       )}
 
-      <div className="mt-auto flex items-center justify-between pt-2">
-        <div className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-pm-text-muted">
+      <div className="mt-auto flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] font-semibold text-pm-text-muted">
           {status === 'active' && (
              <div className="flex items-center gap-1 font-bold uppercase text-pm-red">
                <div className="h-1.5 w-1.5 rounded-full bg-pm-red" />
@@ -155,7 +155,7 @@ export function MarketCard({
             </>
           )}
         </div>
-        <div className="ml-2 flex shrink-0 items-center gap-2 text-pm-text-muted">
+        <div className="flex shrink-0 items-center gap-2 text-pm-text-muted sm:ml-2">
           <Gift className="h-4 w-4 transition-colors hover:text-pm-text-strong" />
           <Bookmark className="h-4 w-4 transition-colors hover:text-pm-text-strong" />
         </div>

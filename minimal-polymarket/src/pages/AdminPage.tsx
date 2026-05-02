@@ -10,6 +10,7 @@ import {
   Eye,
   LayoutDashboard,
   LockKeyhole,
+  PlusCircle,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -328,24 +329,24 @@ export function AdminPage() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.25 }}
-      className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6"
+      className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-5"
     >
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-pm-border bg-pm-surface text-pm-blue">
             <LayoutDashboard className="h-5 w-5" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Legio Control</p>
-            <h1 className="text-2xl font-bold text-pm-text-strong">Админ-панель</h1>
+            <h1 className="text-xl font-bold text-pm-text-strong sm:text-2xl">Админ-панель</h1>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap sm:items-center">
           <button
             type="button"
             onClick={() => void refreshOverview()}
             disabled={isOverviewLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-4 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60 sm:px-4"
           >
             <RefreshCw className={isOverviewLoading ? 'h-4 w-4 animate-spin text-pm-blue' : 'h-4 w-4 text-pm-blue'} />
             Обновить
@@ -354,15 +355,16 @@ export function AdminPage() {
             type="button"
             onClick={exportSnapshot}
             disabled={!overview}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-4 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60 sm:px-4"
           >
             <Download className="h-4 w-4 text-pm-blue" />
             Экспорт
           </button>
           <Link
             to="/create"
-            className="inline-flex h-10 items-center rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            className="col-span-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
           >
+            <PlusCircle className="h-4 w-4" />
             Новый рынок
           </Link>
         </div>
@@ -389,12 +391,12 @@ export function AdminPage() {
         </div>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="mb-5 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 xl:grid-cols-8">
         {statCards.map((card) => {
           const Icon = card.icon;
 
           return (
-            <div key={card.label} className="rounded-xl border border-pm-border bg-pm-surface p-3 shadow-[0_1px_2px_var(--color-pm-card-shadow)]">
+            <div key={card.label} className="rounded-xl border border-pm-border bg-pm-surface p-2.5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="truncate text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{card.label}</span>
                 <Icon className={`h-4 w-4 shrink-0 ${card.tone}`} />
@@ -405,7 +407,7 @@ export function AdminPage() {
         })}
       </div>
 
-      <div className="mb-5 flex gap-2 overflow-x-auto border-b border-pm-border">
+      <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto border-b border-pm-border">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -413,8 +415,8 @@ export function AdminPage() {
             onClick={() => setActiveTab(tab.id)}
             className={
               activeTab === tab.id
-                ? 'border-b-2 border-pm-blue px-3 py-3 text-sm font-bold text-pm-text-strong'
-                : 'px-3 py-3 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+                ? 'shrink-0 border-b-2 border-pm-blue px-3 py-3 text-sm font-bold text-pm-text-strong'
+                : 'shrink-0 px-3 py-3 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
             {tab.label}
@@ -424,13 +426,13 @@ export function AdminPage() {
 
       {(activeTab === 'overview' || activeTab === 'users') && (
         <section className="mb-5 rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
-          <div className="flex flex-col gap-3 border-b border-pm-border p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-lg font-bold text-pm-text-strong">Пользователи и роли</h2>
               <p className="mt-1 text-sm font-semibold text-pm-text-muted">{filteredUsers.length} из {overview?.users.length ?? 0}</p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3 sm:w-[280px]">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,280px)_150px]">
+              <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3">
                 <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
                 <input
                   value={userQuery}
@@ -453,7 +455,7 @@ export function AdminPage() {
 
           <div className="divide-y divide-pm-border">
             {filteredUsers.length > 0 ? filteredUsers.map((item) => (
-              <div key={item.id} className="grid grid-cols-1 gap-3 p-4 xl:grid-cols-[minmax(0,1.4fr)_220px_240px_220px] xl:items-center">
+              <div key={item.id} className="grid grid-cols-1 gap-3 p-3 sm:p-4 xl:grid-cols-[minmax(0,1.4fr)_220px_240px_220px] xl:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-base font-bold text-pm-text-strong">{item.name}</h3>
@@ -466,15 +468,15 @@ export function AdminPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center xl:text-left">
-                  <div>
+                  <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
                     <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Рынки</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.marketCount}</div>
                   </div>
-                  <div>
+                  <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
                     <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Сделки</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.tradeCount}</div>
                   </div>
-                  <div>
+                  <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
                     <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Позиции</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.positionCount}</div>
                   </div>
@@ -500,8 +502,8 @@ export function AdminPage() {
                   disabled={item.id === user.id && item.isAdmin}
                   className={
                     item.isAdmin
-                      ? 'inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors hover:bg-[#ef4444]/15 disabled:cursor-not-allowed disabled:opacity-50'
-                      : 'inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors hover:bg-[#22c55e]/15'
+                      ? 'inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors hover:bg-[#ef4444]/15 disabled:cursor-not-allowed disabled:opacity-50 xl:w-auto'
+                      : 'inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors hover:bg-[#22c55e]/15 xl:w-auto'
                   }
                 >
                   {item.isAdmin ? <XCircle className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
@@ -519,13 +521,13 @@ export function AdminPage() {
 
       {(activeTab === 'overview' || activeTab === 'markets') && (
         <section className="mb-5 rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
-          <div className="flex flex-col gap-3 border-b border-pm-border p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-lg font-bold text-pm-text-strong">Модерация рынков</h2>
               <p className="mt-1 text-sm font-semibold text-pm-text-muted">{filteredMarkets.length} из {overview?.markets.length ?? 0}</p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3 sm:w-[320px]">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,320px)_170px]">
+              <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3">
                 <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
                 <input
                   value={marketQuery}
@@ -549,7 +551,7 @@ export function AdminPage() {
 
           <div className="divide-y divide-pm-border">
             {filteredMarkets.length > 0 ? filteredMarkets.map((market) => (
-              <div key={market.id} className="grid grid-cols-1 gap-3 p-4 xl:grid-cols-[minmax(0,1.6fr)_250px_210px_120px] xl:items-center">
+              <div key={market.id} className="grid grid-cols-1 gap-3 p-3 sm:p-4 xl:grid-cols-[minmax(0,1.6fr)_250px_210px_120px] xl:items-center">
                 <div className="min-w-0">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${statusClassName(market.status)}`}>
@@ -567,7 +569,7 @@ export function AdminPage() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Да</div>
                     <div className="mt-1 font-bold text-pm-green">{market.yesPercent}%</div>
@@ -589,18 +591,18 @@ export function AdminPage() {
                 <select
                   value={market.status}
                   onChange={(event) => void updateMarketStatus(market, event.target.value as MarketStatus)}
-                  className="h-10 rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
+                  className="h-10 w-full rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
                 >
                   {statusOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
 
-                <div className="flex items-center gap-2 xl:justify-end">
+                <div className="grid grid-cols-2 gap-2 xl:flex xl:items-center xl:justify-end">
                   <Link
                     to={`/market/${market.id}`}
                     aria-label="Открыть рынок"
-                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-pm-border bg-pm-bg/35 text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                    className="flex h-10 items-center justify-center rounded-lg border border-pm-border bg-pm-bg/35 text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong xl:w-10"
                   >
                     <Eye className="h-4 w-4" />
                   </Link>
@@ -608,7 +610,7 @@ export function AdminPage() {
                     type="button"
                     onClick={() => void deleteMarket(market)}
                     aria-label="Удалить рынок"
-                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 text-pm-red transition-colors hover:bg-[#ef4444]/15"
+                    className="flex h-10 items-center justify-center rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 text-pm-red transition-colors hover:bg-[#ef4444]/15 xl:w-10"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -625,7 +627,7 @@ export function AdminPage() {
 
       {(activeTab === 'overview' || activeTab === 'activity') && (
         <section className="rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-pm-border p-4">
+          <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4">
             <div>
               <h2 className="text-lg font-bold text-pm-text-strong">Последняя активность</h2>
               <p className="mt-1 text-sm font-semibold text-pm-text-muted">Последние {overview?.recentTrades.length ?? 0} сделок</p>
@@ -637,7 +639,7 @@ export function AdminPage() {
 
           <div className="divide-y divide-pm-border">
             {(overview?.recentTrades.length ?? 0) > 0 ? overview?.recentTrades.map((trade) => (
-              <div key={trade.id} className="grid grid-cols-1 gap-2 p-4 lg:grid-cols-[minmax(0,1fr)_180px_160px] lg:items-center">
+              <div key={trade.id} className="grid grid-cols-1 gap-2 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_180px_160px] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-bold text-pm-text-strong">{trade.userName}</span>
