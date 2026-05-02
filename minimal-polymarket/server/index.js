@@ -22,6 +22,7 @@ const defaultStartingBalance = 10000;
 const defaultMarketLiquidity = 1000;
 const defaultMinOrderSize = 1;
 const defaultTickSize = 1;
+const marketStatuses = new Set(['open', 'paused', 'resolved', 'canceled']);
 
 const databaseUrl = process.env.DATABASE_URL;
 const pool = databaseUrl
@@ -110,8 +111,9 @@ function publicUser(user) {
     id: user.id,
     name: user.name,
     email: user.email,
-    balance: roundMoney(asNumber(user.balance ?? user.pointsBalance, defaultStartingBalance)),
-    createdAt: new Date(user.createdAt).toISOString(),
+    isAdmin: Boolean(user.isAdmin ?? user.is_admin),
+    balance: roundMoney(asNumber(user.balance ?? user.pointsBalance ?? user.points_balance, defaultStartingBalance)),
+    createdAt: new Date(user.createdAt ?? user.created_at).toISOString(),
   };
 }
 
@@ -273,6 +275,31 @@ function normalizeTrade(row) {
   };
 }
 
+function adminUserDto(row) {
+  return {
+    ...publicUser(row),
+    marketCount: asNumber(row.market_count ?? row.marketCount),
+    tradeCount: asNumber(row.trade_count ?? row.tradeCount),
+    positionCount: asNumber(row.position_count ?? row.positionCount),
+  };
+}
+
+function adminTradeDto(row) {
+  return {
+    id: row.id,
+    marketId: row.market_id || row.marketId,
+    marketTitle: row.market_title || row.marketTitle || 'Рынок',
+    userId: row.user_id || row.userId,
+    userName: row.user_name || row.userName || 'Пользователь',
+    outcome: row.outcome,
+    side: row.side || 'BUY',
+    amount: roundMoney(asNumber(row.amount)),
+    priceCents: asNumber(row.price_cents ?? row.priceCents),
+    shares: roundMoney(asNumber(row.shares)),
+    createdAt: new Date(row.created_at || row.createdAt).toISOString(),
+  };
+}
+
 function marketDto(market, options = {}) {
   const prices = getDisplayPrices(market);
   const volume = roundMoney(market.yesPool + market.noPool);
@@ -378,6 +405,7 @@ async function initPostgres() {
       name text NOT NULL,
       email text NOT NULL UNIQUE,
       password_hash text NOT NULL,
+      is_admin boolean NOT NULL DEFAULT false,
       points_balance numeric NOT NULL DEFAULT 10000,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -429,6 +457,7 @@ async function initPostgres() {
       PRIMARY KEY (user_id, market_id, outcome)
     );
   `);
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS points_balance numeric NOT NULL DEFAULT 10000;');
   await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolution_source text NOT NULL DEFAULT \'\';');
   await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolution_rules text NOT NULL DEFAULT \'\';');
@@ -441,6 +470,18 @@ async function initPostgres() {
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS no_price_after_cents numeric;');
   await pool.query('CREATE INDEX IF NOT EXISTS markets_created_at_idx ON markets (created_at DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS votes_market_created_at_idx ON votes (market_id, created_at DESC);');
+  await pool.query(`
+    WITH first_user AS (
+      SELECT id
+      FROM users
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE users
+    SET is_admin = true
+    WHERE id IN (SELECT id FROM first_user)
+      AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = true);
+  `);
 }
 
 async function ensureJsonDb() {
@@ -458,11 +499,34 @@ async function readJsonDb() {
   const content = await fs.readFile(jsonDbPath, 'utf8');
 
   const db = JSON.parse(content);
+  let changed = false;
 
   db.users ||= [];
   db.markets ||= [];
   db.votes ||= [];
   db.positions ||= [];
+
+  for (const user of db.users) {
+    if (typeof user.isAdmin !== 'boolean') {
+      user.isAdmin = Boolean(user.is_admin);
+      changed = true;
+    }
+  }
+
+  if (db.users.length > 0 && !db.users.some((user) => user.isAdmin)) {
+    const firstUser = [...db.users].sort((left, right) => (
+      new Date(left.createdAt || 0).getTime() - new Date(right.createdAt || 0).getTime()
+    ))[0];
+
+    if (firstUser) {
+      firstUser.isAdmin = true;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await writeJsonDb(db);
+  }
 
   return db;
 }
@@ -477,7 +541,7 @@ async function initStorage() {
     return;
   }
 
-  await ensureJsonDb();
+  await readJsonDb();
 }
 
 const storage = {
@@ -486,27 +550,38 @@ const storage = {
     const createdAt = new Date().toISOString();
 
     if (pool) {
+      const client = await pool.connect();
+
       try {
-        const result = await pool.query(
-          'INSERT INTO users (id, name, email, password_hash, points_balance, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, points_balance, created_at',
-          [id, name, email, passwordHash, defaultStartingBalance, createdAt],
+        await client.query('BEGIN');
+        await client.query('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE');
+        const countResult = await client.query('SELECT COUNT(*)::int AS count FROM users');
+        const isAdmin = asNumber(countResult.rows[0]?.count) === 0;
+        const result = await client.query(
+          'INSERT INTO users (id, name, email, password_hash, is_admin, points_balance, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, is_admin, points_balance, created_at',
+          [id, name, email, passwordHash, isAdmin, defaultStartingBalance, createdAt],
         );
         const user = result.rows[0];
+        await client.query('COMMIT');
 
         return {
           id: user.id,
           name: user.name,
           email: user.email,
+          isAdmin: user.is_admin,
           balance: user.points_balance,
           createdAt: user.created_at,
         };
       } catch (error) {
+        await client.query('ROLLBACK');
         if (error.code === '23505') {
           const duplicateError = new Error('EMAIL_EXISTS');
           duplicateError.status = 409;
           throw duplicateError;
         }
         throw error;
+      } finally {
+        client.release();
       }
     }
 
@@ -517,7 +592,15 @@ const storage = {
       throw duplicateError;
     }
 
-    const user = { id, name, email, passwordHash, balance: defaultStartingBalance, createdAt };
+    const user = {
+      id,
+      name,
+      email,
+      passwordHash,
+      isAdmin: db.users.length === 0,
+      balance: defaultStartingBalance,
+      createdAt,
+    };
     db.users.push(user);
     await writeJsonDb(db);
 
@@ -526,7 +609,7 @@ const storage = {
 
   async findUserByEmail(email) {
     if (pool) {
-      const result = await pool.query('SELECT id, name, email, password_hash, points_balance, created_at FROM users WHERE email = $1', [email]);
+      const result = await pool.query('SELECT id, name, email, password_hash, is_admin, points_balance, created_at FROM users WHERE email = $1', [email]);
       const user = result.rows[0];
 
       return user
@@ -535,6 +618,7 @@ const storage = {
             name: user.name,
             email: user.email,
             passwordHash: user.password_hash,
+            isAdmin: user.is_admin,
             balance: user.points_balance,
             createdAt: user.created_at,
           }
@@ -547,7 +631,7 @@ const storage = {
 
   async findUserById(id) {
     if (pool) {
-      const result = await pool.query('SELECT id, name, email, points_balance, created_at FROM users WHERE id = $1', [id]);
+      const result = await pool.query('SELECT id, name, email, is_admin, points_balance, created_at FROM users WHERE id = $1', [id]);
       const user = result.rows[0];
 
       return user
@@ -555,6 +639,7 @@ const storage = {
             id: user.id,
             name: user.name,
             email: user.email,
+            isAdmin: user.is_admin,
             balance: user.points_balance,
             createdAt: user.created_at,
           }
@@ -563,6 +648,198 @@ const storage = {
 
     const db = await readJsonDb();
     return db.users.find((user) => user.id === id) || null;
+  },
+
+  async listUsersForAdmin() {
+    if (pool) {
+      const result = await pool.query(`
+        SELECT
+          u.id,
+          u.name,
+          u.email,
+          u.is_admin,
+          u.points_balance,
+          u.created_at,
+          (
+            SELECT COUNT(*)::int
+            FROM markets m
+            WHERE m.created_by = u.id
+          ) AS market_count,
+          (
+            SELECT COUNT(*)::int
+            FROM votes v
+            WHERE v.user_id = u.id
+          ) AS trade_count,
+          (
+            SELECT COUNT(*)::int
+            FROM positions p
+            WHERE p.user_id = u.id AND p.shares > 0
+          ) AS position_count
+        FROM users u
+        ORDER BY u.created_at ASC
+      `);
+
+      return result.rows.map(adminUserDto);
+    }
+
+    const db = await readJsonDb();
+    return [...db.users]
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      .map((user) => adminUserDto({
+        ...user,
+        marketCount: db.markets.filter((market) => market.createdBy === user.id).length,
+        tradeCount: db.votes.filter((vote) => vote.userId === user.id).length,
+        positionCount: db.positions.filter((position) => position.userId === user.id && asNumber(position.shares) > 0).length,
+      }));
+  },
+
+  async setUserAdmin({ userId, isAdmin, actorUserId }) {
+    if (!isAdmin && userId === actorUserId) {
+      const selfError = new Error('CANNOT_DEMOTE_SELF');
+      selfError.status = 409;
+      throw selfError;
+    }
+
+    if (pool) {
+      const targetResult = await pool.query('SELECT id, is_admin FROM users WHERE id = $1', [userId]);
+      const target = targetResult.rows[0];
+
+      if (!target) {
+        const notFoundError = new Error('USER_NOT_FOUND');
+        notFoundError.status = 404;
+        throw notFoundError;
+      }
+
+      if (!isAdmin && target.is_admin) {
+        const adminCountResult = await pool.query('SELECT COUNT(*)::int AS count FROM users WHERE is_admin = true');
+
+        if (asNumber(adminCountResult.rows[0]?.count) <= 1) {
+          const lastAdminError = new Error('LAST_ADMIN');
+          lastAdminError.status = 409;
+          throw lastAdminError;
+        }
+      }
+
+      await pool.query('UPDATE users SET is_admin = $1 WHERE id = $2', [Boolean(isAdmin), userId]);
+      const users = await this.listUsersForAdmin();
+
+      return users.find((user) => user.id === userId);
+    }
+
+    const db = await readJsonDb();
+    const user = db.users.find((item) => item.id === userId);
+
+    if (!user) {
+      const notFoundError = new Error('USER_NOT_FOUND');
+      notFoundError.status = 404;
+      throw notFoundError;
+    }
+
+    if (!isAdmin && user.isAdmin && db.users.filter((item) => item.isAdmin).length <= 1) {
+      const lastAdminError = new Error('LAST_ADMIN');
+      lastAdminError.status = 409;
+      throw lastAdminError;
+    }
+
+    user.isAdmin = Boolean(isAdmin);
+    await writeJsonDb(db);
+    const users = await this.listUsersForAdmin();
+
+    return users.find((item) => item.id === userId);
+  },
+
+  async updateUserBalance({ userId, balance }) {
+    if (pool) {
+      const result = await pool.query('UPDATE users SET points_balance = $1 WHERE id = $2 RETURNING id', [balance, userId]);
+
+      if (result.rowCount === 0) {
+        const notFoundError = new Error('USER_NOT_FOUND');
+        notFoundError.status = 404;
+        throw notFoundError;
+      }
+
+      const users = await this.listUsersForAdmin();
+      return users.find((user) => user.id === userId);
+    }
+
+    const db = await readJsonDb();
+    const user = db.users.find((item) => item.id === userId);
+
+    if (!user) {
+      const notFoundError = new Error('USER_NOT_FOUND');
+      notFoundError.status = 404;
+      throw notFoundError;
+    }
+
+    user.balance = balance;
+    await writeJsonDb(db);
+    const users = await this.listUsersForAdmin();
+
+    return users.find((item) => item.id === userId);
+  },
+
+  async getAdminRecentTrades(limit = 12) {
+    if (pool) {
+      const result = await pool.query(`
+        SELECT
+          v.*,
+          u.name AS user_name,
+          m.title AS market_title
+        FROM votes v
+        LEFT JOIN users u ON u.id = v.user_id
+        LEFT JOIN markets m ON m.id = v.market_id
+        ORDER BY v.created_at DESC
+        LIMIT $1
+      `, [limit]);
+
+      return result.rows.map(adminTradeDto);
+    }
+
+    const db = await readJsonDb();
+    const usersById = new Map(db.users.map((user) => [user.id, user]));
+    const marketsById = new Map(db.markets.map((market) => [market.id, market]));
+
+    return [...db.votes]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, limit)
+      .map((trade) => adminTradeDto({
+        ...trade,
+        userName: usersById.get(trade.userId)?.name || 'Пользователь',
+        marketTitle: marketsById.get(trade.marketId)?.title || 'Рынок',
+      }));
+  },
+
+  async getAdminOverview() {
+    const [users, markets, recentTrades] = await Promise.all([
+      this.listUsersForAdmin(),
+      this.listMarkets(),
+      this.getAdminRecentTrades(12),
+    ]);
+    const marketDtos = markets.map((market) => marketDto(market));
+    const totalVolume = markets.reduce((sum, market) => sum + market.yesPool + market.noPool, 0);
+    const totalBalances = users.reduce((sum, user) => sum + user.balance, 0);
+    const totalLiquidity = markets.reduce((sum, market) => sum + market.liquidity, 0);
+
+    return {
+      stats: {
+        userCount: users.length,
+        adminCount: users.filter((user) => user.isAdmin).length,
+        marketCount: markets.length,
+        openMarketCount: markets.filter((market) => market.status === 'open').length,
+        pausedMarketCount: markets.filter((market) => market.status === 'paused').length,
+        resolvedMarketCount: markets.filter((market) => market.status === 'resolved').length,
+        canceledMarketCount: markets.filter((market) => market.status === 'canceled').length,
+        tradeCount: markets.reduce((sum, market) => sum + market.tradeCount, 0),
+        totalVolume: roundMoney(totalVolume),
+        totalBalances: roundMoney(totalBalances),
+        averageLiquidity: markets.length ? roundMoney(totalLiquidity / markets.length) : 0,
+        latestUserAt: users.at(-1)?.createdAt || null,
+        latestMarketAt: marketDtos[0]?.createdAt || null,
+      },
+      users,
+      markets: marketDtos,
+      recentTrades,
+    };
   },
 
   async listMarkets() {
@@ -755,6 +1032,62 @@ const storage = {
       })(),
       creatorName: db.users.find((user) => user.id === market.createdBy)?.name || null,
     });
+  },
+
+  async updateMarketStatus({ marketId, status }) {
+    if (pool) {
+      const result = await pool.query('UPDATE markets SET status = $1 WHERE id = $2 RETURNING id', [status, marketId]);
+
+      if (result.rowCount === 0) {
+        const notFoundError = new Error('MARKET_NOT_FOUND');
+        notFoundError.status = 404;
+        throw notFoundError;
+      }
+
+      return this.getMarket(marketId);
+    }
+
+    const db = await readJsonDb();
+    const market = db.markets.find((item) => item.id === marketId);
+
+    if (!market) {
+      const notFoundError = new Error('MARKET_NOT_FOUND');
+      notFoundError.status = 404;
+      throw notFoundError;
+    }
+
+    market.status = status;
+    await writeJsonDb(db);
+
+    return this.getMarket(marketId);
+  },
+
+  async deleteMarket(marketId) {
+    if (pool) {
+      const result = await pool.query('DELETE FROM markets WHERE id = $1 RETURNING id', [marketId]);
+
+      if (result.rowCount === 0) {
+        const notFoundError = new Error('MARKET_NOT_FOUND');
+        notFoundError.status = 404;
+        throw notFoundError;
+      }
+
+      return;
+    }
+
+    const db = await readJsonDb();
+    const marketIndex = db.markets.findIndex((item) => item.id === marketId);
+
+    if (marketIndex === -1) {
+      const notFoundError = new Error('MARKET_NOT_FOUND');
+      notFoundError.status = 404;
+      throw notFoundError;
+    }
+
+    db.markets.splice(marketIndex, 1);
+    db.votes = db.votes.filter((vote) => vote.marketId !== marketId);
+    db.positions = db.positions.filter((position) => position.marketId !== marketId);
+    await writeJsonDb(db);
   },
 
   async getTrades(marketId, order = 'desc', limit = 80) {
@@ -1113,8 +1446,13 @@ function parseMarketInput(body) {
     throw validationError('Правила резолюции должны быть от 40 до 2500 символов.');
   }
 
-  if (Number.isNaN(startDate.getTime()) || startDate.getTime() < Date.now() - 60_000) {
-    throw validationError('Дата запуска не может быть в прошлом.');
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const startDateDay = new Date(startDate);
+  startDateDay.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(startDate.getTime()) || startDateDay.getTime() < todayStart.getTime()) {
+    throw validationError('Дата запуска не может быть раньше сегодняшнего дня.');
   }
 
   if (Number.isNaN(closeDate.getTime()) || closeDate.getTime() <= startDate.getTime() + 60 * 60 * 1000) {
@@ -1178,6 +1516,15 @@ async function requireAuth(req, res, next) {
   }
 
   req.user = publicUser(user);
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) {
+    res.status(403).json({ error: 'Только администраторы могут выполнять это действие.' });
+    return;
+  }
+
   next();
 }
 
@@ -1280,13 +1627,65 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
+app.get('/api/admin/overview', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const overview = await storage.getAdminOverview();
+
+  res.json(overview);
+}));
+
+app.patch('/api/admin/users/:id/admin', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const user = await storage.setUserAdmin({
+    userId: req.params.id,
+    isAdmin: req.body.isAdmin === true,
+    actorUserId: req.user.id,
+  });
+
+  res.json({ user });
+}));
+
+app.patch('/api/admin/users/:id/balance', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const balance = roundMoney(Number(req.body.balance));
+
+  if (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000) {
+    throw validationError('Баланс должен быть от 0 до 1 000 000 очков.');
+  }
+
+  const user = await storage.updateUserBalance({
+    userId: req.params.id,
+    balance,
+  });
+
+  res.json({ user });
+}));
+
+app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const status = String(req.body.status || '').trim();
+
+  if (!marketStatuses.has(status)) {
+    throw validationError('Недопустимый статус рынка.');
+  }
+
+  const market = await storage.updateMarketStatus({
+    marketId: req.params.id,
+    status,
+  });
+
+  res.json({ market: marketDto(market) });
+}));
+
+app.delete('/api/admin/markets/:id', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  await storage.deleteMarket(req.params.id);
+
+  res.status(204).end();
+}));
+
 app.get(['/api/markets', '/api/posts'], asyncRoute(async (req, res) => {
   const markets = await storage.listMarkets();
 
   res.json({ markets: markets.map((market) => marketDto(market)) });
 }));
 
-app.post(['/api/markets', '/api/posts'], requireAuth, asyncRoute(async (req, res) => {
+app.post(['/api/markets', '/api/posts'], requireAuth, requireAdmin, asyncRoute(async (req, res) => {
   const input = parseMarketInput(req.body);
   const market = await storage.createMarket({ ...input, createdBy: req.user.id });
   const detail = await marketDetailResponse(market.id, req.user.id);
@@ -1346,6 +1745,8 @@ app.use((error, req, res, next) => {
     MARKET_NOT_FOUND: 'Рынок не найден.',
     MARKET_CLOSED: 'Рынок закрыт для новых сделок.',
     USER_NOT_FOUND: 'Пользователь не найден.',
+    LAST_ADMIN: 'Нельзя снять права у последнего администратора.',
+    CANNOT_DEMOTE_SELF: 'Нельзя снять права администратора с самого себя.',
     INSUFFICIENT_BALANCE: 'Недостаточно очков на балансе.',
     INSUFFICIENT_POSITION: 'Недостаточно долей для продажи.',
     ORDER_TOO_SMALL: 'Сделка меньше минимального размера рынка.',

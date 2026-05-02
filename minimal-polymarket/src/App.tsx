@@ -8,6 +8,7 @@ import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-route
 import { Navbar } from './components/Navbar';
 import { AuthProvider } from './lib/auth';
 import { AuthPage } from './pages/AuthPage';
+import { AdminPage } from './pages/AdminPage';
 import { CreateMarket } from './pages/CreateMarket';
 import { Home } from './pages/Home';
 import { MarketDetail } from './pages/MarketDetail';
@@ -74,6 +75,7 @@ export default function App() {
           <main className="flex-1">
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/admin" element={<AdminPage />} />
               <Route path="/create" element={<CreateMarket />} />
               <Route path="/login" element={<AuthPage mode="login" />} />
               <Route path="/register" element={<AuthPage mode="register" />} />

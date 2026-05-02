@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Market } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('en-US', {
@@ -31,6 +32,7 @@ function MarketRow({ market, index }: { market: Market; index: number }) {
 }
 
 export function Sidebar({ markets = [] }: { markets?: Market[] }) {
+  const { user } = useAuth();
   const activeMarkets = markets
     .filter((market) => market.status === 'open')
     .sort((left, right) => right.volume - left.volume)
@@ -85,12 +87,14 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
           )}
         </div>
 
-        <Link
-          to="/create"
-          className="mt-auto flex w-full items-center justify-center rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
-        >
-          Создать рынок
-        </Link>
+        {user?.isAdmin && (
+          <Link
+            to="/create"
+            className="mt-auto flex w-full items-center justify-center rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
+          >
+            Создать рынок
+          </Link>
+        )}
       </div>
     </motion.div>
   );

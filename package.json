@@ -1,0 +1,15 @@
+{
+  "name": "legio-railway-entry",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm --prefix minimal-polymarket ci && npm --prefix minimal-polymarket run build",
+    "start": "npm --prefix minimal-polymarket run start",
+    "lint": "npm --prefix minimal-polymarket run lint",
+    "dev": "npm --prefix minimal-polymarket run dev"
+  }
+}

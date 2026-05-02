@@ -7,6 +7,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  isAdmin: boolean;
   balance: number;
   createdAt: string;
 };
@@ -51,7 +52,7 @@ export type Market = {
   resolutionRules: string;
   startDate: string;
   closeDate: string;
-  status: 'open' | 'resolved';
+  status: MarketStatus;
   createdAt: string;
   createdBy: { id: string; name: string } | null;
   yesPool: number;
@@ -74,6 +75,49 @@ export type Market = {
     balance: number;
     positions: Record<Outcome, MarketViewerPosition>;
   } | null;
+};
+
+export type MarketStatus = 'open' | 'paused' | 'resolved' | 'canceled';
+
+export type AdminUser = User & {
+  marketCount: number;
+  tradeCount: number;
+  positionCount: number;
+};
+
+export type AdminRecentTrade = {
+  id: string;
+  marketId: string;
+  marketTitle: string;
+  userId: string;
+  userName: string;
+  outcome: Outcome;
+  side: TradeSide;
+  amount: number;
+  priceCents: number;
+  shares: number;
+  createdAt: string;
+};
+
+export type AdminOverview = {
+  stats: {
+    userCount: number;
+    adminCount: number;
+    marketCount: number;
+    openMarketCount: number;
+    pausedMarketCount: number;
+    resolvedMarketCount: number;
+    canceledMarketCount: number;
+    tradeCount: number;
+    totalVolume: number;
+    totalBalances: number;
+    averageLiquidity: number;
+    latestUserAt: string | null;
+    latestMarketAt: string | null;
+  };
+  users: AdminUser[];
+  markets: Market[];
+  recentTrades: AdminRecentTrade[];
 };
 
 type AuthResponse = {
@@ -139,6 +183,37 @@ export const api = {
 
   async me() {
     return apiRequest<{ user: User }>('/api/auth/me');
+  },
+
+  async getAdminOverview() {
+    return apiRequest<AdminOverview>('/api/admin/overview');
+  },
+
+  async setUserAdmin(userId: string, isAdmin: boolean) {
+    return apiRequest<{ user: AdminUser }>(`/api/admin/users/${userId}/admin`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isAdmin }),
+    });
+  },
+
+  async updateUserBalance(userId: string, balance: number) {
+    return apiRequest<{ user: AdminUser }>(`/api/admin/users/${userId}/balance`, {
+      method: 'PATCH',
+      body: JSON.stringify({ balance }),
+    });
+  },
+
+  async updateMarketStatus(marketId: string, status: MarketStatus) {
+    return apiRequest<{ market: Market }>(`/api/admin/markets/${marketId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async deleteMarket(marketId: string) {
+    return apiRequest<void>(`/api/admin/markets/${marketId}`, {
+      method: 'DELETE',
+    });
   },
 
   async listMarkets() {

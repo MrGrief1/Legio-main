@@ -49,3 +49,125 @@ html[data-theme="light"] {
 body {
   @apply bg-pm-bg text-pm-text font-sans antialiased;
 }
+
+.market-range {
+  --range-progress: 50%;
+  --range-fill: var(--color-pm-blue);
+  --range-rest: var(--color-pm-gauge-track);
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.market-range:focus {
+  outline: none;
+}
+
+.market-range::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--range-fill) 0%,
+    var(--range-fill) var(--range-progress),
+    var(--range-rest) var(--range-progress),
+    var(--range-rest) 100%
+  );
+  box-shadow: inset 0 0 0 1px var(--color-pm-overlay-line);
+}
+
+.market-range--probability::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    var(--color-pm-green) 0%,
+    var(--color-pm-green) var(--range-progress),
+    var(--color-pm-red) var(--range-progress),
+    var(--color-pm-red) 100%
+  );
+}
+
+.market-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -7px;
+  border: 3px solid var(--color-pm-surface);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #dbeafe 100%);
+  box-shadow:
+    0 9px 18px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.2);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.market-range:hover::-webkit-slider-thumb,
+.market-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 10px 24px rgba(37, 99, 235, 0.3),
+    0 0 0 5px rgba(37, 99, 235, 0.16);
+}
+
+.market-range::-moz-range-track {
+  height: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--range-rest);
+  box-shadow: inset 0 0 0 1px var(--color-pm-overlay-line);
+}
+
+.market-range::-moz-range-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--range-fill);
+}
+
+.market-range--probability::-moz-range-track {
+  background: var(--color-pm-red);
+}
+
+.market-range--probability::-moz-range-progress {
+  background: var(--color-pm-green);
+}
+
+.market-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-pm-surface);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #dbeafe 100%);
+  box-shadow:
+    0 9px 18px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.2);
+  transition: box-shadow 0.16s ease;
+}
+
+.market-range:hover::-moz-range-thumb,
+.market-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 10px 24px rgba(37, 99, 235, 0.3),
+    0 0 0 5px rgba(37, 99, 235, 0.16);
+}
+
+.market-time-input::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+  filter: invert(1);
+}
+
+html[data-theme="light"] .market-range::-webkit-slider-thumb {
+  border-color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+}
+
+html[data-theme="light"] .market-range::-moz-range-thumb {
+  border-color: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+}
+
+html[data-theme="light"] .market-time-input::-webkit-calendar-picker-indicator {
+  filter: none;
+}

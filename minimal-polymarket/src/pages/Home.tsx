@@ -6,6 +6,7 @@ import { MarketCard } from '../components/MarketCard';
 import { Sidebar } from '../components/Sidebar';
 import { FeaturedMarket } from '../components/FeaturedMarket';
 import { api, ApiError, type Market } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('en-US', {
@@ -43,6 +44,7 @@ const itemVariants = {
 };
 
 export function Home() {
+  const { user } = useAuth();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('Все');
@@ -138,13 +140,15 @@ export function Home() {
           >
             <SlidersHorizontal className="h-5 w-5" />
           </motion.button>
-          <Link
-            to="/create"
-            className="flex h-10 items-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-          >
-            <PlusCircle className="h-4 w-4" />
-            Создать
-          </Link>
+          {user?.isAdmin && (
+            <Link
+              to="/create"
+              className="flex h-10 items-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Создать
+            </Link>
+          )}
         </div>
       </motion.div>
 
@@ -208,14 +212,18 @@ export function Home() {
         <div className="rounded-2xl border border-dashed border-pm-border bg-pm-surface p-8 text-center">
           <h2 className="text-xl font-bold text-pm-text-strong">Ничего не найдено</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-pm-text-muted">
-            Здесь больше нет фейковых карточек: создай первый рынок или измени фильтр.
+            {user?.isAdmin
+              ? 'Здесь больше нет фейковых карточек: создай первый рынок или измени фильтр.'
+              : 'Здесь появятся рынки, опубликованные администраторами.'}
           </p>
-          <Link
-            to="/create"
-            className="mt-5 inline-flex h-11 items-center justify-center rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-          >
-            Создать рынок
-          </Link>
+          {user?.isAdmin && (
+            <Link
+              to="/create"
+              className="mt-5 inline-flex h-11 items-center justify-center rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            >
+              Создать рынок
+            </Link>
+          )}
         </div>
       )}
     </motion.div>

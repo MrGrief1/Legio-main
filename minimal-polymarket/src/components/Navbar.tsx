@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Info, Globe, LogOut, Moon, PlusCircle, Sun, UserRound } from 'lucide-react';
+import { Search, Info, Globe, LayoutDashboard, LogOut, Moon, PlusCircle, ShieldCheck, Sun, UserRound } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../lib/auth';
 
@@ -63,17 +63,31 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
             </motion.button>
             {user ? (
               <>
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
-                  <Link
-                    to="/create"
-                    className="inline-flex items-center gap-2 rounded-lg bg-pm-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
-                  >
-                    <PlusCircle className="h-4 w-4" />
-                    Создать
-                  </Link>
-                </motion.div>
-                <div className="hidden max-w-[160px] truncate text-sm font-semibold text-pm-text-strong md:block">
-                  {user.name}
+                {user.isAdmin && (
+                  <>
+                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
+                      <Link
+                        to="/admin"
+                        className="inline-flex items-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
+                      >
+                        <LayoutDashboard className="h-4 w-4 text-pm-blue" />
+                        Админка
+                      </Link>
+                    </motion.div>
+                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
+                      <Link
+                        to="/create"
+                        className="inline-flex items-center gap-2 rounded-lg bg-pm-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                        Создать
+                      </Link>
+                    </motion.div>
+                  </>
+                )}
+                <div className="hidden max-w-[180px] items-center gap-2 text-sm font-semibold text-pm-text-strong md:flex">
+                  <span className="truncate">{user.name}</span>
+                  {user.isAdmin && <ShieldCheck className="h-4 w-4 shrink-0 text-pm-green" />}
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -146,10 +160,15 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
             <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Финансы</button>
             <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Геополитика</button>
             <button className="hover:text-pm-text-strong whitespace-nowrap transition-colors">Технологии</button>
-            {user && (
-              <Link to="/create" className="whitespace-nowrap text-pm-blue transition-colors hover:text-blue-400 sm:hidden">
-                Создать
-              </Link>
+            {user?.isAdmin && (
+              <>
+                <Link to="/admin" className="whitespace-nowrap text-pm-blue transition-colors hover:text-blue-400 sm:hidden">
+                  Админка
+                </Link>
+                <Link to="/create" className="whitespace-nowrap text-pm-blue transition-colors hover:text-blue-400 sm:hidden">
+                  Создать
+                </Link>
+              </>
             )}
           </div>
         )}

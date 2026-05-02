@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ArrowUpRight, PlusCircle } from 'lucide-react';
 import type { Market } from '../lib/api';
+import { useAuth } from '../lib/auth';
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('en-US', {
@@ -20,6 +21,8 @@ function formatDate(value: string) {
 }
 
 export function FeaturedMarket({ market }: { market?: Market }) {
+  const { user } = useAuth();
+
   if (!market) {
     return (
       <motion.div
@@ -33,15 +36,19 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         </div>
         <h2 className="max-w-xl text-2xl font-bold text-pm-text-strong">Пока нет ни одного рынка</h2>
         <p className="mt-3 max-w-xl text-sm leading-6 text-pm-text-muted">
-          Фейковые посты убраны. Создай первый реальный вопрос, и он появится здесь.
+          {user?.isAdmin
+            ? 'Фейковые посты убраны. Создай первый реальный вопрос, и он появится здесь.'
+            : 'Фейковые посты убраны. Новые рынки появятся после публикации администратором.'}
         </p>
-        <Link
-          to="/create"
-          className="mt-6 inline-flex h-11 w-fit items-center gap-2 rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-        >
-          Создать рынок
-          <ArrowUpRight className="h-4 w-4" />
-        </Link>
+        {user?.isAdmin && (
+          <Link
+            to="/create"
+            className="mt-6 inline-flex h-11 w-fit items-center gap-2 rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            Создать рынок
+            <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        )}
       </motion.div>
     );
   }
