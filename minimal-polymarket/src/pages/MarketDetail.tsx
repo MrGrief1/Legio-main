@@ -437,9 +437,10 @@ function TradePanel({
               required
               className="market-number-input w-24 bg-transparent text-right text-4xl font-bold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
             />
-            <div className="pointer-events-none flex h-11 w-7 shrink-0 scale-95 flex-col overflow-hidden rounded-xl border border-pm-border bg-pm-bg/45 opacity-0 transition-all duration-150 group-hover/amount:pointer-events-auto group-hover/amount:scale-100 group-hover/amount:opacity-100 group-focus-within/amount:pointer-events-auto group-focus-within/amount:scale-100 group-focus-within/amount:opacity-100">
+            <div className="pointer-events-none flex h-11 w-7 shrink-0 scale-95 flex-col overflow-hidden rounded-xl border border-pm-border bg-pm-bg/45 opacity-0 transition-all duration-150 group-hover/amount:pointer-events-auto group-hover/amount:scale-100 group-hover/amount:opacity-100">
               <button
                 type="button"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => adjustAmount(1)}
                 className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
                 aria-label="Увеличить сумму"
@@ -449,6 +450,7 @@ function TradePanel({
               <div className="h-px bg-pm-border" />
               <button
                 type="button"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => adjustAmount(-1)}
                 className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
                 aria-label="Уменьшить сумму"
