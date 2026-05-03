@@ -20,10 +20,16 @@ import {
 } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { categoryValues, useI18n } from '../lib/i18n';
 
-const categories = ['Общее', 'Политика', 'Криптовалюта', 'Спорт', 'Финансы', 'Геополитика', 'Технологии'];
-const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-const weekdayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const monthNamesByLanguage = {
+  ru: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+};
+const weekdayNamesByLanguage = {
+  ru: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+  en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+};
 const quickTimes = ['09:00', '12:00', '18:00', '23:59'];
 
 function toDateTimeLocal(date: Date) {
@@ -77,8 +83,8 @@ function getCalendarDays(visibleMonth: Date) {
   ));
 }
 
-function formatDateTimeLabel(value: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
+function formatDateTimeLabel(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -116,8 +122,11 @@ type DateTimePickerProps = {
 };
 
 function DateTimePicker({ align = 'left', label, minDate, name, onChange, value }: DateTimePickerProps) {
+  const { language, locale, t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const monthNames = monthNamesByLanguage[language];
+  const weekdayNames = weekdayNamesByLanguage[language];
   const selectedDate = useMemo(() => safeParseDateTime(value), [value]);
   const minCalendarDate = useMemo(() => (minDate ? startOfCalendarDay(minDate) : null), [minDate]);
   const [visibleMonth, setVisibleMonth] = useState(() => (
@@ -171,7 +180,7 @@ function DateTimePicker({ align = 'left', label, minDate, name, onChange, value 
         className="flex h-11 w-full items-center justify-between gap-3 rounded-xl border border-pm-border bg-pm-bg/45 px-4 text-left text-base font-semibold text-pm-text-strong outline-none transition-colors hover:border-pm-blue/60 hover:bg-pm-bg focus:border-pm-blue focus:bg-pm-bg"
         aria-expanded={isOpen}
       >
-        <span>{formatDateTimeLabel(value)}</span>
+        <span>{formatDateTimeLabel(value, locale)}</span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-pm-surface-hover text-pm-blue">
           <Clock3 className="h-4 w-4" />
         </span>
@@ -196,7 +205,7 @@ function DateTimePicker({ align = 'left', label, minDate, name, onChange, value 
                 }}
                 disabled={!canGoPreviousMonth}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-pm-text-muted"
-                aria-label="Предыдущий месяц"
+                aria-label={t('create.prevMonth')}
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -207,7 +216,7 @@ function DateTimePicker({ align = 'left', label, minDate, name, onChange, value 
                 type="button"
                 onClick={() => setVisibleMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-                aria-label="Следующий месяц"
+                aria-label={t('create.nextMonth')}
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
@@ -257,7 +266,7 @@ function DateTimePicker({ align = 'left', label, minDate, name, onChange, value 
               <div className="mb-3 flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
                   <Clock3 className="h-4 w-4" />
-                  Время
+                  {t('create.time')}
                 </span>
                 <input
                   type="time"
@@ -341,6 +350,7 @@ function CustomSlider({ label, max, min, onChange, step = 1, ticks, value, value
 export function CreateMarket() {
   const navigate = useNavigate();
   const { user, isLoading } = useAuth();
+  const { t, locale, categoryLabel } = useI18n();
   const [formMessage, setFormMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialProbability, setInitialProbability] = useState(50);
@@ -361,7 +371,7 @@ export function CreateMarket() {
       const parsedStartDate = new Date(startDate);
 
       if (Number.isNaN(parsedStartDate.getTime()) || isBeforeCalendarDay(parsedStartDate, new Date())) {
-        setFormMessage('Дата запуска не может быть раньше сегодняшнего дня.');
+        setFormMessage(t('create.startDateInvalid'));
         return;
       }
 
@@ -381,7 +391,7 @@ export function CreateMarket() {
 
       navigate(`/market/${response.market.id}`);
     } catch (error) {
-      setFormMessage(error instanceof ApiError ? error.message : 'Не удалось создать рынок.');
+      setFormMessage(error instanceof ApiError ? error.message : t('create.failed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -402,22 +412,22 @@ export function CreateMarket() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
             <LockKeyhole className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-pm-text-strong">Нужен аккаунт</h1>
+          <h1 className="text-2xl font-bold text-pm-text-strong">{t('create.needAccountTitle')}</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-pm-text">
-            Создавать рынки и торговать долями могут только зарегистрированные пользователи.
+            {t('create.needAccountText')}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               to="/register"
               className="inline-flex h-11 items-center justify-center rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
             >
-              Зарегистрироваться
+              {t('common.register')}
             </Link>
             <Link
               to="/login"
               className="inline-flex h-11 items-center justify-center rounded-lg border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
             >
-              Войти
+              {t('common.login')}
             </Link>
           </div>
         </div>
@@ -432,15 +442,15 @@ export function CreateMarket() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
             <ShieldCheck className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-pm-text-strong">Публикация только для админов</h1>
+          <h1 className="text-2xl font-bold text-pm-text-strong">{t('create.adminOnlyTitle')}</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-pm-text">
-            Обычные пользователи могут торговать и следить за рынками, но выкладывать новые рынки могут только администраторы.
+            {t('create.adminOnlyText')}
           </p>
           <Link
             to="/"
             className="mt-6 inline-flex h-11 items-center justify-center rounded-lg border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
           >
-            На главную
+            {t('common.home')}
           </Link>
         </div>
       </div>
@@ -460,12 +470,12 @@ export function CreateMarket() {
             <PlusCircle className="h-4 w-4 text-pm-blue" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Новый рынок</p>
-            <h1 className="text-xl font-bold text-pm-text-strong sm:text-2xl">Создать prediction market</h1>
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('create.eyebrow')}</p>
+            <h1 className="text-xl font-bold text-pm-text-strong sm:text-2xl">{t('create.title')}</h1>
           </div>
         </div>
         <div className="w-fit rounded-lg border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-muted">
-          Баланс: <span className="text-pm-text-strong">{Math.round(user?.balance ?? 0).toLocaleString('ru-RU')} pts</span>
+          {t('common.balance')}: <span className="text-pm-text-strong">{Math.round(user?.balance ?? 0).toLocaleString(locale)} pts</span>
         </div>
       </div>
 
@@ -474,14 +484,14 @@ export function CreateMarket() {
           <label className="block">
             <span className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
               <FileText className="h-4 w-4" />
-              Вопрос
+              {t('create.question')}
             </span>
             <input
               name="title"
               required
               minLength={12}
               maxLength={180}
-              placeholder="BTC выше $100 000 к 31.12.2026?"
+              placeholder={t('create.questionPlaceholder')}
               className="h-11 w-full rounded-xl border border-pm-border bg-pm-bg/45 px-4 text-base font-semibold text-pm-text-strong outline-none transition-colors placeholder:text-pm-text-muted focus:border-pm-blue focus:bg-pm-bg"
             />
           </label>
@@ -490,15 +500,15 @@ export function CreateMarket() {
             <label className="block">
               <span className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
                 <Tag className="h-4 w-4" />
-                Категория
+                {t('create.category')}
               </span>
               <select
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
                 className="h-11 w-full rounded-xl border border-pm-border bg-pm-bg/45 px-4 text-base font-semibold text-pm-text-strong outline-none transition-colors focus:border-pm-blue focus:bg-pm-bg"
               >
-                {categories.map((item) => (
-                  <option key={item} value={item}>{item}</option>
+                {categoryValues.map((item) => (
+                  <option key={item} value={item}>{categoryLabel(item)}</option>
                 ))}
               </select>
             </label>
@@ -506,13 +516,13 @@ export function CreateMarket() {
             <label className="block">
               <span className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
                 <Link2 className="h-4 w-4" />
-                Источник резолюции
+                {t('create.resolutionSource')}
               </span>
               <input
                 name="resolutionSource"
                 required
                 maxLength={300}
-                placeholder="Сайт, API, протокол, oracle"
+                placeholder={t('create.sourcePlaceholder')}
                 className="h-11 w-full rounded-xl border border-pm-border bg-pm-bg/45 px-4 text-base font-semibold text-pm-text-strong outline-none transition-colors placeholder:text-pm-text-muted focus:border-pm-blue focus:bg-pm-bg"
               />
             </label>
@@ -520,7 +530,7 @@ export function CreateMarket() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DateTimePicker
-              label="Запуск"
+              label={t('create.start')}
               minDate={new Date()}
               name="startDate"
               value={startDate}
@@ -529,7 +539,7 @@ export function CreateMarket() {
 
             <DateTimePicker
               align="right"
-              label="Завершение"
+              label={t('create.close')}
               name="closeDate"
               value={closeDate}
               onChange={setCloseDate}
@@ -539,7 +549,7 @@ export function CreateMarket() {
           <label className="block">
             <span className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
               <Scale className="h-4 w-4" />
-              Правила резолюции
+              {t('create.resolutionRules')}
             </span>
             <textarea
               name="resolutionRules"
@@ -547,7 +557,7 @@ export function CreateMarket() {
               required
               minLength={40}
               maxLength={2500}
-              placeholder="Рынок закроется как Да, если... Укажи источник, дедлайн, таймзону и спорные случаи."
+              placeholder={t('create.rulesPlaceholder')}
               className="w-full resize-y rounded-xl border border-pm-border bg-pm-bg/45 px-4 py-3 text-base font-medium leading-7 text-pm-text-strong outline-none transition-colors placeholder:text-pm-text-muted focus:border-pm-blue focus:bg-pm-bg"
             />
           </label>
@@ -557,46 +567,46 @@ export function CreateMarket() {
           <div className="rounded-2xl border border-pm-border bg-pm-surface p-4 shadow-[0_18px_48px_var(--color-pm-card-shadow-strong)] sm:p-5">
             <div className="mb-3 flex items-center gap-2 text-base font-bold text-pm-text-strong">
               <Gauge className="h-5 w-5 text-pm-blue" />
-              Рынок
+              {t('create.market')}
             </div>
 
             <div className="mb-3 border-b border-pm-border pb-3">
               <div className="mb-1.5 flex items-center gap-2 text-sm font-bold text-pm-text-strong">
                 <Info className="h-4 w-4 text-pm-blue" />
-                Инструкция
+                {t('create.instructionsTitle')}
               </div>
               <p className="text-xs font-semibold leading-5 text-pm-text-muted">
-                <span className="text-pm-text-strong">pts</span> — виртуальные очки; старт задаёт цены Да/Нет; ликвидность сглаживает движение; <span className="text-pm-text-strong">Tick</span> — шаг цены; <span className="text-pm-text-strong">Min order</span> — минимум сделки.
+                {t('create.instructionsText')}
               </p>
             </div>
 
             <div className="space-y-3">
               <CustomSlider
-                label="Стартовая вероятность"
+                label={t('create.initialProbability')}
                 min={1}
                 max={99}
                 value={initialProbability}
                 onChange={setInitialProbability}
                 valueLabel={`${initialProbability}% / ${100 - initialProbability}%`}
-                ticks={['Да 1%', '50 / 50', 'Да 99%']}
+                ticks={[t('create.yesOne'), '50 / 50', t('create.yesNinetyNine')]}
                 variant="probability"
               />
 
               <CustomSlider
-                label="Виртуальная ликвидность"
+                label={t('create.liquidity')}
                 min={100}
                 max={10000}
                 step={100}
                 value={liquidity}
                 onChange={setLiquidity}
-                valueLabel={`${liquidity.toLocaleString('ru-RU')} pts`}
+                valueLabel={`${liquidity.toLocaleString(locale)} pts`}
                 ticks={['100', '5 000', '10 000']}
                 variant="liquidity"
               />
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="mb-2 block text-xs font-bold uppercase leading-4 tracking-[0.08em] text-pm-text-muted">Tick (шаг)</span>
+                  <span className="mb-2 block text-xs font-bold uppercase leading-4 tracking-[0.08em] text-pm-text-muted">{t('create.tick')}</span>
                   <select
                     name="tickSize"
                     defaultValue="1"
@@ -609,7 +619,7 @@ export function CreateMarket() {
                 </label>
 
                 <label className="block">
-                  <span className="mb-2 block text-xs font-bold uppercase leading-4 tracking-[0.08em] text-pm-text-muted">Min order (pts)</span>
+                  <span className="mb-2 block text-xs font-bold uppercase leading-4 tracking-[0.08em] text-pm-text-muted">{t('create.minOrder')}</span>
                   <input
                     name="minOrderSize"
                     type="number"
@@ -624,21 +634,21 @@ export function CreateMarket() {
               <div className="border-t border-pm-border pt-3">
                 <div className="mb-2 flex items-center gap-2 text-sm font-bold text-pm-text-strong">
                   <Banknote className="h-4 w-4 text-pm-green" />
-                  Предпросмотр
+                  {t('create.preview')}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-xl border border-[#22c55e]/25 bg-[#22c55e]/10 p-2.5">
-                    <div className="text-xs font-bold text-pm-green">Да</div>
+                    <div className="text-xs font-bold text-pm-green">{t('common.yes')}</div>
                     <div className="mt-0.5 text-xl font-bold text-pm-text-strong">{initialProbability}¢</div>
                   </div>
                   <div className="rounded-xl border border-[#ef4444]/25 bg-[#ef4444]/10 p-2.5">
-                    <div className="text-xs font-bold text-pm-red">Нет</div>
+                    <div className="text-xs font-bold text-pm-red">{t('common.no')}</div>
                     <div className="mt-0.5 text-xl font-bold text-pm-text-strong">{100 - initialProbability}¢</div>
                   </div>
                 </div>
                 <div className="mt-2 flex items-start gap-2 text-xs font-semibold leading-5 text-pm-text-muted">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-pm-blue" />
-                  <span>Правила, источник и даты появятся в карточке рынка.</span>
+                  <span>{t('create.previewNote')}</span>
                 </div>
               </div>
             </div>
@@ -657,7 +667,7 @@ export function CreateMarket() {
             disabled={isSubmitting}
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-pm-blue px-6 text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? 'Создаю...' : 'Создать рынок'}
+            {isSubmitting ? t('create.creating') : t('common.createMarket')}
             <ArrowRight className="h-4 w-4" />
           </motion.button>
         </aside>

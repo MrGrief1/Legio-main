@@ -16,13 +16,12 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../lib/auth';
+import { navCategoryValues, useI18n } from '../lib/i18n';
 
 type NavbarProps = {
   theme: 'dark' | 'light';
   onThemeToggle: () => void;
 };
-
-const categoryItems = ['Политика', 'Спорт', 'Криптовалюта', 'Финансы', 'Геополитика', 'Технологии'];
 
 function squareLinkClass(isActive: boolean) {
   return isActive
@@ -38,6 +37,7 @@ function dockLinkClass(isActive: boolean) {
 
 export function Navbar({ theme, onThemeToggle }: NavbarProps) {
   const isLightTheme = theme === 'light';
+  const { language, t, categoryLabel, toggleLanguage } = useI18n();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -146,8 +146,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                 value={searchQuery}
                 onChange={(event) => handleSearchChange(event.target.value)}
                 type="text"
-                aria-label="Поиск рынков"
-                placeholder="Поиск рынков..."
+                aria-label={t('common.searchMarkets')}
+                placeholder={t('nav.searchPlaceholder')}
                 className="w-full bg-transparent text-sm text-pm-text-strong outline-none placeholder:text-pm-text-muted"
               />
               {searchQuery ? (
@@ -155,7 +155,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   type="button"
                   onClick={handleSearchClear}
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-                  aria-label="Очистить поиск"
+                  aria-label={t('common.clearSearch')}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -178,7 +178,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   }
                 >
                   <Info className="h-4 w-4 text-pm-blue" />
-                  Как это работает
+                  {t('nav.howItWorks')}
                 </Link>
               </motion.div>
 
@@ -189,8 +189,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                       <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="sm:hidden">
                         <Link
                           to="/admin"
-                          aria-label="Админ-панель"
-                          title="Админ-панель"
+                          aria-label={t('nav.adminPanel')}
+                          title={t('nav.adminPanel')}
                           className={squareLinkClass(isAdminRoute)}
                         >
                           <LayoutDashboard className="h-5 w-5" />
@@ -199,8 +199,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                       <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="sm:hidden">
                         <Link
                           to="/create"
-                          aria-label="Создать рынок"
-                          title="Создать рынок"
+                          aria-label={t('common.createMarket')}
+                          title={t('common.createMarket')}
                           className={squareLinkClass(isCreateRoute)}
                         >
                           <PlusCircle className="h-5 w-5" />
@@ -212,7 +212,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                           className="inline-flex items-center gap-2 rounded-2xl border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
                         >
                           <LayoutDashboard className="h-4 w-4 text-pm-blue" />
-                          Админка
+                          {t('nav.adminShort')}
                         </Link>
                       </motion.div>
                       <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
@@ -221,7 +221,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                           className="inline-flex items-center gap-2 rounded-2xl bg-pm-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                         >
                           <PlusCircle className="h-4 w-4" />
-                          Создать
+                          {t('common.create')}
                         </Link>
                       </motion.div>
                     </>
@@ -235,7 +235,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={logout}
-                    aria-label="Выйти"
+                    aria-label={t('nav.logout')}
                     className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
                   >
                     <LogOut className="h-5 w-5" />
@@ -252,7 +252,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                           : 'inline-flex px-4 py-2 text-sm font-semibold text-pm-text hover:text-pm-text-strong'
                       }
                     >
-                      Войти
+                      {t('common.login')}
                     </Link>
                   </motion.div>
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
@@ -260,12 +260,12 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                       to="/register"
                       className="inline-flex rounded-2xl bg-pm-blue px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                     >
-                      Зарегистрироваться
+                      {t('common.register')}
                     </Link>
                   </motion.div>
                   <Link
                     to="/login"
-                    aria-label="Войти"
+                    aria-label={t('common.login')}
                     className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:hidden"
                   >
                     <UserRound className="h-5 w-5" />
@@ -276,8 +276,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                aria-label={isLightTheme ? 'Включить тёмную тему' : 'Включить светлую тему'}
-                title={isLightTheme ? 'Тёмная тема' : 'Светлая тема'}
+                aria-label={isLightTheme ? t('nav.enableDarkTheme') : t('nav.enableLightTheme')}
+                title={isLightTheme ? t('nav.darkTheme') : t('nav.lightTheme')}
                 onClick={onThemeToggle}
                 className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
               >
@@ -286,10 +286,13 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                aria-label="Выбор языка"
-                className="hidden h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:flex"
+                aria-label={language === 'ru' ? t('nav.switchToEnglish') : t('nav.switchToRussian')}
+                title={t('nav.languageSelect')}
+                onClick={toggleLanguage}
+                className="flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-2xl bg-pm-surface px-2.5 text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
               >
                 <Globe className="h-5 w-5" />
+                <span className="text-xs font-bold">{language.toUpperCase()}</span>
               </motion.button>
             </div>
           </div>
@@ -301,7 +304,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
                   <polyline points="16 7 22 7 22 13" />
                 </svg>
-                Тенденции
+                {t('nav.trends')}
               </Link>
               <Link
                 to="/how-it-works"
@@ -312,13 +315,13 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                 }
               >
                 <Info className="h-4 w-4 text-pm-blue" />
-                Как это работает
+                {t('nav.howItWorks')}
               </Link>
-              <button className="whitespace-nowrap transition-colors hover:text-pm-text-strong">Новое</button>
+              <button className="whitespace-nowrap transition-colors hover:text-pm-text-strong">{t('nav.new')}</button>
               <div className="mx-1 h-4 w-px bg-pm-border" />
-              {categoryItems.map((item) => (
+              {navCategoryValues.map((item) => (
                 <Link key={item} to={`/?category=${encodeURIComponent(item)}`} className="whitespace-nowrap transition-colors hover:text-pm-text-strong">
-                  {item}
+                  {categoryLabel(item)}
                 </Link>
               ))}
             </div>
@@ -329,24 +332,24 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
       {user?.isAdmin && !isAuthRoute && (
         <nav
           className="fixed inset-x-0 bottom-0 z-50 border-t border-pm-border bg-pm-bg/95 px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2 shadow-[0_-10px_30px_var(--color-pm-card-shadow-strong)] backdrop-blur sm:hidden"
-          aria-label="Мобильная админ-навигация"
+          aria-label={t('nav.mobileAdmin')}
         >
           <div className="mx-auto grid max-w-md grid-cols-4 gap-2">
             <Link to="/" className={pathname === '/' ? 'flex h-12 items-center justify-center gap-1.5 rounded-2xl bg-pm-surface-hover text-xs font-bold text-pm-text-strong' : dockLinkClass(false)}>
               <House className="h-4 w-4" />
-              Рынки
+              {t('nav.markets')}
             </Link>
             <Link to="/how-it-works" className={dockLinkClass(isHowItWorksRoute)}>
               <Info className="h-4 w-4" />
-              Как
+              {t('nav.howShort')}
             </Link>
             <Link to="/admin" className={dockLinkClass(isAdminRoute)}>
               <LayoutDashboard className="h-4 w-4" />
-              Панель
+              {t('nav.panel')}
             </Link>
             <Link to="/create" className={dockLinkClass(isCreateRoute)}>
               <PlusCircle className="h-4 w-4" />
-              Создать
+              {t('common.create')}
             </Link>
           </div>
         </nav>

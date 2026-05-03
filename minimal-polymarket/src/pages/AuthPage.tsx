@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
 type AuthMode = 'login' | 'register';
 
@@ -23,24 +24,24 @@ type AuthPageProps = {
 
 const authCopy = {
   login: {
-    eyebrow: 'С возвращением',
-    title: 'Войти в аккаунт',
-    subtitle: 'Открой портфель, отслеживай позиции и возвращайся к рынкам быстрее.',
-    submit: 'Войти',
-    switchText: 'Нет аккаунта?',
-    switchAction: 'Зарегистрироваться',
+    eyebrow: 'auth.login.eyebrow',
+    title: 'auth.login.title',
+    subtitle: 'auth.login.subtitle',
+    submit: 'auth.login.submit',
+    switchText: 'auth.login.switchText',
+    switchAction: 'auth.login.switchAction',
     switchTo: '/register',
-    success: 'Готово. Вход выполнен.',
+    success: 'auth.login.success',
   },
   register: {
-    eyebrow: 'Новый аккаунт',
-    title: 'Создать аккаунт',
-    subtitle: 'Сохраняй рынки, собирай watchlist и готовься к сделкам в одном профиле.',
-    submit: 'Создать аккаунт',
-    switchText: 'Уже есть аккаунт?',
-    switchAction: 'Войти',
+    eyebrow: 'auth.register.eyebrow',
+    title: 'auth.register.title',
+    subtitle: 'auth.register.subtitle',
+    submit: 'auth.register.submit',
+    switchText: 'auth.register.switchText',
+    switchAction: 'auth.register.switchAction',
     switchTo: '/login',
-    success: 'Аккаунт создан.',
+    success: 'auth.register.success',
   },
 } satisfies Record<AuthMode, {
   eyebrow: string;
@@ -80,10 +81,12 @@ function FieldShell({
 export function AuthPage({ mode }: AuthPageProps) {
   const navigate = useNavigate();
   const auth = useAuth();
+  const { t } = useI18n();
   const copy = authCopy[mode];
   const isRegister = mode === 'register';
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [formMessage, setFormMessage] = useState('');
+  const [formMessageTone, setFormMessageTone] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -97,7 +100,8 @@ export function AuthPage({ mode }: AuthPageProps) {
     const rememberMe = formData.get('rememberMe') === 'on';
 
     if (isRegister && password !== confirmPassword) {
-      setFormMessage('Пароли не совпадают.');
+      setFormMessageTone('error');
+      setFormMessage(t('auth.passwordMismatch'));
       return;
     }
 
@@ -110,10 +114,12 @@ export function AuthPage({ mode }: AuthPageProps) {
         await auth.login({ email, password, rememberMe });
       }
 
-      setFormMessage(copy.success);
+      setFormMessageTone('success');
+      setFormMessage(t(copy.success));
       navigate('/', { replace: true });
     } catch (error) {
-      setFormMessage(error instanceof ApiError ? error.message : 'Не удалось выполнить запрос.');
+      setFormMessageTone('error');
+      setFormMessage(error instanceof ApiError ? error.message : t('auth.requestFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -130,19 +136,19 @@ export function AuthPage({ mode }: AuthPageProps) {
         <div className="max-w-xl">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-pm-border bg-pm-surface px-3 py-1.5 text-sm font-semibold text-pm-text">
             <ShieldCheck className="h-4 w-4 text-pm-green" />
-            Безопасный доступ к портфелю
+            {t('auth.heroBadge')}
           </div>
           <h1 className="max-w-lg text-4xl font-bold leading-tight text-pm-text-strong">
-            Торгуй прогнозами с профилем, который помнит твой темп.
+            {t('auth.heroTitle')}
           </h1>
           <p className="mt-4 max-w-md text-base leading-7 text-pm-text">
-            Сохраняй интересные рынки, отслеживай активность и быстро возвращайся к сделкам после входа.
+            {t('auth.heroText')}
           </p>
           <div className="mt-8 grid max-w-lg grid-cols-3 gap-3">
             {[
-              { value: '$71M', label: 'объём рынка' },
-              { value: '24/7', label: 'живые котировки' },
-              { value: '2FA', label: 'готово к защите' },
+              { value: '$71M', label: t('auth.statVolume') },
+              { value: '24/7', label: t('auth.statQuotes') },
+              { value: '2FA', label: t('auth.statProtection') },
             ].map((item) => (
               <div key={item.label} className="rounded-xl border border-pm-border bg-pm-surface p-4">
                 <div className="text-2xl font-bold text-pm-text-strong">{item.value}</div>
@@ -161,9 +167,9 @@ export function AuthPage({ mode }: AuthPageProps) {
           className="rounded-2xl border border-pm-border bg-pm-surface p-5 shadow-[0_18px_48px_var(--color-pm-card-shadow-strong)] sm:p-6"
         >
           <div className="mb-6">
-            <p className="mb-2 text-sm font-bold uppercase tracking-[0.08em] text-pm-blue">{copy.eyebrow}</p>
-            <h1 className="text-2xl font-bold text-pm-text-strong">{copy.title}</h1>
-            <p className="mt-2 text-sm leading-6 text-pm-text-muted">{copy.subtitle}</p>
+            <p className="mb-2 text-sm font-bold uppercase tracking-[0.08em] text-pm-blue">{t(copy.eyebrow)}</p>
+            <h1 className="text-2xl font-bold text-pm-text-strong">{t(copy.title)}</h1>
+            <p className="mt-2 text-sm leading-6 text-pm-text-muted">{t(copy.subtitle)}</p>
           </div>
 
           <div className="mb-5 grid grid-cols-2 gap-2 rounded-xl bg-pm-bg/45 p-1">
@@ -175,7 +181,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                   : 'rounded-lg px-3 py-2 text-center text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
               }
             >
-              Вход
+              {t('auth.tabLogin')}
             </Link>
             <Link
               to="/register"
@@ -185,13 +191,13 @@ export function AuthPage({ mode }: AuthPageProps) {
                   : 'rounded-lg px-3 py-2 text-center text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
               }
             >
-              Регистрация
+              {t('auth.tabRegister')}
             </Link>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
             {isRegister && (
-              <FieldShell id="name" label="Имя пользователя" icon={<UserRound className="h-4 w-4" />}>
+              <FieldShell id="name" label={t('auth.nameLabel')} icon={<UserRound className="h-4 w-4" />}>
                 <input
                   id="name"
                   name="name"
@@ -216,7 +222,7 @@ export function AuthPage({ mode }: AuthPageProps) {
               />
             </FieldShell>
 
-            <FieldShell id="password" label="Пароль" icon={<LockKeyhole className="h-4 w-4" />}>
+            <FieldShell id="password" label={t('auth.passwordLabel')} icon={<LockKeyhole className="h-4 w-4" />}>
               <div className="flex items-center gap-3">
                 <input
                   id="password"
@@ -226,14 +232,14 @@ export function AuthPage({ mode }: AuthPageProps) {
                   required
                   minLength={isRegister ? 12 : 1}
                   maxLength={128}
-                  placeholder={isRegister ? 'Минимум 12 символов' : 'Пароль'}
+                  placeholder={isRegister ? t('auth.passwordMinPlaceholder') : t('auth.passwordLabel')}
                   className="min-w-0 flex-1 bg-transparent text-base font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />
                 <button
                   type="button"
                   onClick={() => setPasswordVisible((visible) => !visible)}
                   className="rounded-lg p-1.5 text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-                  aria-label={passwordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+                  aria-label={passwordVisible ? t('auth.hidePassword') : t('auth.showPassword')}
                 >
                   {passwordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -241,7 +247,7 @@ export function AuthPage({ mode }: AuthPageProps) {
             </FieldShell>
 
             {isRegister && (
-              <FieldShell id="confirmPassword" label="Повтор пароля" icon={<LockKeyhole className="h-4 w-4" />}>
+              <FieldShell id="confirmPassword" label={t('auth.confirmPasswordLabel')} icon={<LockKeyhole className="h-4 w-4" />}>
                 <input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -250,7 +256,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                   required
                   minLength={12}
                   maxLength={128}
-                  placeholder="Повтори пароль"
+                  placeholder={t('auth.confirmPasswordPlaceholder')}
                   className="w-full bg-transparent text-base font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />
               </FieldShell>
@@ -264,11 +270,11 @@ export function AuthPage({ mode }: AuthPageProps) {
                   required={isRegister}
                   className="h-4 w-4 rounded border-pm-border bg-pm-bg accent-pm-blue"
                 />
-                {isRegister ? 'Согласен с правилами' : 'Запомнить меня'}
+                {isRegister ? t('auth.acceptRules') : t('auth.rememberMe')}
               </label>
               {!isRegister && (
                 <button type="button" className="text-pm-blue transition-colors hover:text-blue-400">
-                  Забыли пароль?
+                  {t('auth.forgotPassword')}
                 </button>
               )}
             </div>
@@ -276,12 +282,12 @@ export function AuthPage({ mode }: AuthPageProps) {
             {formMessage && (
               <div
                 className={
-                  formMessage.includes('не совпадают')
+                  formMessageTone === 'error'
                     ? 'rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
                     : 'flex items-center gap-2 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
                 }
               >
-                {!formMessage.includes('не совпадают') && <CheckCircle2 className="h-4 w-4" />}
+                {formMessageTone === 'success' && <CheckCircle2 className="h-4 w-4" />}
                 {formMessage}
               </div>
             )}
@@ -293,26 +299,26 @@ export function AuthPage({ mode }: AuthPageProps) {
               disabled={isSubmitting}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? 'Подожди...' : copy.submit}
+              {isSubmitting ? t('auth.wait') : t(copy.submit)}
               <ArrowRight className="h-4 w-4" />
             </motion.button>
           </form>
 
           <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">
             <div className="h-px flex-1 bg-pm-border" />
-            или
+            {t('auth.or')}
             <div className="h-px flex-1 bg-pm-border" />
           </div>
 
           <button className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-pm-border bg-pm-bg/35 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover">
             <Wallet className="h-4 w-4 text-pm-blue" />
-            Продолжить с кошельком
+            {t('auth.wallet')}
           </button>
 
           <p className="mt-5 text-center text-sm font-semibold text-pm-text-muted">
-            {copy.switchText}{' '}
+            {t(copy.switchText)}{' '}
             <Link to={copy.switchTo} className="text-pm-blue transition-colors hover:text-blue-400">
-              {copy.switchAction}
+              {t(copy.switchAction)}
             </Link>
           </p>
         </motion.div>

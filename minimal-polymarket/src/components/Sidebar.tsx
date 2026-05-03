@@ -3,9 +3,10 @@ import { ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('en-US', {
+function formatMoney(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: value >= 100 ? 0 : 2,
@@ -13,6 +14,8 @@ function formatMoney(value: number) {
 }
 
 function MarketRow({ market, index }: { market: Market; index: number }) {
+  const { t, locale } = useI18n();
+
   return (
     <Link
       to={`/market/${market.id}`}
@@ -21,11 +24,11 @@ function MarketRow({ market, index }: { market: Market; index: number }) {
       <span className="text-xs font-mono text-pm-text-muted">{index + 1}</span>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13px] leading-tight text-pm-text group-hover:text-pm-text-strong">{market.title}</p>
-        <div className="mt-1 text-[11px] font-semibold text-pm-text-muted">{formatMoney(market.volume)} объём</div>
+        <div className="mt-1 text-[11px] font-semibold text-pm-text-muted">{formatMoney(market.volume, locale)} {t('common.volume')}</div>
       </div>
       <div className="shrink-0 text-right">
         <div className="text-sm font-semibold leading-tight text-pm-text-strong">{market.yesPercent}%</div>
-        <div className="text-[11px] font-medium text-pm-green">Да</div>
+        <div className="text-[11px] font-medium text-pm-green">{t('common.yes')}</div>
       </div>
     </Link>
   );
@@ -33,6 +36,7 @@ function MarketRow({ market, index }: { market: Market; index: number }) {
 
 export function Sidebar({ markets = [] }: { markets?: Market[] }) {
   const { user } = useAuth();
+  const { t } = useI18n();
   const activeMarkets = markets
     .filter((market) => market.status === 'open')
     .sort((left, right) => right.volume - left.volume)
@@ -50,7 +54,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
     >
       <div>
         <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong">
-          Активные рынки <ChevronRight className="h-4 w-4" />
+          {t('sidebar.activeMarkets')} <ChevronRight className="h-4 w-4" />
         </h3>
         <div className="space-y-0.5">
           {activeMarkets.length > 0 ? (
@@ -61,7 +65,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
             ))
           ) : (
             <div className="rounded-[20px] border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
-              Сделок пока нет.
+              {t('sidebar.noTrades')}
             </div>
           )}
         </div>
@@ -71,7 +75,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
 
       <div className="flex flex-1 flex-col">
         <h3 className="mb-2 flex items-center gap-1 text-base font-medium leading-none text-pm-text-strong">
-          Новые посты <ChevronRight className="h-4 w-4" />
+          {t('sidebar.newPosts')} <ChevronRight className="h-4 w-4" />
         </h3>
         <div className="space-y-0.5">
           {newMarkets.length > 0 ? (
@@ -82,7 +86,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
             ))
           ) : (
             <div className="rounded-[20px] border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
-              Созданные рынки появятся здесь.
+              {t('sidebar.createdMarkets')}
             </div>
           )}
         </div>
@@ -92,7 +96,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
             to="/create"
             className="mt-auto flex w-full items-center justify-center rounded-full border border-pm-border py-2 text-sm font-medium text-pm-text-strong transition-colors hover:bg-pm-surface"
           >
-            Создать рынок
+            {t('common.createMarket')}
           </Link>
         )}
       </div>

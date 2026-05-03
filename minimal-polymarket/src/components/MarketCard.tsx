@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Gift, Bookmark } from 'lucide-react';
+import { useI18n } from '../lib/i18n';
 
 interface MarketCardProps {
   id: string;
@@ -87,7 +88,8 @@ export function MarketCard({
   listOptions,
   tradeCount = 0,
 }: MarketCardProps) {
-  const gaugeLabel = category === 'Bitcoin' ? 'Up' : 'Да';
+  const { t } = useI18n();
+  const gaugeLabel = t('common.yes');
 
   return (
     <Link 
@@ -107,10 +109,10 @@ export function MarketCard({
       {layout === 'binary' ? (
           <div className="mb-3 mt-auto grid grid-cols-2 gap-2">
           <div className="flex h-10 items-center justify-center rounded-full bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors group-hover:bg-[#22c55e]/15">
-            Да {yesPercent}¢
+            {t('common.yes')} {yesPercent}¢
           </div>
           <div className="flex h-10 items-center justify-center rounded-full bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors group-hover:bg-[#ef4444]/15">
-            Нет {noPercent}¢
+            {t('common.no')} {noPercent}¢
           </div>
         </div>
       ) : (
@@ -119,8 +121,8 @@ export function MarketCard({
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 text-[15px]">
               <span className="truncate font-medium text-pm-text">{opt.name}</span>
               <span className="min-w-10 text-right font-bold text-pm-text-strong">{opt.percent}%</span>
-              <span className="rounded-full bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">Да.</span>
-              <span className="rounded-full bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">Нет.</span>
+              <span className="rounded-full bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">{t('common.yes')}</span>
+              <span className="rounded-full bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">{t('common.no')}</span>
             </div>
           ))}
         </div>
@@ -131,21 +133,21 @@ export function MarketCard({
           {status === 'active' && (
              <div className="flex items-center gap-1 font-bold uppercase text-pm-red">
                <div className="h-1.5 w-1.5 rounded-full bg-pm-red" />
-               Активные
+               {t('marketCard.active')}
              </div>
           )}
           {status === 'new' && (
              <div className="flex items-center gap-1 font-bold uppercase text-[#d7a923]">
                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-               Новое
+               {t('marketCard.new')}
              </div>
           )}
           {status && <span className="text-pm-border">•</span>}
-          <span className="truncate">{volume} Объём</span>
+          <span className="truncate">{volume} {t('common.volume')}</span>
           {tradeCount > 0 && (
             <>
               <span className="text-pm-border">•</span>
-              <span className="truncate">{tradeCount} сделок</span>
+              <span className="truncate">{tradeCount} {t('common.trades')}</span>
             </>
           )}
           {category && (

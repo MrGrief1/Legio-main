@@ -29,50 +29,47 @@ import {
   type MarketStatus,
 } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
 type AdminTab = 'overview' | 'users' | 'markets' | 'activity';
 type UserFilter = 'all' | 'admins' | 'users';
 type MarketFilter = 'all' | MarketStatus;
 
-const statusOptions: { value: MarketStatus; label: string }[] = [
-  { value: 'open', label: 'Открыт' },
-  { value: 'paused', label: 'Пауза' },
-  { value: 'resolved', label: 'Решён' },
-  { value: 'canceled', label: 'Отменён' },
+const statusOptions: { value: MarketStatus; labelKey: string }[] = [
+  { value: 'open', labelKey: 'admin.status.open' },
+  { value: 'paused', labelKey: 'admin.status.paused' },
+  { value: 'resolved', labelKey: 'admin.status.resolved' },
+  { value: 'canceled', labelKey: 'admin.status.canceled' },
 ];
 
-const tabs: { id: AdminTab; label: string }[] = [
-  { id: 'overview', label: 'Обзор' },
-  { id: 'users', label: 'Пользователи' },
-  { id: 'markets', label: 'Рынки' },
-  { id: 'activity', label: 'Активность' },
+const tabs: { id: AdminTab; labelKey: string }[] = [
+  { id: 'overview', labelKey: 'admin.tab.overview' },
+  { id: 'users', labelKey: 'admin.tab.users' },
+  { id: 'markets', labelKey: 'admin.tab.markets' },
+  { id: 'activity', labelKey: 'admin.tab.activity' },
 ];
 
-function formatPoints(value: number) {
-  return `${Math.round(value).toLocaleString('ru-RU')} pts`;
+function formatPoints(value: number, locale: string) {
+  return `${Math.round(value).toLocaleString(locale)} pts`;
 }
 
-function formatCompact(value: number) {
-  return new Intl.NumberFormat('ru-RU', {
+function formatCompact(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
     notation: value >= 10000 ? 'compact' : 'standard',
     maximumFractionDigits: 1,
   }).format(value);
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return 'нет данных';
+function formatDate(value: string | null | undefined, locale: string, emptyLabel: string) {
+  if (!value) return emptyLabel;
 
-  return new Intl.DateTimeFormat('ru-RU', {
+  return new Intl.DateTimeFormat(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
-}
-
-function statusLabel(status: MarketStatus) {
-  return statusOptions.find((option) => option.value === status)?.label ?? status;
 }
 
 function statusClassName(status: MarketStatus) {
@@ -129,6 +126,7 @@ function EmptyState({ title, text }: { title: string; text: string }) {
 
 export function AdminPage() {
   const { user, isLoading } = useAuth();
+  const { t, locale, statusLabel, outcomeLabel, tradeSideLabel } = useI18n();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [userQuery, setUserQuery] = useState('');
@@ -138,6 +136,7 @@ export function AdminPage() {
   const [balanceDrafts, setBalanceDrafts] = useState<Record<string, string>>({});
   const [isOverviewLoading, setIsOverviewLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
+  const [actionTone, setActionTone] = useState<'success' | 'error'>('success');
   const [error, setError] = useState('');
 
   const refreshOverview = useCallback(async () => {
@@ -151,7 +150,7 @@ export function AdminPage() {
       setOverview(nextOverview);
       setBalanceDrafts(Object.fromEntries(nextOverview.users.map((item) => [item.id, String(Math.round(item.balance))])));
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : 'Не удалось загрузить админ-панель.');
+      setError(requestError instanceof ApiError ? requestError.message : t('admin.loadError'));
     } finally {
       setIsOverviewLoading(false);
     }
@@ -199,9 +198,11 @@ export function AdminPage() {
         if (!current) return current;
         return withUsers(current, current.users.map((item) => (item.id === response.user.id ? response.user : item)));
       });
-      setActionMessage(nextIsAdmin ? 'Админ назначен.' : 'Права администратора сняты.');
+      setActionTone('success');
+      setActionMessage(nextIsAdmin ? t('admin.assigned') : t('admin.removed'));
     } catch (requestError) {
-      setActionMessage(requestError instanceof ApiError ? requestError.message : 'Не удалось изменить роль.');
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.roleFailed'));
     }
   };
 
@@ -217,9 +218,11 @@ export function AdminPage() {
         return withUsers(current, current.users.map((item) => (item.id === response.user.id ? response.user : item)));
       });
       setBalanceDrafts((drafts) => ({ ...drafts, [target.id]: String(Math.round(response.user.balance)) }));
-      setActionMessage('Баланс обновлён.');
+      setActionTone('success');
+      setActionMessage(t('admin.balanceUpdated'));
     } catch (requestError) {
-      setActionMessage(requestError instanceof ApiError ? requestError.message : 'Не удалось обновить баланс.');
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.balanceFailed'));
     }
   };
 
@@ -232,14 +235,16 @@ export function AdminPage() {
         if (!current) return current;
         return withMarkets(current, current.markets.map((item) => (item.id === response.market.id ? response.market : item)));
       });
-      setActionMessage('Статус рынка обновлён.');
+      setActionTone('success');
+      setActionMessage(t('admin.marketUpdated'));
     } catch (requestError) {
-      setActionMessage(requestError instanceof ApiError ? requestError.message : 'Не удалось обновить рынок.');
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.marketUpdateFailed'));
     }
   };
 
   const deleteMarket = async (market: Market) => {
-    if (!window.confirm(`Удалить рынок "${market.title}"?`)) return;
+    if (!window.confirm(t('admin.deleteConfirm', { title: market.title }))) return;
 
     setActionMessage('');
 
@@ -249,9 +254,11 @@ export function AdminPage() {
         if (!current) return current;
         return withMarkets(current, current.markets.filter((item) => item.id !== market.id));
       });
-      setActionMessage('Рынок удалён.');
+      setActionTone('success');
+      setActionMessage(t('admin.deleted'));
     } catch (requestError) {
-      setActionMessage(requestError instanceof ApiError ? requestError.message : 'Не удалось удалить рынок.');
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.deleteFailed'));
     }
   };
 
@@ -265,7 +272,8 @@ export function AdminPage() {
     anchor.download = `legio-admin-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     window.URL.revokeObjectURL(url);
-    setActionMessage('Снимок админки экспортирован.');
+    setActionTone('success');
+    setActionMessage(t('admin.exported'));
   };
 
   if (isLoading) {
@@ -283,10 +291,10 @@ export function AdminPage() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
             <LockKeyhole className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-pm-text-strong">Нужен вход</h1>
-          <p className="mt-2 text-sm leading-6 text-pm-text-muted">Админ-панель открывается только после входа в аккаунт.</p>
+          <h1 className="text-2xl font-bold text-pm-text-strong">{t('admin.needLoginTitle')}</h1>
+          <p className="mt-2 text-sm leading-6 text-pm-text-muted">{t('admin.needLoginText')}</p>
           <Link to="/login" className="mt-6 inline-flex h-11 items-center rounded-lg bg-pm-blue px-5 text-sm font-bold text-white">
-            Войти
+            {t('common.login')}
           </Link>
         </div>
       </div>
@@ -300,12 +308,12 @@ export function AdminPage() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
             <ShieldCheck className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-pm-text-strong">Нет прав администратора</h1>
+          <h1 className="text-2xl font-bold text-pm-text-strong">{t('admin.noRightsTitle')}</h1>
           <p className="mt-2 text-sm leading-6 text-pm-text-muted">
-            Первый зарегистрированный пользователь получает админку автоматически. Другой админ может выдать тебе права.
+            {t('admin.noRightsText')}
           </p>
           <Link to="/" className="mt-6 inline-flex h-11 items-center rounded-lg border border-pm-border px-5 text-sm font-bold text-pm-text-strong">
-            На главную
+            {t('common.home')}
           </Link>
         </div>
       </div>
@@ -314,14 +322,14 @@ export function AdminPage() {
 
   const stats = overview?.stats;
   const statCards = [
-    { label: 'Пользователи', value: formatCompact(stats?.userCount ?? 0), icon: UsersRound, tone: 'text-pm-blue' },
-    { label: 'Админы', value: formatCompact(stats?.adminCount ?? 0), icon: ShieldCheck, tone: 'text-pm-green' },
-    { label: 'Рынки', value: formatCompact(stats?.marketCount ?? 0), icon: BarChart3, tone: 'text-pm-blue' },
-    { label: 'Открыты', value: formatCompact(stats?.openMarketCount ?? 0), icon: CheckCircle2, tone: 'text-pm-green' },
-    { label: 'Сделки', value: formatCompact(stats?.tradeCount ?? 0), icon: Activity, tone: 'text-pm-blue' },
-    { label: 'Оборот', value: formatPoints(stats?.totalVolume ?? 0), icon: Banknote, tone: 'text-pm-green' },
-    { label: 'Балансы', value: formatPoints(stats?.totalBalances ?? 0), icon: UserCog, tone: 'text-pm-blue' },
-    { label: 'Ликвидность', value: formatPoints(stats?.averageLiquidity ?? 0), icon: SlidersHorizontal, tone: 'text-pm-green' },
+    { label: t('admin.statUsers'), value: formatCompact(stats?.userCount ?? 0, locale), icon: UsersRound, tone: 'text-pm-blue' },
+    { label: t('admin.statAdmins'), value: formatCompact(stats?.adminCount ?? 0, locale), icon: ShieldCheck, tone: 'text-pm-green' },
+    { label: t('admin.statMarkets'), value: formatCompact(stats?.marketCount ?? 0, locale), icon: BarChart3, tone: 'text-pm-blue' },
+    { label: t('admin.statOpen'), value: formatCompact(stats?.openMarketCount ?? 0, locale), icon: CheckCircle2, tone: 'text-pm-green' },
+    { label: t('admin.statTrades'), value: formatCompact(stats?.tradeCount ?? 0, locale), icon: Activity, tone: 'text-pm-blue' },
+    { label: t('admin.statTurnover'), value: formatPoints(stats?.totalVolume ?? 0, locale), icon: Banknote, tone: 'text-pm-green' },
+    { label: t('admin.statBalances'), value: formatPoints(stats?.totalBalances ?? 0, locale), icon: UserCog, tone: 'text-pm-blue' },
+    { label: t('admin.statLiquidity'), value: formatPoints(stats?.averageLiquidity ?? 0, locale), icon: SlidersHorizontal, tone: 'text-pm-green' },
   ];
 
   return (
@@ -338,7 +346,7 @@ export function AdminPage() {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Legio Control</p>
-            <h1 className="text-xl font-bold text-pm-text-strong sm:text-2xl">Админ-панель</h1>
+            <h1 className="text-xl font-bold text-pm-text-strong sm:text-2xl">{t('admin.title')}</h1>
           </div>
         </div>
         <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex sm:flex-wrap sm:items-center">
@@ -349,7 +357,7 @@ export function AdminPage() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60 sm:px-4"
           >
             <RefreshCw className={isOverviewLoading ? 'h-4 w-4 animate-spin text-pm-blue' : 'h-4 w-4 text-pm-blue'} />
-            Обновить
+            {t('admin.refresh')}
           </button>
           <button
             type="button"
@@ -358,14 +366,14 @@ export function AdminPage() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover disabled:opacity-60 sm:px-4"
           >
             <Download className="h-4 w-4 text-pm-blue" />
-            Экспорт
+            {t('admin.export')}
           </button>
           <Link
             to="/create"
             className="col-span-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
           >
             <PlusCircle className="h-4 w-4" />
-            Новый рынок
+            {t('admin.newMarket')}
           </Link>
         </div>
       </div>
@@ -379,14 +387,12 @@ export function AdminPage() {
       {actionMessage && (
         <div
           className={
-            actionMessage.includes('Не ') || actionMessage.includes('Нельзя') || actionMessage.includes('нельзя')
+            actionTone === 'error'
               ? 'mb-4 rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-3 text-sm font-semibold text-pm-red'
               : 'mb-4 flex items-center gap-2 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 px-4 py-3 text-sm font-semibold text-pm-green'
           }
         >
-          {!actionMessage.includes('Не ') && !actionMessage.includes('Нельзя') && !actionMessage.includes('нельзя') && (
-            <CheckCircle2 className="h-4 w-4" />
-          )}
+          {actionTone === 'success' && <CheckCircle2 className="h-4 w-4" />}
           {actionMessage}
         </div>
       )}
@@ -419,7 +425,7 @@ export function AdminPage() {
                 : 'shrink-0 px-3 py-3 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -428,8 +434,8 @@ export function AdminPage() {
         <section className="mb-5 rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
           <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-pm-text-strong">Пользователи и роли</h2>
-              <p className="mt-1 text-sm font-semibold text-pm-text-muted">{filteredUsers.length} из {overview?.users.length ?? 0}</p>
+              <h2 className="text-lg font-bold text-pm-text-strong">{t('admin.usersRoles')}</h2>
+              <p className="mt-1 text-sm font-semibold text-pm-text-muted">{t('admin.countOf', { count: filteredUsers.length, total: overview?.users.length ?? 0 })}</p>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,280px)_150px]">
               <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3">
@@ -437,7 +443,7 @@ export function AdminPage() {
                 <input
                   value={userQuery}
                   onChange={(event) => setUserQuery(event.target.value)}
-                  placeholder="Поиск пользователя"
+                  placeholder={t('admin.searchUser')}
                   className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />
               </div>
@@ -446,9 +452,9 @@ export function AdminPage() {
                 onChange={(event) => setUserFilter(event.target.value as UserFilter)}
                 className="h-10 rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none"
               >
-                <option value="all">Все</option>
-                <option value="admins">Админы</option>
-                <option value="users">Обычные</option>
+                <option value="all">{t('admin.all')}</option>
+                <option value="admins">{t('admin.admins')}</option>
+                <option value="users">{t('admin.regularUsers')}</option>
               </select>
             </div>
           </div>
@@ -460,24 +466,24 @@ export function AdminPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-base font-bold text-pm-text-strong">{item.name}</h3>
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${item.isAdmin ? 'border-[#22c55e]/30 bg-[#22c55e]/10 text-pm-green' : 'border-pm-border bg-pm-bg/35 text-pm-text-muted'}`}>
-                      {item.isAdmin ? 'Админ' : 'Пользователь'}
+                      {item.isAdmin ? t('admin.userRoleAdmin') : t('admin.userRoleUser')}
                     </span>
                   </div>
                   <p className="mt-1 truncate text-sm font-semibold text-pm-text-muted">{item.email}</p>
-                  <p className="mt-1 text-xs font-semibold text-pm-text-muted">Создан {formatDate(item.createdAt)}</p>
+                  <p className="mt-1 text-xs font-semibold text-pm-text-muted">{t('admin.userCreated', { date: formatDate(item.createdAt, locale, t('common.noData')) })}</p>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center xl:text-left">
                   <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Рынки</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('admin.statMarkets')}</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.marketCount}</div>
                   </div>
                   <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Сделки</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('admin.statTrades')}</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.tradeCount}</div>
                   </div>
                   <div className="rounded-lg bg-pm-bg/25 px-2 py-2 xl:bg-transparent xl:p-0">
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Позиции</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('admin.positions')}</div>
                     <div className="mt-1 text-sm font-bold text-pm-text-strong">{item.positionCount}</div>
                   </div>
                 </div>
@@ -492,7 +498,7 @@ export function AdminPage() {
                     className="h-10 min-w-0 flex-1 rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
                   />
                   <button type="submit" className="h-10 rounded-lg bg-pm-blue px-3 text-sm font-bold text-white transition-colors hover:bg-blue-700">
-                    Баланс
+                    {t('admin.saveBalance')}
                   </button>
                 </form>
 
@@ -507,12 +513,12 @@ export function AdminPage() {
                   }
                 >
                   {item.isAdmin ? <XCircle className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
-                  {item.isAdmin ? 'Снять админа' : 'Назначить админом'}
+                  {item.isAdmin ? t('admin.removeAdmin') : t('admin.makeAdmin')}
                 </button>
               </div>
             )) : (
               <div className="p-4">
-                <EmptyState title="Пользователи не найдены" text="Измени поиск или фильтр роли." />
+                <EmptyState title={t('admin.usersEmptyTitle')} text={t('admin.usersEmptyText')} />
               </div>
             )}
           </div>
@@ -523,8 +529,8 @@ export function AdminPage() {
         <section className="mb-5 rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
           <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-pm-text-strong">Модерация рынков</h2>
-              <p className="mt-1 text-sm font-semibold text-pm-text-muted">{filteredMarkets.length} из {overview?.markets.length ?? 0}</p>
+              <h2 className="text-lg font-bold text-pm-text-strong">{t('admin.marketModeration')}</h2>
+              <p className="mt-1 text-sm font-semibold text-pm-text-muted">{t('admin.countOf', { count: filteredMarkets.length, total: overview?.markets.length ?? 0 })}</p>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,320px)_170px]">
               <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-bg/45 px-3">
@@ -532,7 +538,7 @@ export function AdminPage() {
                 <input
                   value={marketQuery}
                   onChange={(event) => setMarketQuery(event.target.value)}
-                  placeholder="Поиск рынка"
+                  placeholder={t('admin.searchMarket')}
                   className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
                 />
               </div>
@@ -541,9 +547,9 @@ export function AdminPage() {
                 onChange={(event) => setMarketFilter(event.target.value as MarketFilter)}
                 className="h-10 rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none"
               >
-                <option value="all">Все статусы</option>
+                <option value="all">{t('admin.allStatuses')}</option>
                 {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                 ))}
               </select>
             </div>
@@ -565,25 +571,25 @@ export function AdminPage() {
                     {market.title}
                   </Link>
                   <p className="mt-1 text-xs font-semibold text-pm-text-muted">
-                    {market.createdBy?.name ?? 'Без автора'} • до {formatDate(market.closeDate)}
+                    {market.createdBy?.name ?? t('admin.noAuthor')} • {t('admin.due', { date: formatDate(market.closeDate, locale, t('common.noData')) })}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Да</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('common.yes')}</div>
                     <div className="mt-1 font-bold text-pm-green">{market.yesPercent}%</div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Нет</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('common.no')}</div>
                     <div className="mt-1 font-bold text-pm-red">{market.noPercent}%</div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Объём</div>
-                    <div className="mt-1 font-bold text-pm-text-strong">{formatCompact(market.volume)}</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('common.volume')}</div>
+                    <div className="mt-1 font-bold text-pm-text-strong">{formatCompact(market.volume, locale)}</div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Сделки</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('admin.statTrades')}</div>
                     <div className="mt-1 font-bold text-pm-text-strong">{market.tradeCount}</div>
                   </div>
                 </div>
@@ -594,14 +600,14 @@ export function AdminPage() {
                   className="h-10 w-full rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
                 >
                   {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                   ))}
                 </select>
 
                 <div className="grid grid-cols-2 gap-2 xl:flex xl:items-center xl:justify-end">
                   <Link
                     to={`/market/${market.id}`}
-                    aria-label="Открыть рынок"
+                    aria-label={t('common.openMarket')}
                     className="flex h-10 items-center justify-center rounded-lg border border-pm-border bg-pm-bg/35 text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong xl:w-10"
                   >
                     <Eye className="h-4 w-4" />
@@ -609,7 +615,7 @@ export function AdminPage() {
                   <button
                     type="button"
                     onClick={() => void deleteMarket(market)}
-                    aria-label="Удалить рынок"
+                    aria-label={t('admin.deleteMarket')}
                     className="flex h-10 items-center justify-center rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 text-pm-red transition-colors hover:bg-[#ef4444]/15 xl:w-10"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -618,7 +624,7 @@ export function AdminPage() {
               </div>
             )) : (
               <div className="p-4">
-                <EmptyState title="Рынки не найдены" text="Измени поиск, статус или создай новый рынок." />
+                <EmptyState title={t('admin.marketsEmptyTitle')} text={t('admin.marketsEmptyText')} />
               </div>
             )}
           </div>
@@ -629,11 +635,11 @@ export function AdminPage() {
         <section className="rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)]">
           <div className="flex flex-col gap-3 border-b border-pm-border p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4">
             <div>
-              <h2 className="text-lg font-bold text-pm-text-strong">Последняя активность</h2>
-              <p className="mt-1 text-sm font-semibold text-pm-text-muted">Последние {overview?.recentTrades.length ?? 0} сделок</p>
+              <h2 className="text-lg font-bold text-pm-text-strong">{t('admin.latestActivity')}</h2>
+              <p className="mt-1 text-sm font-semibold text-pm-text-muted">{t('admin.latestTradesCount', { count: overview?.recentTrades.length ?? 0 })}</p>
             </div>
             <div className="text-sm font-semibold text-pm-text-muted">
-              Новый пользователь: {formatDate(stats?.latestUserAt)}
+              {t('admin.latestUser', { date: formatDate(stats?.latestUserAt, locale, t('common.noData')) })}
             </div>
           </div>
 
@@ -643,9 +649,9 @@ export function AdminPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-bold text-pm-text-strong">{trade.userName}</span>
-                    <span className="font-semibold text-pm-text-muted">{trade.side === 'BUY' ? 'купил' : 'продал'}</span>
+                    <span className="font-semibold text-pm-text-muted">{tradeSideLabel(trade.side)}</span>
                     <span className={trade.outcome === 'YES' ? 'font-bold text-pm-green' : 'font-bold text-pm-red'}>
-                      {trade.outcome === 'YES' ? 'Да' : 'Нет'}
+                      {outcomeLabel(trade.outcome)}
                     </span>
                   </div>
                   <Link to={`/market/${trade.marketId}`} className="mt-1 line-clamp-1 text-sm font-semibold text-pm-text-muted transition-colors hover:text-pm-blue">
@@ -653,13 +659,13 @@ export function AdminPage() {
                   </Link>
                 </div>
                 <div className="text-sm font-bold text-pm-text-strong">
-                  {formatPoints(trade.amount)} по {trade.priceCents}¢
+                  {t('admin.amountAtPrice', { amount: formatPoints(trade.amount, locale), price: trade.priceCents })}
                 </div>
-                <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt)}</div>
+                <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt, locale, t('common.noData'))}</div>
               </div>
             )) : (
               <div className="p-4">
-                <EmptyState title="Сделок пока нет" text="Лента заполнится после первых покупок или продаж." />
+                <EmptyState title={t('admin.noTradesTitle')} text={t('admin.noTradesText')} />
               </div>
             )}
           </div>

@@ -27,17 +27,18 @@ import {
 } from 'recharts';
 import { api, ApiError, type Market, type Outcome, type TradeSide } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('en-US', {
+function formatMoney(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: value >= 100 ? 0 : 2,
   }).format(value);
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
+function formatDate(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -46,8 +47,8 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
+function formatShortDate(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
     day: 'numeric',
     month: 'short',
   }).format(new Date(value));
@@ -58,9 +59,13 @@ function categoryIcon(category: string) {
 
   if (normalized.includes('крипто') || normalized.includes('bitcoin') || normalized.includes('btc')) return '₿';
   if (normalized.includes('спорт')) return '🏟';
+  if (normalized.includes('sport')) return '🏟';
   if (normalized.includes('полит')) return '◎';
+  if (normalized.includes('polit')) return '◎';
   if (normalized.includes('финанс')) return '$';
+  if (normalized.includes('finance')) return '$';
   if (normalized.includes('тех')) return '⌘';
+  if (normalized.includes('tech')) return '⌘';
 
   return category.slice(0, 2).toUpperCase();
 }
@@ -118,8 +123,8 @@ const hiddenChartHover: ChartHoverState = {
 };
 
 const chartSeries = [
-  { key: 'yes', name: 'Да', color: '#22c55e' },
-  { key: 'no', name: 'Нет', color: '#ef4444' },
+  { key: 'yes', color: '#22c55e' },
+  { key: 'no', color: '#ef4444' },
 ] as const;
 
 const chartHoverExitDurationMs = 420;
@@ -187,6 +192,7 @@ function getSvgViewport(svg: SVGSVGElement) {
 }
 
 function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
+  const { locale } = useI18n();
   const labelsOnLeft = hover.x > 680;
   const detailOpacity = hover.isLeaving ? 0 : 1;
   const detailTransition = { duration: hover.isLeaving ? 0.12 : 0 };
@@ -207,11 +213,11 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
         style={{ left: hover.x, top: -2 }}
         transition={detailTransition}
       >
-        {formatShortDate(hover.time)}
+        {formatShortDate(hover.time, locale)}
       </motion.div>
 
       {hover.points.map((point) => {
-        const labelTop = point.name === 'Да' ? point.y - 34 : point.y + 8;
+        const labelTop = point.key === 'yes' ? point.y - 34 : point.y + 8;
         const labelPosition = labelsOnLeft
           ? { left: point.x, top: labelTop, transform: 'translateX(calc(-100% - 12px))' }
           : { left: point.x, top: labelTop };
@@ -305,10 +311,12 @@ function TradePanel({
   onMarketUpdated: (market: Market) => void;
 }) {
   const { user } = useAuth();
+  const { t, locale, outcomeLabel } = useI18n();
   const [outcome, setOutcome] = useState<Outcome>('YES');
   const [side, setSide] = useState<TradeSide>('BUY');
   const [amount, setAmount] = useState('10');
   const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isClosed = market.status !== 'open' || new Date(market.closeDate).getTime() <= Date.now();
   const quote = market.quotes[outcome][side === 'BUY' ? 'ask' : 'bid'];
@@ -336,7 +344,8 @@ function TradePanel({
     setMessage('');
 
     if (!user) {
-      setMessage('Войди в аккаунт, чтобы голосовать.');
+      setMessageTone('error');
+      setMessage(t('market.loginToVote'));
       return;
     }
 
@@ -350,9 +359,11 @@ function TradePanel({
       });
 
       onMarketUpdated(response.market);
-      setMessage(side === 'BUY' ? 'Покупка исполнена.' : 'Продажа исполнена.');
+      setMessageTone('success');
+      setMessage(side === 'BUY' ? t('market.buyDone') : t('market.sellDone'));
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : 'Не удалось записать сделку.');
+      setMessageTone('error');
+      setMessage(error instanceof ApiError ? error.message : t('market.tradeFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -365,8 +376,8 @@ function TradePanel({
           {categoryIcon(market.category)}
         </div>
         <div className="min-w-0">
-          <h2 className="truncate text-base font-bold text-pm-text-strong">Голосование</h2>
-          <p className="text-xs font-medium text-pm-text-muted">Market order, play-money</p>
+          <h2 className="truncate text-base font-bold text-pm-text-strong">{t('market.voteTitle')}</h2>
+          <p className="text-xs font-medium text-pm-text-muted">{t('market.orderMode')}</p>
         </div>
       </div>
 
@@ -387,7 +398,7 @@ function TradePanel({
                   : 'h-9 rounded-full text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
               }
             >
-              {nextSide === 'BUY' ? 'Купить' : 'Продать'}
+              {nextSide === 'BUY' ? t('common.buy') : t('common.sell')}
             </button>
           ))}
         </div>
@@ -402,7 +413,7 @@ function TradePanel({
                 : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            Да {market.quotes.YES[side === 'BUY' ? 'ask' : 'bid']}¢
+            {t('common.yes')} {market.quotes.YES[side === 'BUY' ? 'ask' : 'bid']}¢
           </button>
           <button
             type="button"
@@ -413,13 +424,13 @@ function TradePanel({
                 : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            Нет {market.quotes.NO[side === 'BUY' ? 'ask' : 'bid']}¢
+            {t('common.no')} {market.quotes.NO[side === 'BUY' ? 'ask' : 'bid']}¢
           </button>
         </div>
 
         <div className="flex items-end justify-between gap-4">
           <label className="text-base font-bold text-pm-text-strong" htmlFor="trade-amount">
-            {side === 'BUY' ? 'Сумма' : 'Доли'}
+            {side === 'BUY' ? t('market.amount') : t('common.shares')}
           </label>
           <div className="group/amount flex items-center justify-end gap-1">
             <input
@@ -443,7 +454,7 @@ function TradePanel({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => adjustAmount(1)}
                 className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
-                aria-label="Увеличить сумму"
+                aria-label={t('market.increaseAmount')}
               >
                 <ChevronUp className="h-3.5 w-3.5" />
               </button>
@@ -453,7 +464,7 @@ function TradePanel({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => adjustAmount(-1)}
                 className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
-                aria-label="Уменьшить сумму"
+                aria-label={t('market.decreaseAmount')}
               >
                 <ChevronDown className="h-3.5 w-3.5" />
               </button>
@@ -476,23 +487,23 @@ function TradePanel({
 
         <div className="rounded-[24px] border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
           <div className="flex justify-between gap-3">
-            <span>{side === 'BUY' ? 'Ask' : 'Bid'}</span>
+            <span>{side === 'BUY' ? t('common.ask') : t('common.bid')}</span>
             <span className="text-pm-text-strong">{quote}¢</span>
           </div>
           <div className="mt-1 flex justify-between gap-3">
-            <span>Доли</span>
+            <span>{t('common.shares')}</span>
             <span className="text-pm-text-strong">{previewShares.toFixed(2)}</span>
           </div>
           <div className="mt-1 flex justify-between gap-3">
-            <span>{side === 'BUY' ? 'Баланс' : 'Получишь'}</span>
+            <span>{side === 'BUY' ? t('common.balance') : t('market.receive')}</span>
             <span className="text-pm-text-strong">
               {side === 'BUY'
-                ? `${Math.round(market.viewer?.balance ?? user?.balance ?? 0).toLocaleString('ru-RU')} pts`
+                ? `${Math.round(market.viewer?.balance ?? user?.balance ?? 0).toLocaleString(locale)} pts`
                 : `${previewValue.toFixed(2)} pts`}
             </span>
           </div>
           <div className="mt-1 flex justify-between gap-3">
-            <span>Позиция</span>
+            <span>{t('common.position')}</span>
             <span className="text-pm-text-strong">{viewerPosition.toFixed(2)}</span>
           </div>
         </div>
@@ -500,13 +511,12 @@ function TradePanel({
         {message && (
           <div
             className={
-              message.includes('записана')
-              || message.includes('исполнена')
+              messageTone === 'success'
                 ? 'flex items-center gap-2 rounded-[20px] border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
                 : 'rounded-[20px] border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
             }
           >
-            {(message.includes('записана') || message.includes('исполнена')) && <CheckCircle2 className="h-4 w-4" />}
+            {messageTone === 'success' && <CheckCircle2 className="h-4 w-4" />}
             {message}
           </div>
         )}
@@ -516,12 +526,12 @@ function TradePanel({
           disabled={isSubmitting || isClosed}
           className="h-12 w-full rounded-full bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isClosed ? 'Рынок закрыт' : isSubmitting ? 'Исполняю...' : user ? (side === 'BUY' ? 'Купить' : 'Продать') : 'Войти и торговать'}
+          {isClosed ? t('market.closed') : isSubmitting ? t('market.executing') : user ? (side === 'BUY' ? t('common.buy') : t('common.sell')) : t('market.loginAndTrade')}
         </button>
 
         {!user && (
           <Link to="/login" className="block text-center text-sm font-semibold text-pm-blue transition-colors hover:text-blue-400">
-            Войти в аккаунт
+            {t('market.loginLink')}
           </Link>
         )}
       </form>
@@ -531,6 +541,7 @@ function TradePanel({
 
 export function MarketDetail() {
   const { id } = useParams();
+  const { t, locale, categoryLabel, outcomeLabel, tradeSideLabel } = useI18n();
   const [market, setMarket] = useState<Market | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -564,7 +575,7 @@ export function MarketDetail() {
       })
       .catch((requestError) => {
         if (!ignore) {
-          setError(requestError instanceof ApiError ? requestError.message : 'Не удалось загрузить рынок.');
+          setError(requestError instanceof ApiError ? requestError.message : t('market.loadError'));
         }
       })
       .finally(() => {
@@ -585,12 +596,12 @@ export function MarketDetail() {
     if (!market) return [];
 
     return market.history.map((point) => ({
-      time: formatShortDate(point.time),
+      time: formatShortDate(point.time, locale),
       isoTime: point.time,
       yes: point.yesPercent,
       no: point.noPercent ?? 100 - point.yesPercent,
     }));
-  }, [market]);
+  }, [locale, market]);
 
   const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const container = chartRef.current;
@@ -632,7 +643,7 @@ export function MarketDetail() {
         pathD: path.getAttribute('d') ?? '',
         pathLength,
         totalLength,
-        name: series.name,
+        name: series.key === 'yes' ? t('common.yes') : t('common.no'),
         value: activePoint[series.key],
         svgX: hoverSvgX,
         x,
@@ -703,11 +714,11 @@ export function MarketDetail() {
     return (
       <div className="mx-auto max-w-[760px] px-4 py-10 sm:px-6">
         <div className="rounded-[28px] border border-pm-border bg-pm-surface p-6">
-          <h1 className="text-2xl font-bold text-pm-text-strong">Рынок не открыт</h1>
-          <p className="mt-2 text-sm leading-6 text-pm-text-muted">{error || 'Такого рынка нет.'}</p>
+          <h1 className="text-2xl font-bold text-pm-text-strong">{t('market.notOpenTitle')}</h1>
+          <p className="mt-2 text-sm leading-6 text-pm-text-muted">{error || t('market.notFound')}</p>
           <Link to="/" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-pm-blue">
             <ArrowLeft className="h-4 w-4" />
-            На главную
+            {t('common.home')}
           </Link>
         </div>
       </div>
@@ -725,7 +736,7 @@ export function MarketDetail() {
         <section className="min-w-0 space-y-4">
           <Link to="/" className="inline-flex items-center gap-2 text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong">
             <ArrowLeft className="h-4 w-4" />
-            Все рынки
+            {t('common.allMarkets')}
           </Link>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -735,28 +746,28 @@ export function MarketDetail() {
               </div>
               <div className="min-w-0">
                 <div className="mb-1 text-sm font-semibold text-pm-text-muted">
-                  {market.category}
+                  {categoryLabel(market.category)}
                   {market.createdBy && <span> <span className="mx-1">•</span> {market.createdBy.name}</span>}
                 </div>
                 <h1 className="text-xl font-bold leading-tight text-pm-text-strong sm:text-2xl">{market.title}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm font-semibold text-pm-text-muted">
-                  <span>{formatMoney(market.volume)} Объём</span>
+                  <span>{formatMoney(market.volume, locale)} {t('common.volume')}</span>
                   <span>•</span>
-                  <span>{market.tradeCount} сделок</span>
+                  <span>{market.tradeCount} {t('common.trades')}</span>
                   <span>•</span>
-                  <span>До {formatDate(market.closeDate)}</span>
+                  <span>{t('common.until')} {formatDate(market.closeDate, locale)}</span>
                 </div>
               </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-pm-text">
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Код рынка">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.marketCode')}>
                 <Code2 className="h-5 w-5" />
               </button>
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Ссылка">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.link')}>
                 <LinkIcon className="h-5 w-5" />
               </button>
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Сохранить">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.save')}>
                 <Bookmark className="h-5 w-5" />
               </button>
             </div>
@@ -766,12 +777,12 @@ export function MarketDetail() {
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
               <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
                 <span className="h-2.5 w-2.5 rounded-full bg-pm-green" />
-                <span>Да</span>
+                <span>{t('common.yes')}</span>
                 <span className="font-bold text-pm-text-strong">{market.yesPercent}%</span>
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
                 <span className="h-2.5 w-2.5 rounded-full bg-pm-red" />
-                <span>Нет</span>
+                <span>{t('common.no')}</span>
                 <span className="font-bold text-pm-text-strong">{market.noPercent}%</span>
               </div>
             </div>
@@ -805,7 +816,7 @@ export function MarketDetail() {
                   <Tooltip
                     cursor={false}
                     wrapperStyle={{ display: 'none' }}
-                    formatter={(value, name) => [`${value}%`, name === 'yes' ? 'Да' : 'Нет']}
+                    formatter={(value, name) => [`${value}%`, name === 'yes' ? t('common.yes') : t('common.no')]}
                   />
                   <Line
                     className="market-detail-line-yes"
@@ -840,7 +851,7 @@ export function MarketDetail() {
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-pm-border pt-2.5 text-sm font-semibold text-pm-text-muted">
               <div className="flex flex-wrap items-center gap-3">
                 <CalendarClock className="h-4 w-4" />
-                <span>Создан {formatDate(market.createdAt)}</span>
+                <span>{t('common.created')} {formatDate(market.createdAt, locale)}</span>
               </div>
               <div className="flex items-center gap-2 text-pm-text">
                 <TrendingUp className="h-4 w-4 text-pm-blue" />
@@ -856,8 +867,8 @@ export function MarketDetail() {
                 className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
               >
                 <div>
-                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
-                  <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{formatMoney(outcome.pool)} поддержано</p>
+                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcomeLabel(outcome.outcome)}</h2>
+                  <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{formatMoney(outcome.pool, locale)} {t('common.supported')}</p>
                 </div>
                 <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
                   <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
@@ -865,7 +876,7 @@ export function MarketDetail() {
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:w-[170px]">
                   <div className={outcome.outcome === 'YES' ? 'h-9 rounded-full bg-[#22c55e]/10 px-4 text-center text-sm font-bold leading-9 text-pm-green' : 'h-9 rounded-full bg-[#ef4444]/10 px-4 text-center text-sm font-bold leading-9 text-pm-red'}>
-                    {outcome.outcome === 'YES' ? 'Да' : 'Нет'}
+                    {outcomeLabel(outcome.outcome)}
                   </div>
                 </div>
               </div>
@@ -874,32 +885,32 @@ export function MarketDetail() {
 
           <div className="space-y-5">
             <div className="flex items-center gap-6 border-b border-pm-border text-lg font-bold">
-              <button className="border-b-2 border-pm-text-strong pb-3 text-pm-text-strong">Правила</button>
-              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">Сделки</button>
+              <button className="border-b-2 border-pm-text-strong pb-3 text-pm-text-strong">{t('common.rules')}</button>
+              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">{t('admin.statTrades')}</button>
             </div>
 
             <div className="rounded-[28px] border border-pm-border bg-pm-surface">
               <div className="flex items-center justify-between border-b border-pm-border p-4">
                 <div className="flex items-center gap-2 font-bold text-pm-text-strong">
                   <Info className="h-5 w-5 text-pm-blue" />
-                  Контекст рынка
+                  {t('market.context')}
                 </div>
                 <span className="text-sm font-semibold text-pm-text-muted">Yes/No</span>
               </div>
               <div className="space-y-4 p-4 text-sm leading-relaxed text-pm-text">
                 {market.resolutionSource && (
                   <div>
-                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Источник</div>
+                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('common.source')}</div>
                     <p>{market.resolutionSource}</p>
                   </div>
                 )}
                 {market.resolutionRules || market.description ? (
                   <div>
-                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">Правила</div>
+                    <div className="mb-1 text-xs font-bold uppercase tracking-[0.08em] text-pm-text-muted">{t('common.rules')}</div>
                     <p>{market.resolutionRules || market.description}</p>
                   </div>
                 ) : (
-                  <p>Автор не добавил дополнительных правил. Рынок должен разрешаться по формулировке вопроса.</p>
+                  <p>{t('market.noRules')}</p>
                 )}
               </div>
             </div>
@@ -907,7 +918,7 @@ export function MarketDetail() {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-5 text-lg font-bold">
-              <button className="text-pm-text-strong">Последние сделки ({market.recentTrades.length})</button>
+              <button className="text-pm-text-strong">{t('market.latestTrades', { count: market.recentTrades.length })}</button>
             </div>
 
             {market.recentTrades.length > 0 ? (
@@ -917,25 +928,25 @@ export function MarketDetail() {
                     <div className="flex min-w-0 items-center gap-2">
                       <UserRound className="h-4 w-4 shrink-0 text-pm-text-muted" />
                       <span className="truncate text-sm font-bold text-pm-text-strong">{trade.userName}</span>
-                      <span className="text-sm font-bold text-pm-text-muted">{trade.side === 'BUY' ? 'купил' : 'продал'}</span>
+                      <span className="text-sm font-bold text-pm-text-muted">{tradeSideLabel(trade.side)}</span>
                       <span className={trade.outcome === 'YES' ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
-                        {trade.outcome === 'YES' ? 'Да' : 'Нет'}
+                        {outcomeLabel(trade.outcome)}
                       </span>
                     </div>
-                    <div className="text-sm font-semibold text-pm-text">{formatMoney(trade.amount)} по {trade.priceCents}¢</div>
-                    <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt)}</div>
+                    <div className="text-sm font-semibold text-pm-text">{t('admin.amountAtPrice', { amount: formatMoney(trade.amount, locale), price: trade.priceCents })}</div>
+                    <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt, locale)}</div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="rounded-[24px] border border-pm-border bg-pm-surface px-4 py-3 text-sm font-semibold text-pm-text-muted">
-                Сделок пока нет. Первая сделка задаст начальное движение цены.
+                {t('market.noTrades')}
               </div>
             )}
 
             <div className="inline-flex items-center gap-2 rounded-full bg-pm-surface px-4 py-2 text-sm font-semibold text-pm-text-muted">
               <ShieldCheck className="h-4 w-4" />
-              Цены здесь считаются внутри приложения и не являются реальными сделками Polymarket.
+              {t('market.disclaimer')}
             </div>
           </div>
         </section>

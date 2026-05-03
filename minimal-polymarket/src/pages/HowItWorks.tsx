@@ -12,43 +12,41 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
 const steps = [
   {
     icon: ClipboardList,
-    title: 'Рынок задаёт вопрос',
-    text: 'Администратор публикует событие, дату закрытия, источник результата и правила разрешения.',
+    titleKey: 'how.step1Title',
+    textKey: 'how.step1Text',
   },
   {
     icon: HandCoins,
-    title: 'Участники выбирают сторону',
-    text: 'Покупка «Да» или «Нет» меняет цену долей. Чем выше цена, тем сильнее рынок верит в исход.',
+    titleKey: 'how.step2Title',
+    textKey: 'how.step2Text',
   },
   {
     icon: LineChart,
-    title: 'Цена двигается от сделок',
-    text: 'Каждая сделка обновляет вероятность, объём, историю и текущие котировки на странице рынка.',
+    titleKey: 'how.step3Title',
+    textKey: 'how.step3Text',
   },
   {
     icon: CheckCircle2,
-    title: 'После закрытия итог фиксируется',
-    text: 'Когда появляется подтверждение из указанного источника, рынок получает финальный статус.',
+    titleKey: 'how.step4Title',
+    textKey: 'how.step4Text',
   },
 ];
 
 const highlights = [
-  { label: 'Да', value: '64¢', width: '64%', className: 'bg-pm-green' },
-  { label: 'Нет', value: '36¢', width: '36%', className: 'bg-pm-red' },
+  { labelKey: 'common.yes', value: '64¢', width: '64%', className: 'bg-pm-green' },
+  { labelKey: 'common.no', value: '36¢', width: '36%', className: 'bg-pm-red' },
 ];
 
-const checklist = [
-  'Смотри формулировку вопроса и дату закрытия перед сделкой.',
-  'Проверяй источник результата: именно он определяет финальное решение.',
-  'Учитывай, что цена показывает ожидание участников, а не гарантию исхода.',
-];
+const checklist = ['how.check1', 'how.check2', 'how.check3'];
 
 export function HowItWorks() {
   const { user } = useAuth();
+  const { t } = useI18n();
 
   return (
     <motion.div
@@ -66,13 +64,13 @@ export function HowItWorks() {
           <div>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-pm-border bg-pm-bg px-3 py-1.5 text-sm font-semibold text-pm-text-muted">
               <Gauge className="h-4 w-4 text-pm-blue" />
-              Рынки прогнозов
+              {t('how.badge')}
             </div>
             <h1 className="max-w-3xl text-3xl font-bold leading-tight text-pm-text-strong sm:text-5xl">
-              Как работает Legio
+              {t('how.title')}
             </h1>
             <p className="mt-5 max-w-2xl text-base font-medium leading-7 text-pm-text-muted sm:text-lg">
-              Legio превращает вопрос о будущем событии в рынок. Участники покупают доли «Да» или «Нет», а цена показывает текущую оценку вероятности.
+              {t('how.subtitle')}
             </p>
           </div>
 
@@ -81,7 +79,7 @@ export function HowItWorks() {
               to="/"
               className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
             >
-              Смотреть рынки
+              {t('how.viewMarkets')}
               <ArrowRight className="h-4 w-4" />
             </Link>
             {user?.isAdmin && (
@@ -89,7 +87,7 @@ export function HowItWorks() {
                 to="/create"
                 className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
               >
-                Создать рынок
+                {t('common.createMarket')}
               </Link>
             )}
           </div>
@@ -103,9 +101,9 @@ export function HowItWorks() {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-pm-text-muted">Пример рынка</p>
+              <p className="text-sm font-semibold text-pm-text-muted">{t('how.exampleMarket')}</p>
               <h2 className="mt-1 text-xl font-bold leading-snug text-pm-text-strong">
-                Будет ли событие выполнено до дедлайна?
+                {t('how.exampleTitle')}
               </h2>
             </div>
             <ShieldCheck className="h-8 w-8 shrink-0 text-pm-green" />
@@ -113,9 +111,9 @@ export function HowItWorks() {
 
           <div className="mt-8 space-y-5">
             {highlights.map((item) => (
-              <div key={item.label}>
+              <div key={item.labelKey}>
                 <div className="mb-2 flex items-center justify-between text-sm font-bold">
-                  <span className="text-pm-text-strong">{item.label}</span>
+                  <span className="text-pm-text-strong">{t(item.labelKey)}</span>
                   <span className="text-pm-text-muted">{item.value}</span>
                 </div>
                 <div className="h-3 overflow-hidden rounded-full bg-pm-bg">
@@ -127,23 +125,23 @@ export function HowItWorks() {
 
           <div className="mt-8 grid grid-cols-3 gap-2">
             <div className="rounded-[18px] bg-pm-bg p-3">
-              <div className="text-xs font-semibold text-pm-text-muted">Объём</div>
+              <div className="text-xs font-semibold text-pm-text-muted">{t('common.volume')}</div>
               <div className="mt-1 text-lg font-bold text-pm-text-strong">$12.4K</div>
             </div>
             <div className="rounded-[18px] bg-pm-bg p-3">
-              <div className="text-xs font-semibold text-pm-text-muted">Сделки</div>
+              <div className="text-xs font-semibold text-pm-text-muted">{t('admin.statTrades')}</div>
               <div className="mt-1 text-lg font-bold text-pm-text-strong">128</div>
             </div>
             <div className="rounded-[18px] bg-pm-bg p-3">
-              <div className="text-xs font-semibold text-pm-text-muted">Статус</div>
-              <div className="mt-1 text-lg font-bold text-pm-green">Открыт</div>
+              <div className="text-xs font-semibold text-pm-text-muted">{t('how.status')}</div>
+              <div className="mt-1 text-lg font-bold text-pm-green">{t('how.open')}</div>
             </div>
           </div>
 
           <div className="mt-auto pt-8">
             <div className="flex items-center gap-2 rounded-[18px] border border-pm-border bg-pm-bg px-3 py-2 text-sm font-semibold text-pm-text-muted">
               <Search className="h-4 w-4 text-pm-blue" />
-              Цена рынка обновляется после сделок
+              {t('how.priceUpdated')}
             </div>
           </div>
         </motion.div>
@@ -155,7 +153,7 @@ export function HowItWorks() {
 
           return (
             <motion.div
-              key={step.title}
+              key={step.titleKey}
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, delay: 0.08 + index * 0.04 }}
@@ -164,8 +162,8 @@ export function HowItWorks() {
               <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-bg text-pm-blue">
                 <StepIcon className="h-5 w-5" />
               </div>
-              <h3 className="text-base font-bold text-pm-text-strong">{step.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-pm-text-muted">{step.text}</p>
+              <h3 className="text-base font-bold text-pm-text-strong">{t(step.titleKey)}</h3>
+              <p className="mt-2 text-sm leading-6 text-pm-text-muted">{t(step.textKey)}</p>
             </motion.div>
           );
         })}
@@ -175,23 +173,23 @@ export function HowItWorks() {
         <div className="rounded-[24px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <WalletCards className="h-6 w-6 text-pm-blue" />
-            <h2 className="text-xl font-bold text-pm-text-strong">Что означает цена</h2>
+            <h2 className="text-xl font-bold text-pm-text-strong">{t('how.priceMeaningTitle')}</h2>
           </div>
           <p className="text-sm leading-6 text-pm-text-muted">
-            Цена 64¢ у стороны «Да» означает, что рынок оценивает исход примерно в 64%. Если итог действительно «Да», доля этой стороны становится выигрышной; если нет, выигрывает противоположная сторона.
+            {t('how.priceMeaningText')}
           </p>
         </div>
 
         <div className="rounded-[24px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <ShieldCheck className="h-6 w-6 text-pm-green" />
-            <h2 className="text-xl font-bold text-pm-text-strong">На что смотреть</h2>
+            <h2 className="text-xl font-bold text-pm-text-strong">{t('how.watchTitle')}</h2>
           </div>
           <div className="space-y-3">
-            {checklist.map((item) => (
-              <div key={item} className="flex gap-3 text-sm leading-6 text-pm-text-muted">
+            {checklist.map((itemKey) => (
+              <div key={itemKey} className="flex gap-3 text-sm leading-6 text-pm-text-muted">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-pm-green" />
-                <span>{item}</span>
+                <span>{t(itemKey)}</span>
               </div>
             ))}
           </div>

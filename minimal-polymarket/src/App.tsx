@@ -7,6 +7,7 @@ import { useCallback, useLayoutEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { AuthProvider, useAuth } from './lib/auth';
+import { LanguageProvider } from './lib/i18n';
 import { AuthPage } from './pages/AuthPage';
 import { AdminPage } from './pages/AdminPage';
 import { CreateMarket } from './pages/CreateMarket';
@@ -91,9 +92,11 @@ export default function App() {
 
   return (
     <Router>
-      <AuthProvider>
-        <AppShell theme={theme} onThemeToggle={handleThemeToggle} />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <AppShell theme={theme} onThemeToggle={handleThemeToggle} />
+        </AuthProvider>
+      </LanguageProvider>
     </Router>
   );
 }

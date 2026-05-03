@@ -7,9 +7,10 @@ import { Sidebar } from '../components/Sidebar';
 import { FeaturedMarket } from '../components/FeaturedMarket';
 import { api, ApiError, type Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { ALL_CATEGORY, useI18n } from '../lib/i18n';
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat('en-US', {
+function formatMoney(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: value >= 100 ? 0 : 2,
@@ -21,9 +22,13 @@ function categoryIcon(category: string) {
 
   if (normalized.includes('крипто') || normalized.includes('bitcoin') || normalized.includes('btc')) return '₿';
   if (normalized.includes('спорт')) return '🏟';
+  if (normalized.includes('sport')) return '🏟';
   if (normalized.includes('полит')) return '◎';
+  if (normalized.includes('polit')) return '◎';
   if (normalized.includes('финанс')) return '$';
+  if (normalized.includes('finance')) return '$';
   if (normalized.includes('тех')) return '⌘';
+  if (normalized.includes('tech')) return '⌘';
 
   return category.slice(0, 2).toUpperCase();
 }
@@ -45,12 +50,13 @@ const itemVariants = {
 
 export function Home() {
   const { user } = useAuth();
+  const { t, locale, categoryLabel } = useI18n();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const query = searchParams.get('q') ?? '';
-  const activeCategory = searchParams.get('category') ?? 'Все';
+  const activeCategory = searchParams.get('category') ?? ALL_CATEGORY;
 
   useEffect(() => {
     let ignore = false;
@@ -61,7 +67,7 @@ export function Home() {
       })
       .catch((requestError) => {
         if (!ignore) {
-          setError(requestError instanceof ApiError ? requestError.message : 'Не удалось загрузить рынки.');
+          setError(requestError instanceof ApiError ? requestError.message : t('home.loadError'));
         }
       })
       .finally(() => {
@@ -77,18 +83,18 @@ export function Home() {
     const uniqueCategories = Array.from(new Set(markets.map((market) => market.category))).filter(Boolean);
     const categoryFromUrl = searchParams.get('category');
 
-    if (categoryFromUrl && categoryFromUrl !== 'Все' && !uniqueCategories.includes(categoryFromUrl)) {
-      return ['Все', categoryFromUrl, ...uniqueCategories];
+    if (categoryFromUrl && categoryFromUrl !== ALL_CATEGORY && !uniqueCategories.includes(categoryFromUrl)) {
+      return [ALL_CATEGORY, categoryFromUrl, ...uniqueCategories];
     }
 
-    return ['Все', ...uniqueCategories];
+    return [ALL_CATEGORY, ...uniqueCategories];
   }, [markets, searchParams]);
 
   const updateSearchParam = (key: 'q' | 'category', value: string, replace = true) => {
     const nextParams = new URLSearchParams(searchParams);
     const trimmedValue = value.trim();
 
-    if (!trimmedValue || trimmedValue === 'Все') {
+    if (!trimmedValue || trimmedValue === ALL_CATEGORY) {
       nextParams.delete(key);
     } else {
       nextParams.set(key, value);
@@ -97,21 +103,22 @@ export function Home() {
     setSearchParams(nextParams, { replace });
   };
 
-  const isFiltering = query.trim().length > 0 || activeCategory !== 'Все';
+  const isFiltering = query.trim().length > 0 || activeCategory !== ALL_CATEGORY;
 
   const filteredMarkets = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     return markets.filter((market) => {
-      const matchesCategory = activeCategory === 'Все' || market.category === activeCategory;
+      const matchesCategory = activeCategory === ALL_CATEGORY || market.category === activeCategory;
       const matchesQuery = !normalizedQuery
         || market.title.toLowerCase().includes(normalizedQuery)
         || market.description.toLowerCase().includes(normalizedQuery)
-        || market.category.toLowerCase().includes(normalizedQuery);
+        || market.category.toLowerCase().includes(normalizedQuery)
+        || categoryLabel(market.category).toLowerCase().includes(normalizedQuery);
 
       return matchesCategory && matchesQuery;
     });
-  }, [activeCategory, markets, query]);
+  }, [activeCategory, categoryLabel, markets, query]);
 
   return (
     <motion.div
@@ -140,14 +147,14 @@ export function Home() {
       >
         <div>
           <h1 className="text-2xl font-semibold text-pm-text-strong">
-            {isFiltering ? 'Результаты' : 'Все рынки'}
+            {isFiltering ? t('home.results') : t('home.allMarkets')}
           </h1>
           <p className="mt-1 text-sm font-medium text-pm-text-muted">
             {isLoading
-              ? 'Загружаю...'
+              ? t('common.loading')
               : isFiltering
-                ? `${filteredMarkets.length} из ${markets.length} рынков`
-                : `${markets.length} реальных постов-рынков`}
+                ? t('home.filteredCount', { filtered: filteredMarkets.length, total: markets.length })
+                : t('home.totalCount', { count: markets.length })}
           </p>
         </div>
 
@@ -158,8 +165,8 @@ export function Home() {
               value={query}
               onChange={(event) => updateSearchParam('q', event.target.value)}
               type="search"
-              aria-label="Поиск рынков"
-              placeholder="Поиск"
+              aria-label={t('common.searchMarkets')}
+              placeholder={t('home.searchPlaceholder')}
               className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
             />
             {query && (
@@ -167,7 +174,7 @@ export function Home() {
                 type="button"
                 onClick={() => updateSearchParam('q', '')}
                 className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-                aria-label="Очистить поиск"
+                aria-label={t('common.clearSearch')}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -177,7 +184,7 @@ export function Home() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-            aria-label="Фильтры"
+            aria-label={t('common.filters')}
           >
             <SlidersHorizontal className="h-5 w-5" />
           </motion.button>
@@ -187,7 +194,7 @@ export function Home() {
               className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-full bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
             >
               <PlusCircle className="h-4 w-4" />
-              Создать
+              {t('common.create')}
             </Link>
           )}
         </div>
@@ -209,7 +216,7 @@ export function Home() {
                 : 'whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium text-pm-text transition-colors hover:bg-pm-surface hover:text-pm-text-strong'
             }
           >
-            {category}
+            {categoryLabel(category)}
           </button>
         ))}
       </motion.div>
@@ -239,9 +246,9 @@ export function Home() {
                 id={market.id}
                 title={market.title}
                 icon={categoryIcon(market.category)}
-                volume={formatMoney(market.volume)}
+                volume={formatMoney(market.volume, locale)}
                 status={market.tradeCount > 0 ? 'active' : 'new'}
-                category={market.category}
+                category={categoryLabel(market.category)}
                 yesPercent={market.yesPercent}
                 noPercent={market.noPercent}
                 tradeCount={market.tradeCount}
@@ -251,18 +258,18 @@ export function Home() {
         </motion.div>
       ) : (
         <div className="rounded-[28px] border border-dashed border-pm-border bg-pm-surface p-8 text-center">
-          <h2 className="text-xl font-bold text-pm-text-strong">Ничего не найдено</h2>
+          <h2 className="text-xl font-bold text-pm-text-strong">{t('home.noResultsTitle')}</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-pm-text-muted">
             {user?.isAdmin
-              ? 'Здесь больше нет фейковых карточек: создай первый рынок или измени фильтр.'
-              : 'Здесь появятся рынки, опубликованные администраторами.'}
+              ? t('home.noResultsAdmin')
+              : t('home.noResultsUser')}
           </p>
           {user?.isAdmin && (
             <Link
               to="/create"
               className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
             >
-              Создать рынок
+              {t('common.createMarket')}
             </Link>
           )}
         </div>
