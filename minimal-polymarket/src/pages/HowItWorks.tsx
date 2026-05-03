@@ -61,7 +61,7 @@ export function HowItWorks() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.32 }}
-          className="flex min-h-[360px] flex-col justify-between rounded-xl border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-7"
+          className="flex min-h-[360px] flex-col justify-between rounded-[28px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-7"
         >
           <div>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-pm-border bg-pm-bg px-3 py-1.5 text-sm font-semibold text-pm-text-muted">
@@ -79,7 +79,7 @@ export function HowItWorks() {
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link
               to="/"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
             >
               Смотреть рынки
               <ArrowRight className="h-4 w-4" />
@@ -87,7 +87,7 @@ export function HowItWorks() {
             {user?.isAdmin && (
               <Link
                 to="/create"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
               >
                 Создать рынок
               </Link>
@@ -99,7 +99,7 @@ export function HowItWorks() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.32, delay: 0.06 }}
-          className="flex min-h-[360px] flex-col rounded-xl border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6"
+          className="flex min-h-[360px] flex-col rounded-[28px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -126,22 +126,22 @@ export function HowItWorks() {
           </div>
 
           <div className="mt-8 grid grid-cols-3 gap-2">
-            <div className="rounded-lg bg-pm-bg p-3">
+            <div className="rounded-[18px] bg-pm-bg p-3">
               <div className="text-xs font-semibold text-pm-text-muted">Объём</div>
               <div className="mt-1 text-lg font-bold text-pm-text-strong">$12.4K</div>
             </div>
-            <div className="rounded-lg bg-pm-bg p-3">
+            <div className="rounded-[18px] bg-pm-bg p-3">
               <div className="text-xs font-semibold text-pm-text-muted">Сделки</div>
               <div className="mt-1 text-lg font-bold text-pm-text-strong">128</div>
             </div>
-            <div className="rounded-lg bg-pm-bg p-3">
+            <div className="rounded-[18px] bg-pm-bg p-3">
               <div className="text-xs font-semibold text-pm-text-muted">Статус</div>
               <div className="mt-1 text-lg font-bold text-pm-green">Открыт</div>
             </div>
           </div>
 
           <div className="mt-auto pt-8">
-            <div className="flex items-center gap-2 rounded-lg border border-pm-border bg-pm-bg px-3 py-2 text-sm font-semibold text-pm-text-muted">
+            <div className="flex items-center gap-2 rounded-[18px] border border-pm-border bg-pm-bg px-3 py-2 text-sm font-semibold text-pm-text-muted">
               <Search className="h-4 w-4 text-pm-blue" />
               Цена рынка обновляется после сделок
             </div>
@@ -159,9 +159,9 @@ export function HowItWorks() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, delay: 0.08 + index * 0.04 }}
-              className="rounded-xl border border-pm-border bg-pm-surface p-4 shadow-[0_1px_2px_var(--color-pm-card-shadow)]"
+              className="rounded-[24px] border border-pm-border bg-pm-surface p-4 shadow-[0_1px_2px_var(--color-pm-card-shadow)]"
             >
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-pm-bg text-pm-blue">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-bg text-pm-blue">
                 <StepIcon className="h-5 w-5" />
               </div>
               <h3 className="text-base font-bold text-pm-text-strong">{step.title}</h3>
@@ -172,7 +172,7 @@ export function HowItWorks() {
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <div className="rounded-xl border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
+        <div className="rounded-[24px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <WalletCards className="h-6 w-6 text-pm-blue" />
             <h2 className="text-xl font-bold text-pm-text-strong">Что означает цена</h2>
@@ -182,7 +182,7 @@ export function HowItWorks() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
+        <div className="rounded-[24px] border border-pm-border bg-pm-surface p-5 shadow-[0_1px_2px_var(--color-pm-card-shadow)] sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <ShieldCheck className="h-6 w-6 text-pm-green" />
             <h2 className="text-xl font-bold text-pm-text-strong">На что смотреть</h2>

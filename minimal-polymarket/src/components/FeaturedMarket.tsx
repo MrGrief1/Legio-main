@@ -29,9 +29,9 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="flex min-h-[260px] flex-col justify-center rounded-xl border border-dashed border-pm-border bg-pm-surface p-5 sm:min-h-[320px] sm:p-6"
+        className="flex min-h-[260px] flex-col justify-center rounded-[28px] border border-dashed border-pm-border bg-pm-surface p-5 sm:min-h-[320px] sm:p-6"
       >
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-pm-surface-hover text-pm-blue">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-pm-surface-hover text-pm-blue">
           <PlusCircle className="h-6 w-6" />
         </div>
         <h2 className="max-w-xl text-2xl font-bold text-pm-text-strong">Пока нет ни одного рынка</h2>
@@ -43,7 +43,7 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         {user?.isAdmin && (
           <Link
             to="/create"
-            className="mt-6 inline-flex h-11 w-fit items-center gap-2 rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            className="mt-6 inline-flex h-11 w-fit items-center gap-2 rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
           >
             Создать рынок
             <ArrowUpRight className="h-4 w-4" />
@@ -58,7 +58,7 @@ export function FeaturedMarket({ market }: { market?: Market }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="rounded-xl border border-pm-border bg-pm-surface p-3.5 transition-colors hover:border-pm-text-muted sm:p-4 lg:p-5"
+      className="rounded-[28px] border border-pm-border bg-pm-surface p-3.5 transition-colors hover:border-pm-text-muted sm:p-4 lg:p-5"
     >
       <div className="mb-4 flex items-start justify-between gap-3 sm:mb-5 sm:gap-4">
         <div className="min-w-0">
@@ -79,19 +79,19 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         <Link
           to={`/market/${market.id}`}
           aria-label="Открыть рынок"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-pm-surface-hover text-pm-text transition-colors hover:text-pm-text-strong"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-pm-surface-hover text-pm-text transition-colors hover:text-pm-text-strong"
         >
           <ArrowUpRight className="h-5 w-5" />
         </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-[#22c55e]/25 bg-[#22c55e]/10 p-4">
+        <div className="rounded-[24px] border border-[#22c55e]/25 bg-[#22c55e]/10 p-4">
           <div className="mb-2 text-sm font-bold text-pm-green">Да</div>
           <div className="text-4xl font-bold text-pm-text-strong">{market.yesPercent}%</div>
           <div className="mt-2 text-sm font-semibold text-pm-text-muted">{market.yesPrice}¢ за долю</div>
         </div>
-        <div className="rounded-xl border border-[#ef4444]/25 bg-[#ef4444]/10 p-4">
+        <div className="rounded-[24px] border border-[#ef4444]/25 bg-[#ef4444]/10 p-4">
           <div className="mb-2 text-sm font-bold text-pm-red">Нет</div>
           <div className="text-4xl font-bold text-pm-text-strong">{market.noPercent}%</div>
           <div className="mt-2 text-sm font-semibold text-pm-text-muted">{market.noPrice}¢ за долю</div>

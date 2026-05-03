@@ -152,7 +152,7 @@ export function Home() {
         </div>
 
         <div className="grid w-full grid-cols-[minmax(0,1fr)_40px] gap-2 sm:w-auto sm:flex sm:items-center">
-          <div className="flex h-10 min-w-0 items-center rounded-lg border border-pm-border bg-pm-surface px-3 md:w-[320px]">
+          <div className="flex h-10 min-w-0 items-center rounded-full border border-pm-border bg-pm-surface px-3 md:w-[320px]">
             <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
             <input
               value={query}
@@ -166,7 +166,7 @@ export function Home() {
               <button
                 type="button"
                 onClick={() => updateSearchParam('q', '')}
-                className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
                 aria-label="Очистить поиск"
               >
                 <X className="h-4 w-4" />
@@ -176,7 +176,7 @@ export function Home() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-transparent bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
             aria-label="Фильтры"
           >
             <SlidersHorizontal className="h-5 w-5" />
@@ -184,7 +184,7 @@ export function Home() {
           {user?.isAdmin && (
             <Link
               to="/create"
-              className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-lg bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
+              className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-full bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
             >
               <PlusCircle className="h-4 w-4" />
               Создать
@@ -215,7 +215,7 @@ export function Home() {
       </motion.div>
 
       {error && (
-        <div className="mb-5 rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-3 text-sm font-semibold text-pm-red">
+        <div className="mb-5 rounded-[24px] border border-[#ef4444]/30 bg-[#ef4444]/10 px-4 py-3 text-sm font-semibold text-pm-red">
           {error}
         </div>
       )}
@@ -223,7 +223,7 @@ export function Home() {
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-[188px] animate-pulse rounded-xl border border-pm-border bg-pm-surface" />
+            <div key={index} className="h-[188px] animate-pulse rounded-[24px] border border-pm-border bg-pm-surface" />
           ))}
         </div>
       ) : filteredMarkets.length > 0 ? (
@@ -250,7 +250,7 @@ export function Home() {
           ))}
         </motion.div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-pm-border bg-pm-surface p-8 text-center">
+        <div className="rounded-[28px] border border-dashed border-pm-border bg-pm-surface p-8 text-center">
           <h2 className="text-xl font-bold text-pm-text-strong">Ничего не найдено</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-pm-text-muted">
             {user?.isAdmin
@@ -260,7 +260,7 @@ export function Home() {
           {user?.isAdmin && (
             <Link
               to="/create"
-              className="mt-5 inline-flex h-11 items-center justify-center rounded-lg bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+              className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
             >
               Создать рынок
             </Link>

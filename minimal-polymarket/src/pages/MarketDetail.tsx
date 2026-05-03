@@ -6,6 +6,8 @@ import {
   Bookmark,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Code2,
   Info,
   Link as LinkIcon,
@@ -227,8 +229,8 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
               animate={{ opacity: detailOpacity }}
               className={
                 labelsOnLeft
-                  ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
-                  : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-md border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
+                  ? 'absolute flex items-center gap-1 whitespace-nowrap rounded-2xl border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
+                  : 'absolute ml-3 flex items-center gap-1 whitespace-nowrap rounded-2xl border border-pm-border bg-pm-bg/95 px-2 py-1 text-xs font-bold text-pm-text-strong shadow-[0_6px_20px_var(--color-pm-card-shadow-strong)]'
               }
               initial={false}
               style={labelPosition}
@@ -319,6 +321,16 @@ function TradePanel({
     ? numericAmount * (quote / 100)
     : numericAmount;
 
+  const adjustAmount = (direction: 1 | -1) => {
+    setMessage('');
+    setAmount((currentAmount) => {
+      const currentNumber = Number(currentAmount);
+      const nextAmount = Math.max(1, Math.min(10000, Math.round((Number.isFinite(currentNumber) ? currentNumber : 0) + direction)));
+
+      return String(nextAmount);
+    });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage('');
@@ -347,9 +359,9 @@ function TradePanel({
   };
 
   return (
-    <aside className="self-start rounded-2xl border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
+    <aside className="self-start rounded-[28px] border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
           {categoryIcon(market.category)}
         </div>
         <div className="min-w-0">
@@ -359,7 +371,7 @@ function TradePanel({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-pm-bg/45 p-1">
+        <div className="grid grid-cols-2 gap-1 rounded-full bg-pm-bg/45 p-1">
           {(['BUY', 'SELL'] as TradeSide[]).map((nextSide) => (
             <button
               key={nextSide}
@@ -371,8 +383,8 @@ function TradePanel({
               }}
               className={
                 side === nextSide
-                  ? 'h-9 rounded-lg bg-pm-surface text-sm font-bold text-pm-text-strong shadow-[0_1px_2px_var(--color-pm-card-shadow)]'
-                  : 'h-9 rounded-lg text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+                  ? 'h-9 rounded-full bg-pm-surface text-sm font-bold text-pm-text-strong shadow-[0_1px_2px_var(--color-pm-card-shadow)]'
+                  : 'h-9 rounded-full text-sm font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
               }
             >
               {nextSide === 'BUY' ? 'Купить' : 'Продать'}
@@ -386,8 +398,8 @@ function TradePanel({
             onClick={() => setOutcome('YES')}
             className={
               outcome === 'YES'
-                ? 'h-12 rounded-lg bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90'
-                : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+                ? 'h-12 rounded-2xl bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90'
+                : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
             Да {market.quotes.YES[side === 'BUY' ? 'ask' : 'bid']}¢
@@ -397,8 +409,8 @@ function TradePanel({
             onClick={() => setOutcome('NO')}
             className={
               outcome === 'NO'
-                ? 'h-12 rounded-lg bg-[#ef4444]/75 text-base font-bold text-white transition-colors hover:bg-[#ef4444]/90'
-                : 'h-12 rounded-lg bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
+                ? 'h-12 rounded-2xl bg-[#ef4444]/75 text-base font-bold text-white transition-colors hover:bg-[#ef4444]/90'
+                : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
             Нет {market.quotes.NO[side === 'BUY' ? 'ask' : 'bid']}¢
@@ -409,18 +421,42 @@ function TradePanel({
           <label className="text-base font-bold text-pm-text-strong" htmlFor="trade-amount">
             {side === 'BUY' ? 'Сумма' : 'Доли'}
           </label>
-          <input
-            id="trade-amount"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
-            min="1"
-            max="10000"
-            type="number"
-            step="1"
-            required
-            className="w-36 bg-transparent text-right text-4xl font-bold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
-          />
+          <div className="group/amount flex items-center justify-end gap-1">
+            <input
+              id="trade-amount"
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                setMessage('');
+              }}
+              inputMode="decimal"
+              min="1"
+              max="10000"
+              type="number"
+              step="1"
+              required
+              className="market-number-input w-24 bg-transparent text-right text-4xl font-bold text-pm-text-strong outline-none placeholder:text-pm-text-muted"
+            />
+            <div className="pointer-events-none flex h-11 w-7 shrink-0 scale-95 flex-col overflow-hidden rounded-xl border border-pm-border bg-pm-bg/45 opacity-0 transition-all duration-150 group-hover/amount:pointer-events-auto group-hover/amount:scale-100 group-hover/amount:opacity-100 group-focus-within/amount:pointer-events-auto group-focus-within/amount:scale-100 group-focus-within/amount:opacity-100">
+              <button
+                type="button"
+                onClick={() => adjustAmount(1)}
+                className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
+                aria-label="Увеличить сумму"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <div className="h-px bg-pm-border" />
+              <button
+                type="button"
+                onClick={() => adjustAmount(-1)}
+                className="flex flex-1 items-center justify-center text-pm-text-muted transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pm-blue"
+                aria-label="Уменьшить сумму"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-2">
@@ -429,14 +465,14 @@ function TradePanel({
               key={`${side}-${nextAmount}-${index}`}
               type="button"
               onClick={() => setAmount(String(nextAmount))}
-              className="h-9 rounded-lg border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
+              className="h-9 rounded-2xl border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
             >
               {side === 'BUY' ? `+${nextAmount}` : `${nextAmount}`}
             </button>
           ))}
         </div>
 
-        <div className="rounded-xl border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
+        <div className="rounded-[24px] border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
           <div className="flex justify-between gap-3">
             <span>{side === 'BUY' ? 'Ask' : 'Bid'}</span>
             <span className="text-pm-text-strong">{quote}¢</span>
@@ -464,8 +500,8 @@ function TradePanel({
             className={
               message.includes('записана')
               || message.includes('исполнена')
-                ? 'flex items-center gap-2 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
-                : 'rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
+                ? 'flex items-center gap-2 rounded-[20px] border border-[#22c55e]/30 bg-[#22c55e]/10 px-3 py-2 text-sm font-semibold text-pm-green'
+                : 'rounded-[20px] border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm font-semibold text-pm-red'
             }
           >
             {(message.includes('записана') || message.includes('исполнена')) && <CheckCircle2 className="h-4 w-4" />}
@@ -476,7 +512,7 @@ function TradePanel({
         <button
           type="submit"
           disabled={isSubmitting || isClosed}
-          className="h-12 w-full rounded-lg bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-12 w-full rounded-full bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isClosed ? 'Рынок закрыт' : isSubmitting ? 'Исполняю...' : user ? (side === 'BUY' ? 'Купить' : 'Продать') : 'Войти и торговать'}
         </button>
@@ -656,7 +692,7 @@ export function MarketDetail() {
   if (isLoading) {
     return (
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <div className="h-[420px] animate-pulse rounded-2xl border border-pm-border bg-pm-surface" />
+        <div className="h-[420px] animate-pulse rounded-[28px] border border-pm-border bg-pm-surface" />
       </div>
     );
   }
@@ -664,7 +700,7 @@ export function MarketDetail() {
   if (error || !market) {
     return (
       <div className="mx-auto max-w-[760px] px-4 py-10 sm:px-6">
-        <div className="rounded-2xl border border-pm-border bg-pm-surface p-6">
+        <div className="rounded-[28px] border border-pm-border bg-pm-surface p-6">
           <h1 className="text-2xl font-bold text-pm-text-strong">Рынок не открыт</h1>
           <p className="mt-2 text-sm leading-6 text-pm-text-muted">{error || 'Такого рынка нет.'}</p>
           <Link to="/" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-pm-blue">
@@ -692,7 +728,7 @@ export function MarketDetail() {
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pm-surface text-lg font-bold text-pm-text-strong">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pm-surface text-lg font-bold text-pm-text-strong">
                 {categoryIcon(market.category)}
               </div>
               <div className="min-w-0">
@@ -712,19 +748,19 @@ export function MarketDetail() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-pm-text">
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Код рынка">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Код рынка">
                 <Code2 className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Ссылка">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Ссылка">
                 <LinkIcon className="h-5 w-5" />
               </button>
-              <button className="rounded-lg p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Сохранить">
+              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label="Сохранить">
                 <Bookmark className="h-5 w-5" />
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-pm-border bg-pm-surface p-3.5">
+          <div className="rounded-[28px] border border-pm-border bg-pm-surface p-3.5">
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
               <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
                 <span className="h-2.5 w-2.5 rounded-full bg-pm-green" />
@@ -811,7 +847,7 @@ export function MarketDetail() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-pm-border bg-pm-surface">
+          <div className="overflow-hidden rounded-[28px] border border-pm-border bg-pm-surface">
             {market.outcomes.map((outcome) => (
               <div
                 key={outcome.outcome}
@@ -826,7 +862,7 @@ export function MarketDetail() {
                   <span className="text-sm font-bold text-pm-text-muted">{outcome.priceCents}¢</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:w-[170px]">
-                  <div className={outcome.outcome === 'YES' ? 'h-9 rounded-lg bg-[#22c55e]/10 px-4 text-center text-sm font-bold leading-9 text-pm-green' : 'h-9 rounded-lg bg-[#ef4444]/10 px-4 text-center text-sm font-bold leading-9 text-pm-red'}>
+                  <div className={outcome.outcome === 'YES' ? 'h-9 rounded-full bg-[#22c55e]/10 px-4 text-center text-sm font-bold leading-9 text-pm-green' : 'h-9 rounded-full bg-[#ef4444]/10 px-4 text-center text-sm font-bold leading-9 text-pm-red'}>
                     {outcome.outcome === 'YES' ? 'Да' : 'Нет'}
                   </div>
                 </div>
@@ -840,7 +876,7 @@ export function MarketDetail() {
               <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">Сделки</button>
             </div>
 
-            <div className="rounded-2xl border border-pm-border bg-pm-surface">
+            <div className="rounded-[28px] border border-pm-border bg-pm-surface">
               <div className="flex items-center justify-between border-b border-pm-border p-4">
                 <div className="flex items-center gap-2 font-bold text-pm-text-strong">
                   <Info className="h-5 w-5 text-pm-blue" />
@@ -873,7 +909,7 @@ export function MarketDetail() {
             </div>
 
             {market.recentTrades.length > 0 ? (
-              <div className="overflow-hidden rounded-2xl border border-pm-border bg-pm-surface">
+              <div className="overflow-hidden rounded-[28px] border border-pm-border bg-pm-surface">
                 {market.recentTrades.map((trade) => (
                   <div key={trade.id} className="grid grid-cols-1 gap-2 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
                     <div className="flex min-w-0 items-center gap-2">
@@ -890,7 +926,7 @@ export function MarketDetail() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl border border-pm-border bg-pm-surface px-4 py-3 text-sm font-semibold text-pm-text-muted">
+              <div className="rounded-[24px] border border-pm-border bg-pm-surface px-4 py-3 text-sm font-semibold text-pm-text-muted">
                 Сделок пока нет. Первая сделка задаст начальное движение цены.
               </div>
             )}

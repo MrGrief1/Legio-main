@@ -26,14 +26,14 @@ const categoryItems = ['Политика', 'Спорт', 'Криптовалют
 
 function squareLinkClass(isActive: boolean) {
   return isActive
-    ? 'flex h-10 w-10 items-center justify-center rounded-lg bg-pm-blue text-white'
-    : 'flex h-10 w-10 items-center justify-center rounded-lg bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong';
+    ? 'flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-blue text-white'
+    : 'flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong';
 }
 
 function dockLinkClass(isActive: boolean) {
   return isActive
-    ? 'flex h-12 items-center justify-center gap-2 rounded-lg bg-pm-blue text-sm font-bold text-white'
-    : 'flex h-12 items-center justify-center gap-2 rounded-lg text-sm font-bold text-pm-text-muted transition-colors hover:bg-pm-surface hover:text-pm-text-strong';
+    ? 'flex h-12 items-center justify-center gap-1.5 rounded-2xl bg-pm-blue text-xs font-bold text-white'
+    : 'flex h-12 items-center justify-center gap-1.5 rounded-2xl text-xs font-bold text-pm-text-muted transition-colors hover:bg-pm-surface hover:text-pm-text-strong';
 }
 
 export function Navbar({ theme, onThemeToggle }: NavbarProps) {
@@ -173,8 +173,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   to="/how-it-works"
                   className={
                     isHowItWorksRoute
-                      ? 'flex items-center gap-1.5 rounded-lg bg-pm-surface px-3 py-2 text-sm font-medium text-pm-text-strong'
-                      : 'flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-pm-text transition-colors hover:bg-pm-surface hover:text-pm-text-strong'
+                      ? 'flex items-center gap-1.5 rounded-2xl bg-pm-surface px-3 py-2 text-sm font-medium text-pm-text-strong'
+                      : 'flex items-center gap-1.5 rounded-2xl px-3 py-2 text-sm font-medium text-pm-text transition-colors hover:bg-pm-surface hover:text-pm-text-strong'
                   }
                 >
                   <Info className="h-4 w-4 text-pm-blue" />
@@ -209,7 +209,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                       <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
                         <Link
                           to="/admin"
-                          className="inline-flex items-center gap-2 rounded-lg border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
+                          className="inline-flex items-center gap-2 rounded-2xl border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
                         >
                           <LayoutDashboard className="h-4 w-4 text-pm-blue" />
                           Админка
@@ -218,7 +218,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                       <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
                         <Link
                           to="/create"
-                          className="inline-flex items-center gap-2 rounded-lg bg-pm-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                          className="inline-flex items-center gap-2 rounded-2xl bg-pm-blue px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                         >
                           <PlusCircle className="h-4 w-4" />
                           Создать
@@ -236,7 +236,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                     whileTap={{ scale: 0.95 }}
                     onClick={logout}
                     aria-label="Выйти"
-                    className="flex h-10 w-10 items-center justify-center rounded-lg bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
                   >
                     <LogOut className="h-5 w-5" />
                   </motion.button>
@@ -258,7 +258,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="hidden sm:block">
                     <Link
                       to="/register"
-                      className="inline-flex rounded-lg bg-pm-blue px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                      className="inline-flex rounded-2xl bg-pm-blue px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                     >
                       Зарегистрироваться
                     </Link>
@@ -266,7 +266,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                   <Link
                     to="/login"
                     aria-label="Войти"
-                    className="flex h-10 w-10 items-center justify-center rounded-lg bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:hidden"
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:hidden"
                   >
                     <UserRound className="h-5 w-5" />
                   </Link>
@@ -279,7 +279,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                 aria-label={isLightTheme ? 'Включить тёмную тему' : 'Включить светлую тему'}
                 title={isLightTheme ? 'Тёмная тема' : 'Светлая тема'}
                 onClick={onThemeToggle}
-                className="flex h-10 w-10 items-center justify-center rounded-lg bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
               >
                 {isLightTheme ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
               </motion.button>
@@ -287,7 +287,7 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 aria-label="Выбор языка"
-                className="hidden h-10 w-10 items-center justify-center rounded-lg bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:flex"
+                className="hidden h-10 w-10 items-center justify-center rounded-2xl bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong sm:flex"
               >
                 <Globe className="h-5 w-5" />
               </motion.button>
@@ -331,10 +331,14 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
           className="fixed inset-x-0 bottom-0 z-50 border-t border-pm-border bg-pm-bg/95 px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2 shadow-[0_-10px_30px_var(--color-pm-card-shadow-strong)] backdrop-blur sm:hidden"
           aria-label="Мобильная админ-навигация"
         >
-          <div className="mx-auto grid max-w-sm grid-cols-3 gap-2">
-            <Link to="/" className={pathname === '/' ? 'flex h-12 items-center justify-center gap-2 rounded-lg bg-pm-surface-hover text-sm font-bold text-pm-text-strong' : dockLinkClass(false)}>
+          <div className="mx-auto grid max-w-md grid-cols-4 gap-2">
+            <Link to="/" className={pathname === '/' ? 'flex h-12 items-center justify-center gap-1.5 rounded-2xl bg-pm-surface-hover text-xs font-bold text-pm-text-strong' : dockLinkClass(false)}>
               <House className="h-4 w-4" />
               Рынки
+            </Link>
+            <Link to="/how-it-works" className={dockLinkClass(isHowItWorksRoute)}>
+              <Info className="h-4 w-4" />
+              Как
             </Link>
             <Link to="/admin" className={dockLinkClass(isAdminRoute)}>
               <LayoutDashboard className="h-4 w-4" />

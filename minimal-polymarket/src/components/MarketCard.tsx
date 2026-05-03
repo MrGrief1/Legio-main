@@ -68,7 +68,7 @@ function ProbabilityGauge({ percent, label }: { percent: number; label: string }
 
 function MarketIcon({ icon }: { icon: string | React.ReactNode }) {
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-pm-surface-hover text-2xl text-pm-text-strong">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-pm-surface-hover text-2xl text-pm-text-strong">
       {typeof icon === 'string' ? icon : icon}
     </div>
   );
@@ -92,7 +92,7 @@ export function MarketCard({
   return (
     <Link 
       to={`/market/${id}`} 
-      className="group flex h-full min-h-[188px] flex-col rounded-xl border border-pm-border bg-pm-surface p-3.5 text-pm-text shadow-[0_1px_2px_var(--color-pm-card-shadow)] transition-all hover:-translate-y-0.5 hover:border-pm-text-muted hover:bg-pm-surface-hover hover:shadow-[0_14px_34px_var(--color-pm-card-shadow-strong)]"
+      className="group flex h-full min-h-[188px] flex-col rounded-[24px] border border-pm-border bg-pm-surface p-3.5 text-pm-text shadow-[0_1px_2px_var(--color-pm-card-shadow)] transition-all hover:-translate-y-0.5 hover:border-pm-text-muted hover:bg-pm-surface-hover hover:shadow-[0_14px_34px_var(--color-pm-card-shadow-strong)]"
     >
       <div className="mb-3 flex items-start gap-3">
         <MarketIcon icon={icon} />
@@ -106,10 +106,10 @@ export function MarketCard({
 
       {layout === 'binary' ? (
           <div className="mb-3 mt-auto grid grid-cols-2 gap-2">
-          <div className="flex h-10 items-center justify-center rounded-lg bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors group-hover:bg-[#22c55e]/15">
+          <div className="flex h-10 items-center justify-center rounded-full bg-[#22c55e]/10 px-3 text-sm font-bold text-pm-green transition-colors group-hover:bg-[#22c55e]/15">
             Да {yesPercent}¢
           </div>
-          <div className="flex h-10 items-center justify-center rounded-lg bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors group-hover:bg-[#ef4444]/15">
+          <div className="flex h-10 items-center justify-center rounded-full bg-[#ef4444]/10 px-3 text-sm font-bold text-pm-red transition-colors group-hover:bg-[#ef4444]/15">
             Нет {noPercent}¢
           </div>
         </div>
@@ -119,8 +119,8 @@ export function MarketCard({
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 text-[15px]">
               <span className="truncate font-medium text-pm-text">{opt.name}</span>
               <span className="min-w-10 text-right font-bold text-pm-text-strong">{opt.percent}%</span>
-              <span className="rounded-md bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">Да.</span>
-              <span className="rounded-md bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">Нет.</span>
+              <span className="rounded-full bg-[#22c55e]/10 px-2 py-1 text-xs font-bold text-pm-green">Да.</span>
+              <span className="rounded-full bg-[#ef4444]/10 px-2 py-1 text-xs font-bold text-pm-red">Нет.</span>
             </div>
           ))}
         </div>

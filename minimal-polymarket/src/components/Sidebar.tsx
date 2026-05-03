@@ -16,7 +16,7 @@ function MarketRow({ market, index }: { market: Market; index: number }) {
   return (
     <Link
       to={`/market/${market.id}`}
-      className="flex gap-2 rounded-lg p-1.5 transition-colors hover:bg-pm-surface group"
+      className="flex gap-2 rounded-2xl p-1.5 transition-colors hover:bg-pm-surface group"
     >
       <span className="text-xs font-mono text-pm-text-muted">{index + 1}</span>
       <div className="min-w-0 flex-1">
@@ -60,7 +60,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
               </div>
             ))
           ) : (
-            <div className="rounded-lg border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
+            <div className="rounded-[20px] border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
               Сделок пока нет.
             </div>
           )}
@@ -81,7 +81,7 @@ export function Sidebar({ markets = [] }: { markets?: Market[] }) {
               </div>
             ))
           ) : (
-            <div className="rounded-lg border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
+            <div className="rounded-[20px] border border-pm-border bg-pm-surface p-3 text-sm leading-6 text-pm-text-muted">
               Созданные рынки появятся здесь.
             </div>
           )}
