@@ -25,7 +25,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, ApiError, type Market, type Outcome, type TradeSide } from '../lib/api';
+import { api, ApiError, type Market, type Outcome, type TradeSide, type TradeQuote } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
@@ -318,24 +318,59 @@ function TradePanel({
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<'success' | 'error'>('success');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [quote, setQuote] = useState<TradeQuote | null>(null);
+  const [isQuoting, setIsQuoting] = useState(false);
+  const isSettled = market.status === 'resolved' || market.status === 'canceled';
   const isClosed = market.status !== 'open' || new Date(market.closeDate).getTime() <= Date.now();
-  const quote = market.quotes[outcome][side === 'BUY' ? 'ask' : 'bid'];
+  const priceCents = market.quotes[outcome].ask;
   const numericAmount = Number(amount);
-  const viewerPosition = market.viewer?.positions[outcome]?.shares ?? 0;
-  const previewShares = side === 'BUY' && Number.isFinite(numericAmount) && numericAmount > 0
-    ? numericAmount / (quote / 100)
-    : numericAmount;
-  const previewValue = side === 'SELL' && Number.isFinite(numericAmount) && numericAmount > 0
-    ? numericAmount * (quote / 100)
-    : numericAmount;
+  const balance = Math.round(market.viewer?.balance ?? user?.balance ?? 0);
+  const position = market.viewer?.positions[outcome] ?? { shares: 0, avgPriceCents: 0 };
+  const viewerPosition = position.shares;
+  const validAmount = Number.isFinite(numericAmount) && numericAmount >= 1 && numericAmount <= 10000;
+  const overSell = side === 'SELL' && numericAmount > viewerPosition + 1e-6;
+
+  // Position value + unrealized P&L for the selected outcome.
+  const currentValue = viewerPosition * (priceCents / 100);
+  const unrealizedPnl = viewerPosition * ((priceCents - position.avgPriceCents) / 100);
+
+  // Live quote: debounced preview of the exact fill from the server.
+  useEffect(() => {
+    if (!validAmount || isSettled || overSell) {
+      setQuote(null);
+      setIsQuoting(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsQuoting(true);
+    const handle = setTimeout(() => {
+      api.quote(market.id, { outcome, side, amount: numericAmount })
+        .then((res) => { if (!cancelled) setQuote(res.quote); })
+        .catch(() => { if (!cancelled) setQuote(null); })
+        .finally(() => { if (!cancelled) setIsQuoting(false); });
+    }, 220);
+
+    return () => { cancelled = true; clearTimeout(handle); };
+    // Re-quote when the market state moves (yesPercent/tradeCount) or inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market.id, market.yesPercent, market.tradeCount, outcome, side, numericAmount, validAmount, isSettled, overSell]);
+
+  const setBuyAmount = (next: number) => {
+    setMessage('');
+    setAmount(String(Math.max(1, Math.min(10000, Math.round(next)))));
+  };
+
+  const setSellFraction = (fraction: number) => {
+    setMessage('');
+    setAmount(String(Math.max(0, Math.floor(viewerPosition * fraction * 100) / 100)));
+  };
 
   const adjustAmount = (direction: 1 | -1) => {
     setMessage('');
-    setAmount((currentAmount) => {
-      const currentNumber = Number(currentAmount);
-      const nextAmount = Math.max(1, Math.min(10000, Math.round((Number.isFinite(currentNumber) ? currentNumber : 0) + direction)));
-
-      return String(nextAmount);
+    setAmount((current) => {
+      const currentNumber = Number(current);
+      return String(Math.max(0, Math.min(10000, Math.round((Number.isFinite(currentNumber) ? currentNumber : 0) + direction))));
     });
   };
 
@@ -352,11 +387,13 @@ function TradePanel({
     setIsSubmitting(true);
 
     try {
-      const response = await api.trade(market.id, {
-        outcome,
-        side,
-        amount: numericAmount,
-      });
+      // Slippage guard: allow a small buffer over the quoted average fill.
+      const slippage = quote
+        ? side === 'BUY'
+          ? { maxPriceCents: Math.min(99, Math.round(quote.avgPriceCents) + 5) }
+          : { minPriceCents: Math.max(1, Math.round(quote.avgPriceCents) - 5) }
+        : {};
+      const response = await api.trade(market.id, { outcome, side, amount: numericAmount, ...slippage });
 
       onMarketUpdated(response.market);
       setMessageTone('success');
@@ -369,6 +406,29 @@ function TradePanel({
     }
   };
 
+  if (isSettled) {
+    return (
+      <aside className="self-start rounded-[28px] border border-pm-border bg-pm-surface p-5 shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
+        {market.status === 'resolved' ? (
+          <div className="rounded-[20px] border border-pm-blue/30 bg-pm-blue/10 p-4 text-center">
+            <ShieldCheck className="mx-auto mb-2 h-6 w-6 text-pm-blue" />
+            <p className="text-base font-bold text-pm-text-strong">
+              {t('market.resolvedBanner', { outcome: outcomeLabel((market.winningOutcome ?? 'YES') as Outcome) })}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-pm-text-muted">{t('market.payoutHint')}</p>
+          </div>
+        ) : (
+          <div className="rounded-[20px] border border-pm-border bg-pm-bg/35 p-4 text-center text-sm font-semibold text-pm-text-muted">
+            {t('market.canceledBanner')}
+          </div>
+        )}
+      </aside>
+    );
+  }
+
+  const disabled = isSubmitting || isClosed || !validAmount || overSell
+    || (side === 'BUY' && !!quote && quote.cost > balance + 1e-6);
+
   return (
     <aside className="self-start rounded-[28px] border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
@@ -376,7 +436,7 @@ function TradePanel({
           {categoryIcon(market.category)}
         </div>
         <div className="min-w-0">
-          <h2 className="truncate text-base font-bold text-pm-text-strong">{t('market.voteTitle')}</h2>
+          <h2 className="truncate text-base font-bold text-pm-text-strong">{t('market.tradeTitle')}</h2>
           <p className="text-xs font-medium text-pm-text-muted">{t('market.orderMode')}</p>
         </div>
       </div>
@@ -413,7 +473,7 @@ function TradePanel({
                 : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            {t('common.yes')} {market.quotes.YES[side === 'BUY' ? 'ask' : 'bid']}¢
+            {t('common.yes')} {market.quotes.YES.ask}¢
           </button>
           <button
             type="button"
@@ -424,7 +484,7 @@ function TradePanel({
                 : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
             }
           >
-            {t('common.no')} {market.quotes.NO[side === 'BUY' ? 'ask' : 'bid']}¢
+            {t('common.no')} {market.quotes.NO.ask}¢
           </button>
         </div>
 
@@ -473,40 +533,95 @@ function TradePanel({
         </div>
 
         <div className="grid grid-cols-4 gap-2">
-          {(side === 'BUY' ? [1, 5, 10, 100] : [1, 5, 10, Math.max(1, Math.floor(viewerPosition))]).map((nextAmount, index) => (
-            <button
-              key={`${side}-${nextAmount}-${index}`}
-              type="button"
-              onClick={() => setAmount(String(nextAmount))}
-              className="h-9 rounded-2xl border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
-            >
-              {side === 'BUY' ? `+${nextAmount}` : `${nextAmount}`}
-            </button>
-          ))}
+          {side === 'BUY'
+            ? [10, 100, 500].map((value) => (
+                <button
+                  key={`buy-${value}`}
+                  type="button"
+                  onClick={() => setBuyAmount(value)}
+                  className="h-9 rounded-2xl border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
+                >
+                  {value}
+                </button>
+              ))
+            : [0.25, 0.5].map((fraction) => (
+                <button
+                  key={`sell-${fraction}`}
+                  type="button"
+                  onClick={() => setSellFraction(fraction)}
+                  className="h-9 rounded-2xl border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
+                >
+                  {Math.round(fraction * 100)}%
+                </button>
+              ))}
+          <button
+            type="button"
+            onClick={() => (side === 'BUY' ? setBuyAmount(balance) : setSellFraction(1))}
+            className="h-9 rounded-2xl border border-pm-border text-sm font-bold text-pm-text-muted transition-colors hover:border-pm-text-muted hover:text-pm-text-strong"
+          >
+            {side === 'BUY' ? t('market.maxBuy') : t('market.sellAll')}
+          </button>
         </div>
 
+        {/* Live receipt — the exact fill, so the user can read the economics. */}
         <div className="rounded-[24px] border border-pm-border bg-pm-bg/35 p-3 text-sm font-semibold text-pm-text-muted">
+          {side === 'BUY' ? (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-[#22c55e]/25 bg-[#22c55e]/10 px-3 py-2">
+              <span className="text-pm-text-strong">{t('market.toWin')}</span>
+              <span className="text-right">
+                <span className="block text-lg font-bold text-pm-green">
+                  {quote ? `${quote.toWin.toLocaleString(locale, { maximumFractionDigits: 2 })} pts` : '—'}
+                </span>
+                {quote && (
+                  <span className="text-xs font-bold text-pm-green">+{quote.returnPercent.toFixed(0)}%</span>
+                )}
+              </span>
+            </div>
+          ) : (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-pm-border bg-pm-surface/60 px-3 py-2">
+              <span className="text-pm-text-strong">{t('market.receive')}</span>
+              <span className="text-lg font-bold text-pm-text-strong">
+                {quote ? `${quote.cost.toLocaleString(locale, { maximumFractionDigits: 2 })} pts` : '—'}
+              </span>
+            </div>
+          )}
+
           <div className="flex justify-between gap-3">
-            <span>{side === 'BUY' ? t('common.ask') : t('common.bid')}</span>
-            <span className="text-pm-text-strong">{quote}¢</span>
+            <span>{t('market.avgPrice')}</span>
+            <span className="text-pm-text-strong">{isQuoting && !quote ? t('market.estimating') : quote ? `${quote.avgPriceCents.toFixed(1)}¢` : `${priceCents}¢`}</span>
           </div>
           <div className="mt-1 flex justify-between gap-3">
             <span>{t('common.shares')}</span>
-            <span className="text-pm-text-strong">{previewShares.toFixed(2)}</span>
+            <span className="text-pm-text-strong">{quote ? quote.shares.toLocaleString(locale, { maximumFractionDigits: 2 }) : '—'}</span>
           </div>
+          {quote && quote.fee > 0 && (
+            <div className="mt-1 flex justify-between gap-3">
+              <span>{t('market.fee')}</span>
+              <span className="text-pm-text-strong">{quote.fee.toFixed(2)} pts</span>
+            </div>
+          )}
           <div className="mt-1 flex justify-between gap-3">
             <span>{side === 'BUY' ? t('common.balance') : t('market.receive')}</span>
             <span className="text-pm-text-strong">
-              {side === 'BUY'
-                ? `${Math.round(market.viewer?.balance ?? user?.balance ?? 0).toLocaleString(locale)} pts`
-                : `${previewValue.toFixed(2)} pts`}
+              {side === 'BUY' ? `${balance.toLocaleString(locale)} pts` : `${viewerPosition.toFixed(2)} ${t('common.shares').toLowerCase()}`}
             </span>
           </div>
-          <div className="mt-1 flex justify-between gap-3">
-            <span>{t('common.position')}</span>
-            <span className="text-pm-text-strong">{viewerPosition.toFixed(2)}</span>
-          </div>
         </div>
+
+        {viewerPosition > 0.0001 && (
+          <div className="rounded-[20px] border border-pm-border bg-pm-surface/60 px-3 py-2 text-sm font-semibold">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-pm-text-muted">{t('market.holdingTitle')} · {outcomeLabel(outcome)}</span>
+              <span className="text-pm-text-strong">{viewerPosition.toFixed(2)} · {currentValue.toLocaleString(locale, { maximumFractionDigits: 0 })} pts</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <span className="text-pm-text-muted">{t('market.pnl')}</span>
+              <span className={unrealizedPnl >= 0 ? 'text-pm-green' : 'text-pm-red'}>
+                {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toLocaleString(locale, { maximumFractionDigits: 2 })} pts
+              </span>
+            </div>
+          </div>
+        )}
 
         {message && (
           <div
@@ -523,7 +638,7 @@ function TradePanel({
 
         <button
           type="submit"
-          disabled={isSubmitting || isClosed}
+          disabled={disabled}
           className="h-12 w-full rounded-full bg-pm-blue text-base font-bold text-white shadow-[0_4px_0_#1d4ed8] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isClosed ? t('market.closed') : isSubmitting ? t('market.executing') : user ? (side === 'BUY' ? t('common.buy') : t('common.sell')) : t('market.loginAndTrade')}

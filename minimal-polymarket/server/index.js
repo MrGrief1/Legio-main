@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import pg from 'pg';
 
+import * as lmsr from './lib/lmsr.js';
+
 dotenv.config({ quiet: true });
 
 const { Pool } = pg;
@@ -36,7 +38,13 @@ const defaultStartingBalance = 10000;
 const defaultMarketLiquidity = 1000;
 const defaultMinOrderSize = 1;
 const defaultTickSize = 1;
+const defaultFeeBps = Math.max(0, Math.min(2000, asNumber(cleanEnvValue(process.env.TRADE_FEE_BPS), 0)));
+const houseAccount = 'house';
+const houseFeesAccount = 'house:fees';
 const marketStatuses = new Set(['open', 'paused', 'resolved', 'canceled']);
+// Statuses an admin may set via the plain status endpoint. Resolution and
+// cancellation have dedicated endpoints because they move money.
+const settableStatuses = new Set(['open', 'paused']);
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const configuredAppOrigin = normalizeOrigin(cleanEnvValue(process.env.APP_ORIGIN));
 const configuredAllowedOrigins = new Set(
@@ -429,17 +437,28 @@ function roundPriceToTick(value, market) {
   return roundMoney(clampPriceCents(price));
 }
 
-function roundDeltaToTick(value, market) {
-  const tickSize = Math.max(0.1, asNumber(market.tickSize, defaultTickSize));
+// --- LMSR economic engine ----------------------------------------------------
+//
+// The authoritative market state is (qYes, qNo, b). Prices are derived from it
+// via softmax, so YES + NO always equals 100. The old per-trade "last price"
+// columns are no longer the source of truth (they are kept only for chart
+// history). See server/lib/lmsr.js for the math.
 
-  return roundMoney(Math.min(12, Math.max(0, Math.round(value / tickSize) * tickSize)));
+function marketLmsrState(market) {
+  const b = Math.max(1, asNumber(market.bParam, lmsr.bFromLiquidity(asNumber(market.liquidity, defaultMarketLiquidity))));
+  // Backfill seed for legacy markets that predate the LMSR columns.
+  if (market.bParam == null && (market.qYes == null || market.qNo == null)) {
+    const seeded = lmsr.seedQ(clampPercent(asNumber(market.initialProbability, 50)) / 100, b);
+    return { qYes: seeded.qYes, qNo: seeded.qNo, b };
+  }
+
+  return { qYes: asNumber(market.qYes, 0), qNo: asNumber(market.qNo, 0), b };
 }
 
 function getDisplayPrices(market) {
-  const initialYes = clampPercent(market.initialProbability ?? 50);
-  const initialNo = clampPercent(100 - initialYes);
-  const yesPrice = roundPriceToTick(market.lastYesPrice ?? initialYes, market);
-  const noPrice = roundPriceToTick(market.lastNoPrice ?? initialNo, market);
+  const { qYes, qNo, b } = marketLmsrState(market);
+  const yesPrice = roundPriceToTick(lmsr.priceYes(qYes, qNo, b) * 100, market);
+  const noPrice = roundMoney(clampPriceCents(100 - yesPrice));
 
   return {
     yesPrice,
@@ -449,57 +468,62 @@ function getDisplayPrices(market) {
   };
 }
 
-function getQuote({ market, outcome, side, yesPrice, noPrice }) {
-  const liquidity = Math.max(100, asNumber(market.liquidity, defaultMarketLiquidity));
-  const baseSpread = liquidity >= 5000 ? 2 : liquidity >= 2000 ? 3 : 4;
-  const fairPrice = outcome === 'YES' ? yesPrice : noPrice;
-  const price = side === 'BUY' ? fairPrice + baseSpread : fairPrice - baseSpread;
+// Marginal price of an outcome, rounded for the quotes block. LMSR has no
+// explicit bid/ask spread — slippage lives in trade size — so bid == ask here.
+function getQuote({ market, outcome }) {
+  const { qYes, qNo, b } = marketLmsrState(market);
+  const price = lmsr.priceOf(outcome, qYes, qNo, b) * 100;
 
   return roundPriceToTick(price, market);
 }
 
-function calculateTrade({
-  market,
-  side,
-  outcome,
-  spendAmount,
-  shareAmount,
-  currentYesPrice,
-  currentNoPrice,
-  totalVolume,
-}) {
-  const quotedPrice = getQuote({
-    market,
-    outcome,
-    side,
-    yesPrice: currentYesPrice,
-    noPrice: currentNoPrice,
-  });
-  const shares = side === 'BUY'
-    ? spendAmount / (quotedPrice / 100)
-    : shareAmount;
-  const amount = side === 'BUY'
-    ? spendAmount
-    : shareAmount * (quotedPrice / 100);
-  const liquidity = Math.max(100, asNumber(market.liquidity, defaultMarketLiquidity))
-    + Math.sqrt(Math.max(0, totalVolume)) * 10;
-  const impactBase = side === 'BUY' ? amount : shareAmount * quotedPrice / 100;
-  const impact = roundDeltaToTick((impactBase / liquidity) * 80, market);
-  const counterImpact = roundDeltaToTick(impact * 0.35, market);
-  const direction = side === 'BUY' ? 1 : -1;
-  const yesPriceAfterCents = roundPriceToTick(currentYesPrice + (
-    outcome === 'YES' ? impact * direction : -counterImpact * direction
-  ), market);
-  const noPriceAfterCents = roundPriceToTick(currentNoPrice + (
-    outcome === 'NO' ? impact * direction : -counterImpact * direction
-  ), market);
+// Pure trade calculation shared by quoting and execution. Given the market
+// state, a side (BUY/SELL), an outcome, and `amount` (points to spend on BUY,
+// shares to sell on SELL), it returns the exact fill plus the balanced ledger
+// legs (which always sum to zero).
+function calculateFill({ market, side, outcome, amount }) {
+  const { qYes, qNo, b } = marketLmsrState(market);
+  const feeRate = Math.max(0, asNumber(market.feeBps, defaultFeeBps)) / 10000;
+
+  let shares;
+  let ammPoints; // points exchanged with the AMM (cost on buy, proceeds on sell)
+  let fee;
+  let cashDelta; // signed change to the trader's balance
+  let direction; // +1 adds shares to q, -1 removes
+
+  if (side === 'BUY') {
+    const ammSpend = amount / (1 + feeRate);
+    shares = lmsr.sharesForSpend(outcome, ammSpend, qYes, qNo, b);
+    ammPoints = ammSpend;
+    fee = amount - ammSpend;
+    cashDelta = -amount;
+    direction = 1;
+  } else {
+    shares = amount;
+    const proceeds = lmsr.proceedsForSell(outcome, shares, qYes, qNo, b);
+    fee = proceeds * feeRate;
+    ammPoints = proceeds;
+    cashDelta = proceeds - fee;
+    direction = -1;
+  }
+
+  const after = lmsr.applyShares(outcome, direction * shares, qYes, qNo);
+  const yesPriceAfter = roundPriceToTick(lmsr.priceYes(after.qYes, after.qNo, b) * 100, market);
+  const avgPriceCents = shares > 0 ? roundMoney((ammPoints / shares) * 100) : 0;
 
   return {
-    amount: roundMoney(amount),
-    priceCents: quotedPrice,
-    yesPriceAfterCents,
-    noPriceAfterCents,
-    shares,
+    shares: roundMoney(shares),
+    ammPoints: roundMoney(ammPoints),
+    fee: roundMoney(fee),
+    cashDelta: roundMoney(cashDelta),
+    avgPriceCents,
+    priceCents: avgPriceCents,
+    qYesAfter: after.qYes,
+    qNoAfter: after.qNo,
+    yesPriceAfterCents: yesPriceAfter,
+    noPriceAfterCents: roundMoney(clampPriceCents(100 - yesPriceAfter)),
+    // potential payout if this position wins: 1 point per share.
+    toWin: roundMoney(shares),
   };
 }
 
@@ -535,12 +559,14 @@ function normalizeMarket(row) {
     creatorName: row.creator_name || row.creatorName || null,
     createdAt: row.created_at || row.createdAt,
     tradeCount: asNumber(row.trade_count ?? row.tradeCount),
-    lastYesPrice: row.last_yes_price == null && row.lastYesPrice == null
-      ? null
-      : asNumber(row.last_yes_price ?? row.lastYesPrice),
-    lastNoPrice: row.last_no_price == null && row.lastNoPrice == null
-      ? null
-      : asNumber(row.last_no_price ?? row.lastNoPrice),
+    bParam: row.b_param == null && row.bParam == null ? null : asNumber(row.b_param ?? row.bParam),
+    qYes: row.q_yes == null && row.qYes == null ? null : asNumber(row.q_yes ?? row.qYes),
+    qNo: row.q_no == null && row.qNo == null ? null : asNumber(row.q_no ?? row.qNo),
+    feeBps: asNumber(row.fee_bps ?? row.feeBps, defaultFeeBps),
+    winningOutcome: row.winning_outcome ?? row.winningOutcome ?? null,
+    resolvedAt: row.resolved_at ?? row.resolvedAt ?? null,
+    resolvedBy: row.resolved_by ?? row.resolvedBy ?? null,
+    resolutionNote: row.resolution_note ?? row.resolutionNote ?? null,
   };
 }
 
@@ -629,16 +655,14 @@ function marketDto(market, options = {}) {
     initialProbability: market.initialProbability,
     tickSize: market.tickSize,
     minOrderSize: market.minOrderSize,
+    feeBps: asNumber(market.feeBps, defaultFeeBps),
+    winningOutcome: market.winningOutcome || null,
+    resolvedAt: market.resolvedAt ? new Date(market.resolvedAt).toISOString() : null,
+    resolutionNote: market.resolutionNote || null,
     ...prices,
     quotes: {
-      YES: {
-        bid: getQuote({ market, outcome: 'YES', side: 'SELL', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
-        ask: getQuote({ market, outcome: 'YES', side: 'BUY', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
-      },
-      NO: {
-        bid: getQuote({ market, outcome: 'NO', side: 'SELL', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
-        ask: getQuote({ market, outcome: 'NO', side: 'BUY', yesPrice: prices.yesPrice, noPrice: prices.noPrice }),
-      },
+      YES: { bid: getQuote({ market, outcome: 'YES' }), ask: getQuote({ market, outcome: 'YES' }) },
+      NO: { bid: getQuote({ market, outcome: 'NO' }), ask: getQuote({ market, outcome: 'NO' }) },
     },
     outcomes: [
       { name: 'Да', outcome: 'YES', percent: prices.yesPercent, priceCents: prices.yesPrice, pool: roundMoney(market.yesPool) },
@@ -651,25 +675,23 @@ function marketDto(market, options = {}) {
 }
 
 function buildHistory(market, trades) {
-  let latestYes = clampPercent(market.initialProbability ?? 50);
-  let latestNo = clampPercent(100 - latestYes);
+  // YES and NO are mirror images (NO = 100 - YES) — the LMSR invariant carried
+  // through to the chart, so the two lines can never drift apart again.
+  const openYes = getDisplayPrices(market).yesPercent;
+  let latestYes = openYes;
   const points = [{
     time: new Date(market.createdAt).toISOString(),
     yesPercent: latestYes,
-    noPercent: latestNo,
+    noPercent: roundMoney(clampPriceCents(100 - latestYes)),
   }];
 
   for (const trade of trades) {
-    latestYes = trade.yesPriceAfterCents;
-
-    if (trade.noPriceAfterCents != null) {
-      latestNo = trade.noPriceAfterCents;
-    }
+    latestYes = asNumber(trade.yesPriceAfterCents, latestYes);
 
     points.push({
       time: new Date(trade.createdAt).toISOString(),
       yesPercent: latestYes,
-      noPercent: latestNo,
+      noPercent: roundMoney(clampPriceCents(100 - latestYes)),
     });
   }
 
@@ -756,8 +778,46 @@ async function initPostgres() {
   await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS min_order_size numeric NOT NULL DEFAULT 1;');
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS side text NOT NULL DEFAULT \'BUY\';');
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS no_price_after_cents numeric;');
+  // LMSR authoritative state + fees.
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS b_param numeric;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS q_yes numeric NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS q_no numeric NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS fee_bps integer NOT NULL DEFAULT 0;');
+  // Resolution / settlement.
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS winning_outcome text;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolved_at timestamptz;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolved_by text REFERENCES users(id) ON DELETE SET NULL;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolution_note text;');
+  // Cost basis for P&L and cancel refunds.
+  await pool.query('ALTER TABLE positions ADD COLUMN IF NOT EXISTS cost_basis numeric NOT NULL DEFAULT 0;');
+  await pool.query('ALTER TABLE positions ADD COLUMN IF NOT EXISTS realized_pnl numeric NOT NULL DEFAULT 0;');
+  // Append-only double-entry ledger — the conservation backbone.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledger (
+      id text PRIMARY KEY,
+      ts timestamptz NOT NULL DEFAULT now(),
+      account text NOT NULL,
+      market_id text,
+      trade_id text,
+      kind text NOT NULL,
+      delta numeric NOT NULL
+    );
+  `);
+  // Backfill LMSR state for any market created before this migration: pick b
+  // from liquidity and seed q so the opening price equals initial_probability.
+  const legacyMarkets = await pool.query("SELECT id, liquidity, initial_probability FROM markets WHERE b_param IS NULL");
+  for (const row of legacyMarkets.rows) {
+    const b = lmsr.bFromLiquidity(asNumber(row.liquidity, defaultMarketLiquidity));
+    const seeded = lmsr.seedQ(clampPercent(asNumber(row.initial_probability, 50)) / 100, b);
+    await pool.query('UPDATE markets SET b_param = $1, q_yes = $2, q_no = $3 WHERE id = $4', [b, seeded.qYes, seeded.qNo, row.id]);
+  }
   await pool.query('CREATE INDEX IF NOT EXISTS markets_created_at_idx ON markets (created_at DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS votes_market_created_at_idx ON votes (market_id, created_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS votes_user_idx ON votes (user_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS positions_user_idx ON positions (user_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS positions_market_idx ON positions (market_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS ledger_account_idx ON ledger (account, ts DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS ledger_market_idx ON ledger (market_id);');
 }
 
 async function ensureJsonDb() {
@@ -766,7 +826,7 @@ async function ensureJsonDb() {
   try {
     await fs.access(jsonDbPath);
   } catch {
-    await fs.writeFile(jsonDbPath, JSON.stringify({ users: [], markets: [], votes: [], positions: [] }, null, 2));
+    await fs.writeFile(jsonDbPath, JSON.stringify({ users: [], markets: [], votes: [], positions: [], ledger: [] }, null, 2));
   }
 }
 
@@ -781,10 +841,42 @@ async function readJsonDb() {
   db.markets ||= [];
   db.votes ||= [];
   db.positions ||= [];
+  db.ledger ||= [];
 
   for (const user of db.users) {
     if (typeof user.isAdmin !== 'boolean') {
       user.isAdmin = Boolean(user.is_admin);
+      changed = true;
+    }
+  }
+
+  // Backfill LMSR state for legacy markets: seed q from the current price so
+  // there is no visible jump, falling back to initial_probability.
+  for (const market of db.markets) {
+    if (market.bParam == null) {
+      const b = lmsr.bFromLiquidity(asNumber(market.liquidity, defaultMarketLiquidity));
+      const lastYes = [...db.votes]
+        .filter((vote) => vote.marketId === market.id)
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]?.yesPriceAfterCents;
+      const seedPrice = clampPercent(asNumber(lastYes, asNumber(market.initialProbability, 50))) / 100;
+      const seeded = lmsr.seedQ(seedPrice, b);
+      market.bParam = b;
+      market.qYes = seeded.qYes;
+      market.qNo = seeded.qNo;
+      changed = true;
+    }
+
+    if (market.feeBps == null) {
+      market.feeBps = defaultFeeBps;
+      changed = true;
+    }
+  }
+
+  for (const position of db.positions) {
+    if (position.costBasis == null) {
+      // Approximate basis from avg price * shares for pre-migration positions.
+      position.costBasis = roundMoney(asNumber(position.shares) * asNumber(position.avgPriceCents) / 100);
+      position.realizedPnl ||= 0;
       changed = true;
     }
   }
@@ -1244,6 +1336,9 @@ const storage = {
   }) {
     const id = newId('mkt');
     const createdAt = new Date().toISOString();
+    // Seed the LMSR state so the opening price equals initialProbability.
+    const b = lmsr.bFromLiquidity(liquidity);
+    const seeded = lmsr.seedQ(clampPercent(initialProbability) / 100, b);
     const market = {
       id,
       title,
@@ -1260,6 +1355,14 @@ const storage = {
       initialProbability,
       tickSize,
       minOrderSize,
+      bParam: b,
+      qYes: seeded.qYes,
+      qNo: seeded.qNo,
+      feeBps: defaultFeeBps,
+      winningOutcome: null,
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionNote: null,
       createdBy,
       createdAt,
       tradeCount: 0,
@@ -1269,9 +1372,10 @@ const storage = {
       const result = await pool.query(
         `INSERT INTO markets (
           id, title, description, category, resolution_source, resolution_rules, start_date, close_date,
-          status, yes_pool, no_pool, liquidity, initial_probability, tick_size, min_order_size, created_by, created_at
+          status, yes_pool, no_pool, liquidity, initial_probability, tick_size, min_order_size,
+          b_param, q_yes, q_no, fee_bps, created_by, created_at
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING *`,
         [
           id,
@@ -1286,6 +1390,10 @@ const storage = {
           initialProbability,
           tickSize,
           minOrderSize,
+          b,
+          seeded.qYes,
+          seeded.qNo,
+          defaultFeeBps,
           createdBy,
           createdAt,
         ],
@@ -1487,7 +1595,7 @@ const storage = {
     };
   },
 
-  async placeTrade({ marketId, userId, outcome, side, amount }) {
+  async placeTrade({ marketId, userId, outcome, side, amount, maxPriceCents = null, minPriceCents = null }) {
     const createdAt = new Date().toISOString();
     const id = newId('trd');
 
@@ -1499,108 +1607,43 @@ const storage = {
         const [marketResult, userResult, positionResult] = await Promise.all([
           client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]),
           client.query('SELECT points_balance FROM users WHERE id = $1 FOR UPDATE', [userId]),
-          client.query('SELECT shares, avg_price_cents FROM positions WHERE user_id = $1 AND market_id = $2 AND outcome = $3 FOR UPDATE', [userId, marketId, outcome]),
+          client.query('SELECT shares, avg_price_cents, cost_basis, realized_pnl FROM positions WHERE user_id = $1 AND market_id = $2 AND outcome = $3 FOR UPDATE', [userId, marketId, outcome]),
         ]);
         const row = marketResult.rows[0];
         const userRow = userResult.rows[0];
 
-        if (!row) {
-          const notFoundError = new Error('MARKET_NOT_FOUND');
-          notFoundError.status = 404;
-          throw notFoundError;
-        }
-
-        if (!userRow) {
-          const notFoundError = new Error('USER_NOT_FOUND');
-          notFoundError.status = 404;
-          throw notFoundError;
-        }
+        if (!row) throw tradeError('MARKET_NOT_FOUND', 404);
+        if (!userRow) throw tradeError('USER_NOT_FOUND', 404);
 
         const market = normalizeMarket(row);
         assertMarketIsOpen(market);
-        const existingPosition = positionResult.rows[0] || { shares: 0, avg_price_cents: 0 };
-        const currentShares = asNumber(existingPosition.shares);
-        const currentAvgPrice = asNumber(existingPosition.avg_price_cents);
-        const userBalance = asNumber(userRow.points_balance, defaultStartingBalance);
-
-        const latestTradeResult = await client.query(
-          'SELECT outcome, price_cents, yes_price_after_cents, no_price_after_cents FROM votes WHERE market_id = $1 ORDER BY created_at DESC LIMIT 1',
-          [marketId],
-        );
-        const latestNoTradeResult = await client.query(
-          `SELECT outcome, price_cents, yes_price_after_cents, no_price_after_cents
-           FROM votes
-           WHERE market_id = $1 AND (no_price_after_cents IS NOT NULL OR outcome = 'NO')
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [marketId],
-        );
-        const currentYesPrice = roundPriceToTick(
-          asNumber(latestTradeResult.rows[0]?.yes_price_after_cents, market.initialProbability),
-          market,
-        );
-        const latestNoPrice = inferNoPriceAfter(latestTradeResult.rows[0]) ?? inferNoPriceAfter(latestNoTradeResult.rows[0]);
-        const currentNoPrice = latestNoPrice != null
-          ? roundPriceToTick(latestNoPrice, market)
-          : roundPriceToTick(100 - market.initialProbability, market);
-        const spendAmount = side === 'BUY' ? amount : 0;
-        const shareAmount = side === 'SELL' ? amount : 0;
-
-        if (side === 'SELL' && currentShares + 0.000001 < shareAmount) {
-          const positionError = new Error('INSUFFICIENT_POSITION');
-          positionError.status = 409;
-          throw positionError;
-        }
-
-        const { amount: tradeAmount, priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
-          market,
-          side,
-          spendAmount,
-          shareAmount,
-          currentYesPrice,
-          currentNoPrice,
-          outcome,
-          totalVolume: market.yesPool + market.noPool,
+        const existing = positionResult.rows[0] || { shares: 0, avg_price_cents: 0, cost_basis: 0, realized_pnl: 0 };
+        const result = applyTrade({
+          market, side, outcome, amount, userId,
+          userBalance: asNumber(userRow.points_balance, defaultStartingBalance),
+          currentShares: asNumber(existing.shares),
+          currentBasis: asNumber(existing.cost_basis),
+          currentRealized: asNumber(existing.realized_pnl),
+          maxPriceCents, minPriceCents,
         });
-
-        if (tradeAmount < market.minOrderSize) {
-          const sizeError = new Error('ORDER_TOO_SMALL');
-          sizeError.status = 400;
-          throw sizeError;
-        }
-
-        if (side === 'BUY' && userBalance + 0.000001 < tradeAmount) {
-          const balanceError = new Error('INSUFFICIENT_BALANCE');
-          balanceError.status = 409;
-          throw balanceError;
-        }
-
-        const yesPool = outcome === 'YES' ? market.yesPool + tradeAmount : market.yesPool;
-        const noPool = outcome === 'NO' ? market.noPool + tradeAmount : market.noPool;
-        const nextBalance = side === 'BUY'
-          ? userBalance - tradeAmount
-          : userBalance + tradeAmount;
-        const nextShares = side === 'BUY'
-          ? currentShares + shares
-          : currentShares - shares;
-        const nextAvgPrice = side === 'BUY' && nextShares > 0
-          ? ((currentShares * currentAvgPrice) + (shares * priceCents)) / nextShares
-          : currentAvgPrice;
+        const { fill } = result;
+        const cashMagnitude = roundMoney(Math.abs(fill.cashDelta));
 
         await client.query(
           `INSERT INTO votes (id, market_id, user_id, outcome, side, amount, price_cents, yes_price_after_cents, no_price_after_cents, shares, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [id, marketId, userId, outcome, side, tradeAmount, priceCents, yesPriceAfterCents, noPriceAfterCents, shares, createdAt],
+          [id, marketId, userId, outcome, side, cashMagnitude, fill.priceCents, fill.yesPriceAfterCents, fill.noPriceAfterCents, fill.shares, createdAt],
         );
-        await client.query('UPDATE users SET points_balance = $1 WHERE id = $2', [roundMoney(nextBalance), userId]);
+        await client.query('UPDATE users SET points_balance = $1 WHERE id = $2', [result.nextBalance, userId]);
         await client.query(
-          `INSERT INTO positions (user_id, market_id, outcome, shares, avg_price_cents, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO positions (user_id, market_id, outcome, shares, avg_price_cents, cost_basis, realized_pnl, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (user_id, market_id, outcome)
-           DO UPDATE SET shares = EXCLUDED.shares, avg_price_cents = EXCLUDED.avg_price_cents, updated_at = EXCLUDED.updated_at`,
-          [userId, marketId, outcome, roundMoney(nextShares), nextAvgPrice, createdAt],
+           DO UPDATE SET shares = EXCLUDED.shares, avg_price_cents = EXCLUDED.avg_price_cents, cost_basis = EXCLUDED.cost_basis, realized_pnl = EXCLUDED.realized_pnl, updated_at = EXCLUDED.updated_at`,
+          [userId, marketId, outcome, result.nextShares, result.nextAvg, result.nextBasis, result.nextRealized, createdAt],
         );
-        await client.query('UPDATE markets SET yes_pool = $1, no_pool = $2 WHERE id = $3', [yesPool, noPool, marketId]);
+        await client.query('UPDATE markets SET q_yes = $1, q_no = $2, yes_pool = $3, no_pool = $4 WHERE id = $5', [result.qYesAfter, result.qNoAfter, result.yesPool, result.noPool, marketId]);
+        await recordLedgerPg(client, result.ledger, { marketId, tradeId: id, ts: createdAt });
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK');
@@ -1616,109 +1659,210 @@ const storage = {
     const market = db.markets.find((item) => item.id === marketId);
     const user = db.users.find((item) => item.id === userId);
 
-    if (!market) {
-      const notFoundError = new Error('MARKET_NOT_FOUND');
-      notFoundError.status = 404;
-      throw notFoundError;
-    }
-
-    if (!user) {
-      const notFoundError = new Error('USER_NOT_FOUND');
-      notFoundError.status = 404;
-      throw notFoundError;
-    }
+    if (!market) throw tradeError('MARKET_NOT_FOUND', 404);
+    if (!user) throw tradeError('USER_NOT_FOUND', 404);
 
     const normalizedMarket = normalizeMarket(market);
     assertMarketIsOpen(normalizedMarket);
     user.balance = asNumber(user.balance, defaultStartingBalance);
-    const position = db.positions.find((item) => item.userId === userId && item.marketId === marketId && item.outcome === outcome)
-      || {
-        userId,
-        marketId,
-        outcome,
-        shares: 0,
-        avgPriceCents: 0,
-      };
+    let position = db.positions.find((item) => item.userId === userId && item.marketId === marketId && item.outcome === outcome);
+    const existing = position || { shares: 0, avgPriceCents: 0, costBasis: 0, realizedPnl: 0 };
 
-    const latestTrade = [...db.votes]
-      .filter((vote) => vote.marketId === marketId)
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-    const latestNoTrade = [...db.votes]
-      .filter((vote) => vote.marketId === marketId && inferNoPriceAfter(vote) != null)
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
-    const currentYesPrice = roundPriceToTick(
-      asNumber(latestTrade?.yesPriceAfterCents, normalizedMarket.initialProbability),
-      normalizedMarket,
-    );
-    const latestNoPrice = inferNoPriceAfter(latestTrade) ?? inferNoPriceAfter(latestNoTrade);
-    const currentNoPrice = latestNoPrice != null
-      ? roundPriceToTick(latestNoPrice, normalizedMarket)
-      : roundPriceToTick(100 - normalizedMarket.initialProbability, normalizedMarket);
-    const spendAmount = side === 'BUY' ? amount : 0;
-    const shareAmount = side === 'SELL' ? amount : 0;
-
-    if (side === 'SELL' && asNumber(position.shares) + 0.000001 < shareAmount) {
-      const positionError = new Error('INSUFFICIENT_POSITION');
-      positionError.status = 409;
-      throw positionError;
-    }
-
-    const { amount: tradeAmount, priceCents, shares, yesPriceAfterCents, noPriceAfterCents } = calculateTrade({
-      market: normalizedMarket,
-      side,
-      spendAmount,
-      shareAmount,
-      currentYesPrice,
-      currentNoPrice,
-      outcome,
-      totalVolume: normalizedMarket.yesPool + normalizedMarket.noPool,
+    const result = applyTrade({
+      market: normalizedMarket, side, outcome, amount, userId,
+      userBalance: user.balance,
+      currentShares: asNumber(existing.shares),
+      currentBasis: asNumber(existing.costBasis),
+      currentRealized: asNumber(existing.realizedPnl),
+      maxPriceCents, minPriceCents,
     });
+    const { fill } = result;
 
-    if (tradeAmount < normalizedMarket.minOrderSize) {
-      const sizeError = new Error('ORDER_TOO_SMALL');
-      sizeError.status = 400;
-      throw sizeError;
-    }
+    market.qYes = result.qYesAfter;
+    market.qNo = result.qNoAfter;
+    market.yesPool = result.yesPool;
+    market.noPool = result.noPool;
+    market.bParam = normalizedMarket.bParam ?? marketLmsrState(normalizedMarket).b;
+    user.balance = result.nextBalance;
 
-    if (side === 'BUY' && user.balance + 0.000001 < tradeAmount) {
-      const balanceError = new Error('INSUFFICIENT_BALANCE');
-      balanceError.status = 409;
-      throw balanceError;
-    }
-
-    if (outcome === 'YES') {
-      market.yesPool = roundMoney(asNumber(market.yesPool) + tradeAmount);
-    } else {
-      market.noPool = roundMoney(asNumber(market.noPool) + tradeAmount);
-    }
-
-    user.balance = roundMoney(side === 'BUY' ? user.balance - tradeAmount : user.balance + tradeAmount);
-    const previousShares = asNumber(position.shares);
-    const previousAvgPrice = asNumber(position.avgPriceCents);
-    position.shares = roundMoney(side === 'BUY' ? previousShares + shares : previousShares - shares);
-    position.avgPriceCents = side === 'BUY' && position.shares > 0
-      ? ((previousShares * previousAvgPrice) + (shares * priceCents)) / position.shares
-      : previousAvgPrice;
-    position.updatedAt = createdAt;
-
-    if (!db.positions.some((item) => item.userId === userId && item.marketId === marketId && item.outcome === outcome)) {
+    if (!position) {
+      position = { userId, marketId, outcome, shares: 0, avgPriceCents: 0, costBasis: 0, realizedPnl: 0 };
       db.positions.push(position);
     }
+    position.shares = result.nextShares;
+    position.avgPriceCents = result.nextAvg;
+    position.costBasis = result.nextBasis;
+    position.realizedPnl = result.nextRealized;
+    position.updatedAt = createdAt;
 
     db.votes.push({
-      id,
-      marketId,
-      userId,
-      outcome,
-      side,
-      amount: tradeAmount,
-      priceCents,
-      yesPriceAfterCents,
-      noPriceAfterCents,
-      shares: roundMoney(shares),
+      id, marketId, userId, outcome, side,
+      amount: roundMoney(Math.abs(fill.cashDelta)),
+      priceCents: fill.priceCents,
+      yesPriceAfterCents: fill.yesPriceAfterCents,
+      noPriceAfterCents: fill.noPriceAfterCents,
+      shares: fill.shares,
       createdAt,
     });
+    recordLedgerJson(db, result.ledger, { marketId, tradeId: id, ts: createdAt });
     await writeJsonDb(db);
+  },
+
+  // Pure preview of a trade — no balance check, no persistence. Powers POST /quote.
+  async quoteTrade({ marketId, outcome, side, amount }) {
+    const market = await this.getMarket(marketId);
+
+    if (!market) throw tradeError('MARKET_NOT_FOUND', 404);
+
+    const fill = calculateFill({ market, side, outcome, amount });
+    const state = marketLmsrState(market);
+    const currentPrice = roundPriceToTick(lmsr.priceOf(outcome, state.qYes, state.qNo, state.b) * 100, market);
+    const cash = roundMoney(Math.abs(fill.cashDelta));
+
+    return {
+      marketId, outcome, side,
+      shares: fill.shares,
+      cost: cash,
+      fee: fill.fee,
+      avgPriceCents: fill.avgPriceCents,
+      currentPriceCents: currentPrice,
+      priceImpactCents: roundMoney(Math.abs(fill.avgPriceCents - currentPrice)),
+      yesPriceAfterCents: fill.yesPriceAfterCents,
+      noPriceAfterCents: fill.noPriceAfterCents,
+      toWin: fill.toWin,
+      returnPercent: side === 'BUY' && cash > 0 ? roundMoney(((fill.toWin - cash) / cash) * 100) : 0,
+    };
+  },
+
+  // Resolve a market: pay every winning share exactly 1 point, zero positions,
+  // mark the outcome. Irreversible and conservation-checked.
+  async resolveMarket({ marketId, winningOutcome, resolvedBy, note }) {
+    const resolvedAt = new Date().toISOString();
+
+    if (pool) {
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+        const marketResult = await client.query('SELECT * FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
+        const row = marketResult.rows[0];
+
+        if (!row) throw tradeError('MARKET_NOT_FOUND', 404);
+        if (row.status === 'resolved' || row.status === 'canceled') throw tradeError('MARKET_ALREADY_SETTLED', 409);
+
+        const positionsResult = await client.query('SELECT user_id, outcome, shares, cost_basis FROM positions WHERE market_id = $1 AND shares > 0 FOR UPDATE', [marketId]);
+        for (const position of positionsResult.rows) {
+          const payout = position.outcome === winningOutcome ? roundMoney(asNumber(position.shares)) : 0;
+          if (payout > 0) {
+            await client.query('UPDATE users SET points_balance = points_balance + $1 WHERE id = $2', [payout, position.user_id]);
+            await recordLedgerPg(client, balancedLegs(position.user_id, payout, 'settle'), { marketId, ts: resolvedAt });
+          }
+          await client.query('UPDATE positions SET shares = 0, cost_basis = 0, updated_at = $1 WHERE user_id = $2 AND market_id = $3 AND outcome = $4', [resolvedAt, position.user_id, marketId, position.outcome]);
+        }
+
+        await client.query(
+          'UPDATE markets SET status = $1, winning_outcome = $2, resolved_at = $3, resolved_by = $4, resolution_note = $5 WHERE id = $6',
+          ['resolved', winningOutcome, resolvedAt, resolvedBy, note || null, marketId],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      return this.getMarket(marketId);
+    }
+
+    const db = await readJsonDb();
+    const market = db.markets.find((item) => item.id === marketId);
+
+    if (!market) throw tradeError('MARKET_NOT_FOUND', 404);
+    if (market.status === 'resolved' || market.status === 'canceled') throw tradeError('MARKET_ALREADY_SETTLED', 409);
+
+    for (const position of db.positions.filter((item) => item.marketId === marketId && asNumber(item.shares) > 0)) {
+      const payout = position.outcome === winningOutcome ? roundMoney(asNumber(position.shares)) : 0;
+      const user = db.users.find((item) => item.id === position.userId);
+      if (payout > 0 && user) {
+        user.balance = roundMoney(asNumber(user.balance, defaultStartingBalance) + payout);
+        recordLedgerJson(db, balancedLegs(position.userId, payout, 'settle'), { marketId, ts: resolvedAt });
+      }
+      position.shares = 0;
+      position.costBasis = 0;
+      position.updatedAt = resolvedAt;
+    }
+
+    market.status = 'resolved';
+    market.winningOutcome = winningOutcome;
+    market.resolvedAt = resolvedAt;
+    market.resolvedBy = resolvedBy;
+    market.resolutionNote = note || null;
+    await writeJsonDb(db);
+
+    return this.getMarket(marketId);
+  },
+
+  // Cancel a market: refund each holder their remaining cost basis, zero positions.
+  async cancelMarket({ marketId, note }) {
+    const canceledAt = new Date().toISOString();
+
+    if (pool) {
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+        const marketResult = await client.query('SELECT status FROM markets WHERE id = $1 FOR UPDATE', [marketId]);
+        const row = marketResult.rows[0];
+
+        if (!row) throw tradeError('MARKET_NOT_FOUND', 404);
+        if (row.status === 'resolved' || row.status === 'canceled') throw tradeError('MARKET_ALREADY_SETTLED', 409);
+
+        const positionsResult = await client.query('SELECT user_id, outcome, cost_basis FROM positions WHERE market_id = $1 AND shares > 0 FOR UPDATE', [marketId]);
+        for (const position of positionsResult.rows) {
+          const refund = roundMoney(asNumber(position.cost_basis));
+          if (refund > 0) {
+            await client.query('UPDATE users SET points_balance = points_balance + $1 WHERE id = $2', [refund, position.user_id]);
+            await recordLedgerPg(client, balancedLegs(position.user_id, refund, 'cancel_refund'), { marketId, ts: canceledAt });
+          }
+          await client.query('UPDATE positions SET shares = 0, cost_basis = 0, updated_at = $1 WHERE user_id = $2 AND market_id = $3 AND outcome = $4', [canceledAt, position.user_id, marketId, position.outcome]);
+        }
+
+        await client.query('UPDATE markets SET status = $1, resolution_note = $2 WHERE id = $3', ['canceled', note || null, marketId]);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      return this.getMarket(marketId);
+    }
+
+    const db = await readJsonDb();
+    const market = db.markets.find((item) => item.id === marketId);
+
+    if (!market) throw tradeError('MARKET_NOT_FOUND', 404);
+    if (market.status === 'resolved' || market.status === 'canceled') throw tradeError('MARKET_ALREADY_SETTLED', 409);
+
+    for (const position of db.positions.filter((item) => item.marketId === marketId && asNumber(item.shares) > 0)) {
+      const refund = roundMoney(asNumber(position.costBasis));
+      const user = db.users.find((item) => item.id === position.userId);
+      if (refund > 0 && user) {
+        user.balance = roundMoney(asNumber(user.balance, defaultStartingBalance) + refund);
+        recordLedgerJson(db, balancedLegs(position.userId, refund, 'cancel_refund'), { marketId, ts: canceledAt });
+      }
+      position.shares = 0;
+      position.costBasis = 0;
+      position.updatedAt = canceledAt;
+    }
+
+    market.status = 'canceled';
+    market.resolutionNote = note || null;
+    await writeJsonDb(db);
+
+    return this.getMarket(marketId);
   },
 };
 
@@ -1728,6 +1872,140 @@ function assertMarketIsOpen(market) {
     closedError.status = 409;
     throw closedError;
   }
+}
+
+function tradeError(code, status) {
+  const error = new Error(code);
+  error.status = status;
+  return error;
+}
+
+// Two balanced ledger legs for a pure user<->house transfer (settlement, refund).
+function balancedLegs(userId, amount, kind) {
+  return [
+    { account: `user:${userId}`, kind, delta: roundMoney(amount) },
+    { account: houseAccount, kind, delta: roundMoney(-amount) },
+  ];
+}
+
+// Every set of ledger legs for one transaction must net to zero — the
+// conservation invariant. Throws (500) if it ever does not.
+function assertBalanced(legs) {
+  const sum = legs.reduce((total, leg) => total + leg.delta, 0);
+
+  if (Math.abs(sum) > 0.01) {
+    const error = new Error('LEDGER_IMBALANCE');
+    error.status = 500;
+    error.detail = `ledger legs summed to ${sum}`;
+    throw error;
+  }
+}
+
+async function recordLedgerPg(client, legs, { marketId = null, tradeId = null, ts = null } = {}) {
+  assertBalanced(legs);
+
+  for (const leg of legs) {
+    if (leg.delta === 0) continue;
+    await client.query(
+      'INSERT INTO ledger (id, ts, account, market_id, trade_id, kind, delta) VALUES ($1, COALESCE($2, now()), $3, $4, $5, $6, $7)',
+      [newId('led'), ts, leg.account, marketId, tradeId, leg.kind, leg.delta],
+    );
+  }
+}
+
+function recordLedgerJson(db, legs, { marketId = null, tradeId = null, ts = null } = {}) {
+  assertBalanced(legs);
+  db.ledger ||= [];
+
+  for (const leg of legs) {
+    if (leg.delta === 0) continue;
+    db.ledger.push({
+      id: newId('led'),
+      ts: ts || new Date().toISOString(),
+      account: leg.account,
+      marketId,
+      tradeId,
+      kind: leg.kind,
+      delta: leg.delta,
+    });
+  }
+}
+
+// Storage-agnostic trade math + validation. Returns everything both the Postgres
+// and JSON paths need to persist, including the balanced ledger legs.
+function applyTrade({
+  market, side, outcome, amount, userId,
+  userBalance, currentShares, currentBasis, currentRealized,
+  maxPriceCents = null, minPriceCents = null,
+}) {
+  if (side === 'SELL' && currentShares + 1e-6 < amount) {
+    throw tradeError('INSUFFICIENT_POSITION', 409);
+  }
+
+  const fill = calculateFill({ market, side, outcome, amount });
+  const cashMagnitude = Math.abs(fill.cashDelta);
+
+  if (fill.shares <= 0 || cashMagnitude + 1e-9 < asNumber(market.minOrderSize, defaultMinOrderSize)) {
+    throw tradeError('ORDER_TOO_SMALL', 400);
+  }
+
+  if (side === 'BUY' && maxPriceCents != null && fill.avgPriceCents > asNumber(maxPriceCents) + 1e-6) {
+    throw tradeError('SLIPPAGE_EXCEEDED', 409);
+  }
+
+  if (side === 'SELL' && minPriceCents != null && fill.avgPriceCents < asNumber(minPriceCents) - 1e-6) {
+    throw tradeError('SLIPPAGE_EXCEEDED', 409);
+  }
+
+  if (side === 'BUY' && userBalance + 1e-6 < cashMagnitude) {
+    throw tradeError('INSUFFICIENT_BALANCE', 409);
+  }
+
+  const nextBalance = roundMoney(userBalance + fill.cashDelta);
+  let nextShares;
+  let nextBasis;
+  let nextRealized = roundMoney(currentRealized);
+
+  if (side === 'BUY') {
+    nextShares = roundMoney(currentShares + fill.shares);
+    nextBasis = roundMoney(currentBasis + fill.ammPoints + fill.fee);
+  } else {
+    const sellFraction = currentShares > 0 ? Math.min(1, fill.shares / currentShares) : 0;
+    const basisRemoved = roundMoney(currentBasis * sellFraction);
+    nextShares = roundMoney(Math.max(0, currentShares - fill.shares));
+    nextBasis = roundMoney(Math.max(0, currentBasis - basisRemoved));
+    nextRealized = roundMoney(currentRealized + (fill.cashDelta - basisRemoved));
+  }
+
+  const nextAvg = nextShares > 1e-9 ? roundMoney((nextBasis / nextShares) * 100) : 0;
+  const yesPool = roundMoney(asNumber(market.yesPool) + (outcome === 'YES' ? cashMagnitude : 0));
+  const noPool = roundMoney(asNumber(market.noPool) + (outcome === 'NO' ? cashMagnitude : 0));
+
+  const ledger = side === 'BUY'
+    ? [
+        { account: `user:${userId}`, kind: 'buy', delta: roundMoney(fill.cashDelta) },
+        { account: houseAccount, kind: 'buy', delta: roundMoney(fill.ammPoints) },
+        { account: houseFeesAccount, kind: 'fee', delta: roundMoney(fill.fee) },
+      ]
+    : [
+        { account: `user:${userId}`, kind: 'sell', delta: roundMoney(fill.cashDelta) },
+        { account: houseAccount, kind: 'sell', delta: roundMoney(-fill.ammPoints) },
+        { account: houseFeesAccount, kind: 'fee', delta: roundMoney(fill.fee) },
+      ];
+
+  return {
+    fill,
+    nextBalance,
+    nextShares,
+    nextBasis,
+    nextAvg,
+    nextRealized,
+    qYesAfter: fill.qYesAfter,
+    qNoAfter: fill.qNoAfter,
+    yesPool,
+    noPool,
+    ledger,
+  };
 }
 
 function validateEmail(email) {
@@ -2073,14 +2351,43 @@ app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, adminLimit
   const marketId = validateId(req.params.id, 'mkt');
   const status = String(req.body.status || '').trim();
 
-  if (!marketStatuses.has(status)) {
-    throw validationError('Недопустимый статус рынка.');
+  // Resolution and cancellation move money and go through dedicated endpoints.
+  if (!settableStatuses.has(status)) {
+    throw validationError('Через статус можно ставить только «open» или «paused». Для расчёта используйте резолюцию или отмену.');
   }
 
   const market = await storage.updateMarketStatus({
     marketId,
     status,
   });
+
+  res.json({ market: marketDto(market) });
+}));
+
+app.patch('/api/admin/markets/:id/resolve', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
+  const winningOutcome = String(req.body.winningOutcome || '').toUpperCase();
+  const note = String(req.body.note || '').trim().slice(0, 2000);
+
+  if (winningOutcome !== 'YES' && winningOutcome !== 'NO') {
+    throw validationError('Выбери выигравший исход: Да или Нет.');
+  }
+
+  const market = await storage.resolveMarket({
+    marketId,
+    winningOutcome,
+    resolvedBy: req.user.id,
+    note,
+  });
+
+  res.json({ market: marketDto(market) });
+}));
+
+app.post('/api/admin/markets/:id/cancel', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
+  const note = String(req.body.note || '').trim().slice(0, 2000);
+
+  const market = await storage.cancelMarket({ marketId, note });
 
   res.json({ market: marketDto(market) });
 }));
@@ -2119,11 +2426,10 @@ app.get(['/api/markets/:id', '/api/posts/:id'], optionalAuth, asyncRoute(async (
   res.json({ market });
 }));
 
-app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, tradeLimiter, asyncRoute(async (req, res) => {
-  const marketId = validateId(req.params.id, 'mkt');
-  const outcome = String(req.body.outcome || '').toUpperCase();
-  const side = String(req.body.side || 'BUY').toUpperCase();
-  const amount = roundMoney(Number(req.body.amount));
+function parseTradeBody(body) {
+  const outcome = String(body.outcome || '').toUpperCase();
+  const side = String(body.side || 'BUY').toUpperCase();
+  const amount = roundMoney(Number(body.amount));
 
   if (outcome !== 'YES' && outcome !== 'NO') {
     throw validationError('Выбери Да или Нет.');
@@ -2137,12 +2443,33 @@ app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/v
     throw validationError(side === 'BUY' ? 'Сумма должна быть от 1 до 10 000 очков.' : 'Количество долей должно быть от 1 до 10 000.');
   }
 
+  const maxPriceCents = body.maxPriceCents == null ? null : roundMoney(Number(body.maxPriceCents));
+  const minPriceCents = body.minPriceCents == null ? null : roundMoney(Number(body.minPriceCents));
+
+  return { outcome, side, amount, maxPriceCents, minPriceCents };
+}
+
+// Preview a trade without executing it. Powers the live order-ticket receipt.
+app.post('/api/markets/:id/quote', optionalAuth, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
+  const { outcome, side, amount } = parseTradeBody(req.body);
+
+  const quote = await storage.quoteTrade({ marketId, outcome, side, amount });
+  res.json({ quote });
+}));
+
+app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, tradeLimiter, asyncRoute(async (req, res) => {
+  const marketId = validateId(req.params.id, 'mkt');
+  const { outcome, side, amount, maxPriceCents, minPriceCents } = parseTradeBody(req.body);
+
   await storage.placeTrade({
     marketId,
     userId: req.user.id,
     outcome,
     side,
     amount,
+    maxPriceCents,
+    minPriceCents,
   });
 
   const market = await marketDetailResponse(marketId, req.user.id);
@@ -2166,6 +2493,8 @@ app.use((error, req, res, next) => {
     INSUFFICIENT_BALANCE: 'Недостаточно очков на балансе.',
     INSUFFICIENT_POSITION: 'Недостаточно долей для продажи.',
     ORDER_TOO_SMALL: 'Сделка меньше минимального размера рынка.',
+    SLIPPAGE_EXCEEDED: 'Цена сдвинулась сильнее допустимого. Повтори сделку.',
+    MARKET_ALREADY_SETTLED: 'Рынок уже рассчитан или отменён.',
   };
 
   if (status >= 500) {

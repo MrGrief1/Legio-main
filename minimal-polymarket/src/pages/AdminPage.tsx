@@ -27,6 +27,7 @@ import {
   type AdminUser,
   type Market,
   type MarketStatus,
+  type Outcome,
 } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
@@ -240,6 +241,46 @@ export function AdminPage() {
     } catch (requestError) {
       setActionTone('error');
       setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.marketUpdateFailed'));
+    }
+  };
+
+  const handleResolve = async (market: Market, winningOutcome: Outcome) => {
+    if (!window.confirm(t('admin.resolveConfirm', { title: market.title, outcome: outcomeLabel(winningOutcome) }))) return;
+
+    setActionMessage('');
+
+    try {
+      const response = await api.resolveMarket(market.id, winningOutcome);
+      setOverview((current) => {
+        if (!current) return current;
+        return withMarkets(current, current.markets.map((item) => (item.id === response.market.id ? response.market : item)));
+      });
+      setActionTone('success');
+      setActionMessage(t('admin.resolveSuccess'));
+      void refreshOverview();
+    } catch (requestError) {
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.resolveFailed'));
+    }
+  };
+
+  const handleCancel = async (market: Market) => {
+    if (!window.confirm(t('admin.cancelConfirm', { title: market.title }))) return;
+
+    setActionMessage('');
+
+    try {
+      const response = await api.cancelMarket(market.id);
+      setOverview((current) => {
+        if (!current) return current;
+        return withMarkets(current, current.markets.map((item) => (item.id === response.market.id ? response.market : item)));
+      });
+      setActionTone('success');
+      setActionMessage(t('admin.cancelSuccess'));
+      void refreshOverview();
+    } catch (requestError) {
+      setActionTone('error');
+      setActionMessage(requestError instanceof ApiError ? requestError.message : t('admin.cancelFailed'));
     }
   };
 
@@ -594,15 +635,51 @@ export function AdminPage() {
                   </div>
                 </div>
 
-                <select
-                  value={market.status}
-                  onChange={(event) => void updateMarketStatus(market, event.target.value as MarketStatus)}
-                  className="h-10 w-full rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
-                >
-                  {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-                  ))}
-                </select>
+                {market.status === 'resolved' || market.status === 'canceled' ? (
+                  <div className={`flex h-10 items-center justify-center rounded-lg border px-3 text-sm font-bold ${statusClassName(market.status)}`}>
+                    {statusLabel(market.status)}
+                    {market.status === 'resolved' && market.winningOutcome
+                      ? ` · ${t('admin.winner')}: ${outcomeLabel(market.winningOutcome)}`
+                      : ''}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <select
+                      value={market.status}
+                      onChange={(event) => void updateMarketStatus(market, event.target.value as MarketStatus)}
+                      className="h-10 w-full rounded-lg border border-pm-border bg-pm-bg/45 px-3 text-sm font-bold text-pm-text-strong outline-none focus:border-pm-blue"
+                    >
+                      {statusOptions
+                        .filter((option) => option.value === 'open' || option.value === 'paused')
+                        .map((option) => (
+                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+                        ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleResolve(market, 'YES')}
+                        className="h-9 rounded-lg border border-[#22c55e]/30 bg-[#22c55e]/10 text-xs font-bold text-pm-green transition-colors hover:bg-[#22c55e]/15"
+                      >
+                        {t('admin.resolveYes')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleResolve(market, 'NO')}
+                        className="h-9 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 text-xs font-bold text-pm-red transition-colors hover:bg-[#ef4444]/15"
+                      >
+                        {t('admin.resolveNo')}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleCancel(market)}
+                      className="h-9 rounded-lg border border-pm-border bg-pm-bg/35 text-xs font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong"
+                    >
+                      {t('admin.cancelMarket')}
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2 xl:flex xl:items-center xl:justify-end">
                   <Link

@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ArrowUpRight, PlusCircle } from 'lucide-react';
-import type { Market } from '../lib/api';
+import { Area, ComposedChart, Line, ResponsiveContainer, YAxis } from 'recharts';
+import { api, type Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
@@ -21,9 +23,31 @@ function formatDate(value: string, locale: string) {
   }).format(new Date(value));
 }
 
+type FeaturedPoint = { t: number; yes: number };
+
 export function FeaturedMarket({ market }: { market?: Market }) {
   const { user } = useAuth();
   const { t, locale, categoryLabel } = useI18n();
+  const [history, setHistory] = useState<FeaturedPoint[]>([]);
+
+  // The list endpoint only carries a minimal history; fetch the market detail
+  // for the full price series that feeds the featured chart.
+  useEffect(() => {
+    if (!market) return undefined;
+
+    let ignore = false;
+    api.getMarket(market.id)
+      .then(({ market: detail }) => {
+        if (ignore) return;
+        setHistory(detail.history.map((point) => ({
+          t: new Date(point.time).getTime(),
+          yes: point.yesPercent,
+        })));
+      })
+      .catch(() => { /* keep the card without a chart on failure */ });
+
+    return () => { ignore = true; };
+  }, [market?.id]);
 
   if (!market) {
     return (
@@ -55,6 +79,9 @@ export function FeaturedMarket({ market }: { market?: Market }) {
     );
   }
 
+  const up = history.length > 1 ? history[history.length - 1].yes >= history[0].yes : true;
+  const lineColor = up ? '#22c55e' : '#ef4444';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -85,6 +112,40 @@ export function FeaturedMarket({ market }: { market?: Market }) {
         >
           <ArrowUpRight className="h-5 w-5" />
         </Link>
+      </div>
+
+      {/* Featured probability chart — animated line of YES over time. */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-baseline gap-2">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: lineColor }} />
+          <span className="text-sm font-semibold text-pm-text-muted">{t('common.yes')}</span>
+          <span className="text-2xl font-bold text-pm-text-strong">{market.yesPercent}%</span>
+        </div>
+        <Link to={`/market/${market.id}`} className="text-sm font-bold text-pm-blue transition-colors hover:text-blue-400">
+          {t('common.openMarket')}
+        </Link>
+      </div>
+
+      <div className="mb-4 h-[150px] w-full">
+        {history.length >= 2 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={history} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="featuredYesFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={lineColor} stopOpacity={0.18} />
+                  <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <YAxis hide domain={[0, 100]} />
+              <Area type="stepAfter" dataKey="yes" stroke="none" fill="url(#featuredYesFill)" />
+              <Line type="stepAfter" dataKey="yes" stroke={lineColor} strokeWidth={2.5} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-pm-border text-sm font-semibold text-pm-text-muted">
+            {t('common.noData')}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

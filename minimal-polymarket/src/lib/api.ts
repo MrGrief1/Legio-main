@@ -67,6 +67,10 @@ export type Market = {
   initialProbability: number;
   tickSize: number;
   minOrderSize: number;
+  feeBps: number;
+  winningOutcome: Outcome | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
   quotes: Record<Outcome, { bid: number; ask: number }>;
   outcomes: MarketOutcome[];
   recentTrades: MarketTrade[];
@@ -78,6 +82,22 @@ export type Market = {
 };
 
 export type MarketStatus = 'open' | 'paused' | 'resolved' | 'canceled';
+
+export type TradeQuote = {
+  marketId: string;
+  outcome: Outcome;
+  side: TradeSide;
+  shares: number;
+  cost: number;
+  fee: number;
+  avgPriceCents: number;
+  currentPriceCents: number;
+  priceImpactCents: number;
+  yesPriceAfterCents: number;
+  noPriceAfterCents: number;
+  toWin: number;
+  returnPercent: number;
+};
 
 export type AdminUser = User & {
   marketCount: number;
@@ -206,6 +226,20 @@ export const api = {
     });
   },
 
+  async resolveMarket(marketId: string, winningOutcome: Outcome, note?: string) {
+    return apiRequest<{ market: Market }>(`/api/admin/markets/${marketId}/resolve`, {
+      method: 'PATCH',
+      body: JSON.stringify({ winningOutcome, note }),
+    });
+  },
+
+  async cancelMarket(marketId: string, note?: string) {
+    return apiRequest<{ market: Market }>(`/api/admin/markets/${marketId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
   async deleteMarket(marketId: string) {
     return apiRequest<void>(`/api/admin/markets/${marketId}`, {
       method: 'DELETE',
@@ -239,8 +273,15 @@ export const api = {
     });
   },
 
-  async trade(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number }) {
+  async trade(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number; maxPriceCents?: number; minPriceCents?: number }) {
     return apiRequest<{ market: Market }>(`/api/markets/${marketId}/trades`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async quote(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number }) {
+    return apiRequest<{ quote: TradeQuote }>(`/api/markets/${marketId}/quote`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
