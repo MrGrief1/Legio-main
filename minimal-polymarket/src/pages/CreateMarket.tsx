@@ -475,7 +475,7 @@ export function CreateMarket() {
           </div>
         </div>
         <div className="w-fit rounded-lg border border-pm-border bg-pm-surface px-3 py-2 text-sm font-semibold text-pm-text-muted">
-          {t('common.balance')}: <span className="text-pm-text-strong">{Math.round(user?.balance ?? 0).toLocaleString(locale)} pts</span>
+          {t('common.balance')}: <span className="text-pm-text-strong">{Math.round(user?.balance ?? 0).toLocaleString(locale)} pt</span>
         </div>
       </div>
 
@@ -520,6 +520,8 @@ export function CreateMarket() {
               </span>
               <input
                 name="resolutionSource"
+                type="url"
+                inputMode="url"
                 required
                 maxLength={300}
                 placeholder={t('create.sourcePlaceholder')}
@@ -599,7 +601,7 @@ export function CreateMarket() {
                 step={100}
                 value={liquidity}
                 onChange={setLiquidity}
-                valueLabel={`${liquidity.toLocaleString(locale)} pts`}
+                valueLabel={`${liquidity.toLocaleString(locale)} pt`}
                 ticks={['100', '5 000', '10 000']}
                 variant="liquidity"
               />

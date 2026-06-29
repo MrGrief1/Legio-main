@@ -2413,6 +2413,10 @@ function parseMarketInput(body) {
     throw validationError('Укажи публичный источник резолюции.');
   }
 
+  if (!/^https?:\/\/\S+\.\S+/i.test(resolutionSource)) {
+    throw validationError('Источник резолюции должен быть ссылкой, например https://example.com/page.');
+  }
+
   if (resolutionRules.length < 40 || resolutionRules.length > 2500) {
     throw validationError('Правила резолюции должны быть от 40 до 2500 символов.');
   }

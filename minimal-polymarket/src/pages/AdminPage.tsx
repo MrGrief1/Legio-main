@@ -51,7 +51,7 @@ const tabs: { id: AdminTab; labelKey: string }[] = [
 ];
 
 function formatPoints(value: number, locale: string) {
-  return `${Math.round(value).toLocaleString(locale)} pts`;
+  return `${Math.round(value).toLocaleString(locale)} pt`;
 }
 
 function formatCompact(value: number, locale: string) {

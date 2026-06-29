@@ -128,8 +128,8 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
 
   return (
     <motion.div
-      initial={{ y: -20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className="sticky top-0 z-50 border-b border-pm-border bg-pm-bg"
     >
       <div className="px-3 py-2.5 sm:px-6 sm:py-3">
