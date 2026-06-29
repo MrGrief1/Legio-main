@@ -2003,11 +2003,15 @@ const storage = {
         const positionsResult = await client.query('SELECT user_id, outcome, shares, cost_basis FROM positions WHERE market_id = $1 AND shares > 0 FOR UPDATE', [marketId]);
         for (const position of positionsResult.rows) {
           const payout = position.outcome === winningOutcome ? roundMoney(asNumber(position.shares)) : 0;
+          // Realized P&L from settlement = payout (1 pt per winning share, 0 for losers)
+          // minus what the holder paid for the position. Folded into realized_pnl so
+          // the portfolio's lifetime realized total reflects resolved markets too.
+          const realizedDelta = roundMoney(payout - asNumber(position.cost_basis));
           if (payout > 0) {
             await client.query('UPDATE users SET points_balance = points_balance + $1 WHERE id = $2', [payout, position.user_id]);
             await recordLedgerPg(client, balancedLegs(position.user_id, payout, 'settle'), { marketId, ts: resolvedAt });
           }
-          await client.query('UPDATE positions SET shares = 0, cost_basis = 0, updated_at = $1 WHERE user_id = $2 AND market_id = $3 AND outcome = $4', [resolvedAt, position.user_id, marketId, position.outcome]);
+          await client.query('UPDATE positions SET shares = 0, cost_basis = 0, realized_pnl = realized_pnl + $1, updated_at = $2 WHERE user_id = $3 AND market_id = $4 AND outcome = $5', [realizedDelta, resolvedAt, position.user_id, marketId, position.outcome]);
         }
 
         await client.query(
@@ -2033,6 +2037,7 @@ const storage = {
 
     for (const position of db.positions.filter((item) => item.marketId === marketId && asNumber(item.shares) > 0)) {
       const payout = position.outcome === winningOutcome ? roundMoney(asNumber(position.shares)) : 0;
+      const realizedDelta = roundMoney(payout - asNumber(position.costBasis));
       const user = db.users.find((item) => item.id === position.userId);
       if (payout > 0 && user) {
         user.balance = roundMoney(asNumber(user.balance, defaultStartingBalance) + payout);
@@ -2040,6 +2045,7 @@ const storage = {
       }
       position.shares = 0;
       position.costBasis = 0;
+      position.realizedPnl = roundMoney(asNumber(position.realizedPnl) + realizedDelta);
       position.updatedAt = resolvedAt;
     }
 
