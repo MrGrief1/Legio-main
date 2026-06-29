@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ArrowUpRight, PlusCircle } from 'lucide-react';
-import { PriceChart } from './PriceChart';
-import { api, type Market, type MarketHistoryPoint } from '../lib/api';
+import { PriceChart, marketChartProps } from './PriceChart';
+import { api, type Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
@@ -26,7 +26,7 @@ function formatDate(value: string, locale: string) {
 export function FeaturedMarket({ market }: { market?: Market }) {
   const { user } = useAuth();
   const { t, locale, categoryLabel } = useI18n();
-  const [history, setHistory] = useState<MarketHistoryPoint[]>([]);
+  const [detail, setDetail] = useState<Market | null>(null);
 
   // The list endpoint only carries a minimal history; fetch the market detail
   // for the full price series that feeds the featured chart.
@@ -35,14 +35,16 @@ export function FeaturedMarket({ market }: { market?: Market }) {
 
     let ignore = false;
     api.getMarket(market.id)
-      .then(({ market: detail }) => {
-        if (ignore) return;
-        setHistory(detail.history);
+      .then(({ market: full }) => {
+        if (!ignore) setDetail(full);
       })
       .catch(() => { /* keep the card without a chart on failure */ });
 
     return () => { ignore = true; };
   }, [market?.id]);
+
+  const chart = detail ? marketChartProps(detail, t('common.yes')) : null;
+  const outcomeColor = (outcome: string, color?: string) => color || (outcome === 'NO' ? '#ef4444' : '#22c55e');
 
   if (!market) {
     return (
@@ -108,18 +110,22 @@ export function FeaturedMarket({ market }: { market?: Market }) {
 
       {/* Featured probability chart — the same interactive chart as the market page. */}
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-4 text-sm font-semibold text-pm-text">
-          <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-pm-green" />{t('common.yes')} <span className="font-bold text-pm-text-strong">{market.yesPercent}%</span></span>
-          <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-pm-red" />{t('common.no')} <span className="font-bold text-pm-text-strong">{market.noPercent}%</span></span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold text-pm-text">
+          {market.outcomes.map((o) => (
+            <span key={o.outcome} className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: outcomeColor(o.outcome, o.color) }} />
+              {o.name} <span className="font-bold text-pm-text-strong">{o.percent}%</span>
+            </span>
+          ))}
         </div>
-        <Link to={`/market/${market.id}`} className="text-sm font-bold text-pm-blue transition-colors hover:text-blue-400">
+        <Link to={`/market/${market.id}`} className="hidden shrink-0 text-sm font-bold text-pm-blue transition-colors hover:text-blue-400 sm:block">
           {t('common.openMarket')}
         </Link>
       </div>
 
       <div className="mb-4">
-        {history.length >= 2 ? (
-          <PriceChart history={history} heightClass="h-[170px]" />
+        {chart && chart.history.length >= 2 ? (
+          <PriceChart series={chart.series} history={chart.history} heightClass="h-[170px]" />
         ) : (
           <div className="flex h-[150px] items-center justify-center rounded-2xl border border-dashed border-pm-border text-sm font-semibold text-pm-text-muted">
             {t('common.noData')}
@@ -128,16 +134,16 @@ export function FeaturedMarket({ market }: { market?: Market }) {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-[24px] border border-[#22c55e]/25 bg-[#22c55e]/10 p-4">
-          <div className="mb-2 text-sm font-bold text-pm-green">{t('common.yes')}</div>
-          <div className="text-4xl font-bold text-pm-text-strong">{market.yesPercent}%</div>
-          <div className="mt-2 text-sm font-semibold text-pm-text-muted">{t('featured.sharePrice', { price: market.yesPrice })}</div>
-        </div>
-        <div className="rounded-[24px] border border-[#ef4444]/25 bg-[#ef4444]/10 p-4">
-          <div className="mb-2 text-sm font-bold text-pm-red">{t('common.no')}</div>
-          <div className="text-4xl font-bold text-pm-text-strong">{market.noPercent}%</div>
-          <div className="mt-2 text-sm font-semibold text-pm-text-muted">{t('featured.sharePrice', { price: market.noPrice })}</div>
-        </div>
+        {market.outcomes.slice(0, 4).map((o) => (
+          <div key={o.outcome} className="rounded-[24px] border border-pm-border bg-pm-surface/60 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-bold" style={{ color: outcomeColor(o.outcome, o.color) }}>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: outcomeColor(o.outcome, o.color) }} />
+              {o.name}
+            </div>
+            <div className="text-4xl font-bold text-pm-text-strong">{o.percent}%</div>
+            <div className="mt-2 text-sm font-semibold text-pm-text-muted">{t('featured.sharePrice', { price: o.priceCents })}</div>
+          </div>
+        ))}
       </div>
 
       {market.description && (

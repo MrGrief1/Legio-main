@@ -2,6 +2,7 @@
 import {
   bFromLiquidity, cost, priceYes, priceOf, costToBuy, proceedsForSell,
   sharesForSpend, applyShares, seedQ, maxSubsidy, LN2,
+  priceVec, costToBuyN, proceedsForSellN, sharesForSpendN, seedVecFromProbs, applySharesN,
 } from './lmsr.js';
 
 let passed = 0;
@@ -103,6 +104,42 @@ for (let i = 0; i < 2000; i += 1) {
   const worstPayout = Math.max(qY, qN);
   const houseLoss = worstPayout - collateral;
   ok('house loss bounded by b·ln2', houseLoss <= maxSubsidy(b) + 1e-3, `loss=${houseLoss} bound=${maxSubsidy(b)}`);
+}
+
+// 8. N-outcome: prices sum to 1; buying an outcome raises it and lowers the rest;
+//    spend↔shares inverse; seed hits target; round-trip lossless.
+for (let i = 0; i < 20000; i += 1) {
+  const n = 3 + Math.floor(rnd() * 3); // 3..5 outcomes
+  const b = bFromLiquidity(randLiquidity());
+  const q = Array.from({ length: n }, () => randQ(b));
+  const p = priceVec(q, b);
+  ok('N-price sums to 1', close(p.reduce((a, c) => a + c, 0), 1, 1e-12), `sum=${p.reduce((a, c) => a + c, 0)}`);
+  ok('N-price all in (0,1)', p.every((x) => x > 0 && x < 1));
+
+  const k = Math.floor(rnd() * n);
+  const before = priceVec(q, b);
+  const after = priceVec(applySharesN(q, k, 50), b);
+  ok('buy raises that outcome', after[k] > before[k]);
+  ok('buy lowers the others', after.every((x, j) => j === k || x <= before[j] + 1e-12));
+
+  const spend = 1 + rnd() * 3000;
+  const shares = sharesForSpendN(q, b, k, spend);
+  const backCost = costToBuyN(q, b, k, shares);
+  ok('N spend↔shares inverse', close(backCost, spend, 1e-4), `spend=${spend} back=${backCost}`);
+  const proceeds = proceedsForSellN(applySharesN(q, k, shares), b, k, shares);
+  ok('N round-trip lossless', close(proceeds, spend, 1e-4), `spend=${spend} proceeds=${proceeds}`);
+}
+
+// 9. seedVecFromProbs reproduces requested opening probabilities.
+for (let i = 0; i < 5000; i += 1) {
+  const n = 3 + Math.floor(rnd() * 3);
+  const b = bFromLiquidity(randLiquidity());
+  const raw = Array.from({ length: n }, () => 0.05 + rnd());
+  const s = raw.reduce((a, c) => a + c, 0);
+  const probs = raw.map((x) => x / s);
+  const seeded = seedVecFromProbs(probs, b);
+  const got = priceVec(seeded, b);
+  ok('seedVec hits target probs', probs.every((pr, j) => close(got[j], pr, 1e-4)), `want=${probs} got=${got}`);
 }
 
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} assertions passed, ${failed} failed`);

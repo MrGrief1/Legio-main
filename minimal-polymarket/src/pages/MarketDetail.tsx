@@ -15,7 +15,7 @@ import {
   TrendingUp,
   UserRound,
 } from 'lucide-react';
-import { PriceChart } from '../components/PriceChart';
+import { PriceChart, marketChartProps } from '../components/PriceChart';
 import { api, ApiError, type Market, type Outcome, type TradeSide, type TradeQuote } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
@@ -45,6 +45,10 @@ function formatShortDate(value: string, locale: string) {
   }).format(new Date(value));
 }
 
+function outcomeColor(outcome: string, color?: string) {
+  return color || (outcome === 'NO' ? '#ef4444' : '#22c55e');
+}
+
 function categoryIcon(category: string) {
   const normalized = category.toLowerCase();
 
@@ -70,7 +74,7 @@ function TradePanel({
 }) {
   const { user } = useAuth();
   const { t, locale, outcomeLabel } = useI18n();
-  const [outcome, setOutcome] = useState<Outcome>('YES');
+  const [outcome, setOutcome] = useState<string>(market.outcomes[0]?.outcome ?? 'YES');
   const [side, setSide] = useState<TradeSide>('BUY');
   const [amount, setAmount] = useState('10');
   const [message, setMessage] = useState('');
@@ -80,7 +84,8 @@ function TradePanel({
   const [isQuoting, setIsQuoting] = useState(false);
   const isSettled = market.status === 'resolved' || market.status === 'canceled';
   const isClosed = market.status !== 'open' || new Date(market.closeDate).getTime() <= Date.now();
-  const priceCents = market.quotes[outcome].ask;
+  const priceCents = market.quotes[outcome]?.ask ?? 0;
+  const outcomeName = market.outcomes.find((o) => o.outcome === outcome)?.name ?? outcomeLabel(outcome as Outcome);
   const numericAmount = Number(amount);
   const balance = Math.round(market.viewer?.balance ?? user?.balance ?? 0);
   const position = market.viewer?.positions[outcome] ?? { shares: 0, avgPriceCents: 0 };
@@ -171,7 +176,7 @@ function TradePanel({
           <div className="rounded-[20px] border border-pm-blue/30 bg-pm-blue/10 p-4 text-center">
             <ShieldCheck className="mx-auto mb-2 h-6 w-6 text-pm-blue" />
             <p className="text-base font-bold text-pm-text-strong">
-              {t('market.resolvedBanner', { outcome: outcomeLabel((market.winningOutcome ?? 'YES') as Outcome) })}
+              {t('market.resolvedBanner', { outcome: market.outcomes.find((o) => o.outcome === market.winningOutcome)?.name ?? outcomeLabel((market.winningOutcome ?? 'YES') as Outcome) })}
             </p>
             <p className="mt-1 text-xs font-semibold text-pm-text-muted">{t('market.payoutHint')}</p>
           </div>
@@ -221,29 +226,25 @@ function TradePanel({
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setOutcome('YES')}
-            className={
-              outcome === 'YES'
-                ? 'h-12 rounded-2xl bg-[#22c55e]/75 text-base font-bold text-white transition-colors hover:bg-[#22c55e]/90'
-                : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
-            }
-          >
-            {t('common.yes')} {market.quotes.YES.ask}¢
-          </button>
-          <button
-            type="button"
-            onClick={() => setOutcome('NO')}
-            className={
-              outcome === 'NO'
-                ? 'h-12 rounded-2xl bg-[#ef4444]/75 text-base font-bold text-white transition-colors hover:bg-[#ef4444]/90'
-                : 'h-12 rounded-2xl bg-pm-surface-hover text-base font-bold text-pm-text-muted transition-colors hover:text-pm-text-strong'
-            }
-          >
-            {t('common.no')} {market.quotes.NO.ask}¢
-          </button>
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(market.outcomes.length, 3)}, minmax(0, 1fr))` }}>
+          {market.outcomes.map((o) => {
+            const color = outcomeColor(o.outcome, o.color);
+            const active = outcome === o.outcome;
+            return (
+              <button
+                key={o.outcome}
+                type="button"
+                onClick={() => { setOutcome(o.outcome); setMessage(''); }}
+                className="flex h-12 flex-col items-center justify-center rounded-2xl text-sm font-bold transition-colors"
+                style={active
+                  ? { backgroundColor: color, color: '#ffffff' }
+                  : { backgroundColor: `${color}1a`, color }}
+              >
+                <span className="leading-tight">{o.name}</span>
+                <span className="text-xs opacity-90">{market.quotes[o.outcome]?.ask ?? o.priceCents}¢</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-end justify-between gap-4">
@@ -369,7 +370,7 @@ function TradePanel({
         {viewerPosition > 0.0001 && (
           <div className="rounded-[20px] border border-pm-border bg-pm-surface/60 px-3 py-2 text-sm font-semibold">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-pm-text-muted">{t('market.holdingTitle')} · {outcomeLabel(outcome)}</span>
+              <span className="text-pm-text-muted">{t('market.holdingTitle')} · {outcomeName}</span>
               <span className="text-pm-text-strong">{viewerPosition.toFixed(2)} · {currentValue.toLocaleString(locale, { maximumFractionDigits: 0 })} pts</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-3">
@@ -514,19 +515,16 @@ export function MarketDetail() {
 
           <div className="rounded-[28px] border border-pm-border bg-pm-surface p-3.5">
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
-                <span className="h-2.5 w-2.5 rounded-full bg-pm-green" />
-                <span>{t('common.yes')}</span>
-                <span className="font-bold text-pm-text-strong">{market.yesPercent}%</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-pm-text">
-                <span className="h-2.5 w-2.5 rounded-full bg-pm-red" />
-                <span>{t('common.no')}</span>
-                <span className="font-bold text-pm-text-strong">{market.noPercent}%</span>
-              </div>
+              {market.outcomes.map((o) => (
+                <div key={o.outcome} className="flex items-center gap-2 text-sm font-semibold text-pm-text">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: outcomeColor(o.outcome, o.color) }} />
+                  <span>{o.name}</span>
+                  <span className="font-bold text-pm-text-strong">{o.percent}%</span>
+                </div>
+              ))}
             </div>
 
-            <PriceChart history={market.history} />
+            {(() => { const c = marketChartProps(market, t('common.yes')); return <PriceChart series={c.series} history={c.history} />; })()}
 
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-pm-border pt-2.5 text-sm font-semibold text-pm-text-muted">
               <div className="flex flex-wrap items-center gap-3">
@@ -535,7 +533,7 @@ export function MarketDetail() {
               </div>
               <div className="flex items-center gap-2 text-pm-text">
                 <TrendingUp className="h-4 w-4 text-pm-blue" />
-                <span>{market.yesPrice}¢ / {market.noPrice}¢</span>
+                <span>{market.outcomes.map((o) => `${o.priceCents}¢`).join(' / ')}</span>
               </div>
             </div>
           </div>
@@ -546,17 +544,20 @@ export function MarketDetail() {
                 key={outcome.outcome}
                 className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
               >
-                <div>
-                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcomeLabel(outcome.outcome)}</h2>
-                  <p className="mt-0.5 text-sm font-semibold text-pm-text-muted">{formatMoney(outcome.pool, locale)} {t('common.supported')}</p>
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: outcomeColor(outcome.outcome, outcome.color) }} />
+                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
                 </div>
                 <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
                   <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
                   <span className="text-sm font-bold text-pm-text-muted">{outcome.priceCents}¢</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:w-[170px]">
-                  <div className={outcome.outcome === 'YES' ? 'h-9 rounded-full bg-[#22c55e]/10 px-4 text-center text-sm font-bold leading-9 text-pm-green' : 'h-9 rounded-full bg-[#ef4444]/10 px-4 text-center text-sm font-bold leading-9 text-pm-red'}>
-                    {outcomeLabel(outcome.outcome)}
+                  <div
+                    className="h-9 rounded-full px-4 text-center text-sm font-bold leading-9"
+                    style={{ backgroundColor: `${outcomeColor(outcome.outcome, outcome.color)}1a`, color: outcomeColor(outcome.outcome, outcome.color) }}
+                  >
+                    {outcome.name}
                   </div>
                 </div>
               </div>
@@ -609,8 +610,8 @@ export function MarketDetail() {
                       <UserRound className="h-4 w-4 shrink-0 text-pm-text-muted" />
                       <span className="truncate text-sm font-bold text-pm-text-strong">{trade.userName}</span>
                       <span className="text-sm font-bold text-pm-text-muted">{tradeSideLabel(trade.side)}</span>
-                      <span className={trade.outcome === 'YES' ? 'text-sm font-bold text-pm-green' : 'text-sm font-bold text-pm-red'}>
-                        {outcomeLabel(trade.outcome)}
+                      <span className="text-sm font-bold" style={{ color: outcomeColor(trade.outcome, market.outcomes.find((o) => o.outcome === trade.outcome)?.color) }}>
+                        {market.outcomes.find((o) => o.outcome === trade.outcome)?.name ?? outcomeLabel(trade.outcome as Outcome)}
                       </span>
                     </div>
                     <div className="text-sm font-semibold text-pm-text">{t('admin.amountAtPrice', { amount: formatMoney(trade.amount, locale), price: trade.priceCents })}</div>

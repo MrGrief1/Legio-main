@@ -98,3 +98,61 @@ export function seedQ(p0, b) {
 export function maxSubsidy(b) {
   return b * LN2;
 }
+
+// --- N-outcome LMSR (categorical markets) -----------------------------------
+//
+// Same scoring rule generalised to a vector q of N outcome share counts.
+// Prices are a softmax over q/b, so they always sum to 1 but — unlike a binary
+// market — no two of them are forced to be mirror images. With 3+ outcomes the
+// lines move independently (this is what makes a Polymarket multi-market chart
+// look "asymmetric"). A 2-outcome categorical market is mathematically a binary
+// market, so its two lines ARE mirrors.
+
+// price vector (probabilities) for state q (array), summing to 1.
+export function priceVec(q, b) {
+  const m = Math.max(...q) / b;
+  const exps = q.map((x) => Math.exp(x / b - m));
+  const sum = exps.reduce((a, c) => a + c, 0);
+  return exps.map((e) => e / sum);
+}
+
+// total committed cost C(q) = b * lse(q/b).
+export function costVec(q, b) {
+  const m = Math.max(...q) / b;
+  return b * (m + Math.log(q.reduce((a, x) => a + Math.exp(x / b - m), 0)));
+}
+
+// cost to BUY `shares` (>0) of outcome index i.
+export function costToBuyN(q, b, i, shares) {
+  const q2 = q.slice();
+  q2[i] += shares;
+  return costVec(q2, b) - costVec(q, b);
+}
+
+// proceeds to SELL `shares` (>0) of outcome index i.
+export function proceedsForSellN(q, b, i, shares) {
+  const q2 = q.slice();
+  q2[i] -= shares;
+  return costVec(q, b) - costVec(q2, b);
+}
+
+// shares acquired by SPENDING `points` on outcome i (closed form, same as binary).
+export function sharesForSpendN(q, b, i, points) {
+  if (points <= 0) return 0;
+  const p = priceVec(q, b)[i];
+  return b * Math.log1p(Math.expm1(points / b) / p);
+}
+
+// seed q so the opening prices equal `probs` (array summing to ~1), lowest leg at 0.
+export function seedVecFromProbs(probs, b) {
+  const q = probs.map((p) => b * Math.log(Math.min(0.999, Math.max(0.001, p))));
+  const mn = Math.min(...q);
+  return q.map((x) => x - mn);
+}
+
+// apply a share delta to outcome i, returning a new vector (no mutation).
+export function applySharesN(q, i, deltaShares) {
+  const q2 = q.slice();
+  q2[i] += deltaShares;
+  return q2;
+}

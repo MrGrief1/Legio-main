@@ -14,7 +14,8 @@ export type User = {
 
 export type MarketOutcome = {
   name: string;
-  outcome: Outcome;
+  outcome: string;
+  color?: string;
   percent: number;
   priceCents: number;
   pool: number;
@@ -24,13 +25,14 @@ export type MarketHistoryPoint = {
   time: string;
   yesPercent: number;
   noPercent?: number;
+  values?: Record<string, number>;
 };
 
 export type MarketTrade = {
   id: string;
   userId: string;
   userName: string;
-  outcome: Outcome;
+  outcome: string;
   side: TradeSide;
   amount: number;
   priceCents: number;
@@ -68,16 +70,17 @@ export type Market = {
   tickSize: number;
   minOrderSize: number;
   feeBps: number;
-  winningOutcome: Outcome | null;
+  marketType?: 'binary' | 'multi';
+  winningOutcome: string | null;
   resolvedAt: string | null;
   resolutionNote: string | null;
-  quotes: Record<Outcome, { bid: number; ask: number }>;
+  quotes: Record<string, { bid: number; ask: number }>;
   outcomes: MarketOutcome[];
   recentTrades: MarketTrade[];
   history: MarketHistoryPoint[];
   viewer: {
     balance: number;
-    positions: Record<Outcome, MarketViewerPosition>;
+    positions: Record<string, MarketViewerPosition>;
   } | null;
 };
 
@@ -85,7 +88,7 @@ export type MarketStatus = 'open' | 'paused' | 'resolved' | 'canceled';
 
 export type TradeQuote = {
   marketId: string;
-  outcome: Outcome;
+  outcome: string;
   side: TradeSide;
   shares: number;
   cost: number;
@@ -111,7 +114,7 @@ export type AdminRecentTrade = {
   marketTitle: string;
   userId: string;
   userName: string;
-  outcome: Outcome;
+  outcome: string;
   side: TradeSide;
   amount: number;
   priceCents: number;
@@ -226,7 +229,7 @@ export const api = {
     });
   },
 
-  async resolveMarket(marketId: string, winningOutcome: Outcome, note?: string) {
+  async resolveMarket(marketId: string, winningOutcome: string, note?: string) {
     return apiRequest<{ market: Market }>(`/api/admin/markets/${marketId}/resolve`, {
       method: 'PATCH',
       body: JSON.stringify({ winningOutcome, note }),
@@ -273,14 +276,14 @@ export const api = {
     });
   },
 
-  async trade(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number; maxPriceCents?: number; minPriceCents?: number }) {
+  async trade(marketId: string, input: { outcome: string; side: TradeSide; amount: number; maxPriceCents?: number; minPriceCents?: number }) {
     return apiRequest<{ market: Market }>(`/api/markets/${marketId}/trades`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
   },
 
-  async quote(marketId: string, input: { outcome: Outcome; side: TradeSide; amount: number }) {
+  async quote(marketId: string, input: { outcome: string; side: TradeSide; amount: number }) {
     return apiRequest<{ quote: TradeQuote }>(`/api/markets/${marketId}/quote`, {
       method: 'POST',
       body: JSON.stringify(input),

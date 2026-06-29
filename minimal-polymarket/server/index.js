@@ -418,6 +418,16 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+// Postgres jsonb arrives as a parsed value or a string; JSON storage keeps the
+// value as-is. Normalise both to a JS value (or null).
+function parseJsonField(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return null; }
+  }
+  return value;
+}
+
 function roundMoney(value) {
   return Math.round(value * 100) / 100;
 }
@@ -455,6 +465,73 @@ function marketLmsrState(market) {
   return { qYes: asNumber(market.qYes, 0), qNo: asNumber(market.qNo, 0), b };
 }
 
+function isMultiMarket(market) {
+  return market.marketType === 'multi' && Array.isArray(market.outcomesDef) && market.outcomesDef.length >= 2;
+}
+
+function marketMultiState(market) {
+  const outcomes = market.outcomesDef || [];
+  const b = Math.max(1, asNumber(market.bParam, lmsr.bFromLiquidity(asNumber(market.liquidity, defaultMarketLiquidity))));
+  let qVec = Array.isArray(market.qVec) ? market.qVec.map((x) => asNumber(x)) : null;
+
+  if (!qVec || qVec.length !== outcomes.length) {
+    const fallback = 100 / Math.max(1, outcomes.length);
+    const probs = outcomes.map((o) => clampPercent(asNumber(o.initialProbability, fallback)) / 100);
+    qVec = lmsr.seedVecFromProbs(probs, b);
+  }
+
+  return { outcomes, b, qVec };
+}
+
+// Pure multi-outcome fill (categorical market). `outcome` is an outcome id.
+function calculateMultiFill({ market, side, outcome, amount }) {
+  const { outcomes, b, qVec } = marketMultiState(market);
+  const i = outcomes.findIndex((o) => o.id === outcome);
+
+  if (i < 0) throw tradeError('INVALID_OUTCOME', 400);
+
+  const feeRate = Math.max(0, asNumber(market.feeBps, defaultFeeBps)) / 10000;
+  let shares;
+  let ammPoints;
+  let fee;
+  let cashDelta;
+  let direction;
+
+  if (side === 'BUY') {
+    const ammSpend = amount / (1 + feeRate);
+    shares = lmsr.sharesForSpendN(qVec, b, i, ammSpend);
+    ammPoints = ammSpend;
+    fee = amount - ammSpend;
+    cashDelta = -amount;
+    direction = 1;
+  } else {
+    shares = amount;
+    const proceeds = lmsr.proceedsForSellN(qVec, b, i, shares);
+    fee = proceeds * feeRate;
+    ammPoints = proceeds;
+    cashDelta = proceeds - fee;
+    direction = -1;
+  }
+
+  const qVecAfter = lmsr.applySharesN(qVec, i, direction * shares);
+  const pricesAfter = lmsr.priceVec(qVecAfter, b).map((p) => roundMoney(clampPriceCents(p * 100)));
+  const avgPriceCents = shares > 0 ? roundMoney((ammPoints / shares) * 100) : 0;
+
+  return {
+    multi: true,
+    outcomeIndex: i,
+    shares: roundMoney(shares),
+    ammPoints: roundMoney(ammPoints),
+    fee: roundMoney(fee),
+    cashDelta: roundMoney(cashDelta),
+    avgPriceCents,
+    priceCents: avgPriceCents,
+    qVecAfter,
+    pricesAfter, // array aligned to outcomesDef, in cents
+    toWin: roundMoney(shares),
+  };
+}
+
 function getDisplayPrices(market) {
   const { qYes, qNo, b } = marketLmsrState(market);
   const yesPrice = roundPriceToTick(lmsr.priceYes(qYes, qNo, b) * 100, market);
@@ -482,6 +559,10 @@ function getQuote({ market, outcome }) {
 // shares to sell on SELL), it returns the exact fill plus the balanced ledger
 // legs (which always sum to zero).
 function calculateFill({ market, side, outcome, amount }) {
+  if (isMultiMarket(market)) return calculateMultiFill({ market, side, outcome, amount });
+
+  if (outcome !== 'YES' && outcome !== 'NO') throw tradeError('INVALID_OUTCOME', 400);
+
   const { qYes, qNo, b } = marketLmsrState(market);
   const feeRate = Math.max(0, asNumber(market.feeBps, defaultFeeBps)) / 10000;
 
@@ -567,6 +648,9 @@ function normalizeMarket(row) {
     resolvedAt: row.resolved_at ?? row.resolvedAt ?? null,
     resolvedBy: row.resolved_by ?? row.resolvedBy ?? null,
     resolutionNote: row.resolution_note ?? row.resolutionNote ?? null,
+    marketType: row.market_type ?? row.marketType ?? 'binary',
+    outcomesDef: parseJsonField(row.outcomes_def ?? row.outcomesDef) || null,
+    qVec: parseJsonField(row.q_vec ?? row.qVec) || null,
   };
 }
 
@@ -584,6 +668,7 @@ function normalizeTrade(row) {
     priceCents: asNumber(row.price_cents ?? row.priceCents),
     yesPriceAfterCents,
     noPriceAfterCents: inferNoPriceAfter(row),
+    pricesAfter: parseJsonField(row.prices_after ?? row.pricesAfter),
     shares: roundMoney(asNumber(row.shares)),
     createdAt: row.created_at || row.createdAt,
   };
@@ -615,6 +700,8 @@ function adminTradeDto(row) {
 }
 
 function marketDto(market, options = {}) {
+  if (isMultiMarket(market)) return multiMarketDto(market, options);
+
   const prices = getDisplayPrices(market);
   const volume = roundMoney(market.yesPool + market.noPool);
   const recentTrades = (options.recentTrades || []).map((trade) => ({
@@ -706,6 +793,90 @@ function buildHistory(market, trades) {
   }
 
   return points.slice(-80);
+}
+
+// Multi-outcome chart history: each point carries a `values` map of
+// outcomeId -> probability%, so the chart draws one independent line per outcome.
+function buildMultiHistory(market, trades) {
+  const { outcomes, b, qVec } = marketMultiState(market);
+  const openPrices = lmsr.priceVec(qVec, b).map((p) => roundMoney(clampPriceCents(p * 100)));
+  const toValues = (cents) => Object.fromEntries(outcomes.map((o, i) => [o.id, asNumber(cents[i], 0)]));
+
+  const points = [{ time: new Date(market.createdAt).toISOString(), values: toValues(openPrices) }];
+
+  for (const trade of trades) {
+    const cents = Array.isArray(trade.pricesAfter) ? trade.pricesAfter : openPrices;
+    points.push({ time: new Date(trade.createdAt).toISOString(), values: toValues(cents) });
+  }
+
+  if (points.length === 1) {
+    points.push({ time: new Date().toISOString(), values: toValues(openPrices) });
+  }
+
+  return points.slice(-80);
+}
+
+function multiMarketDto(market, options = {}) {
+  const { outcomes, b, qVec } = marketMultiState(market);
+  const prices = lmsr.priceVec(qVec, b).map((p) => roundPriceToTick(p * 100, market));
+  const volume = roundMoney(asNumber(market.yesPool) + asNumber(market.noPool));
+  const recentTrades = (options.recentTrades || []).map((trade) => ({
+    id: trade.id,
+    userId: trade.userId,
+    userName: trade.userName,
+    outcome: trade.outcome,
+    side: trade.side,
+    amount: trade.amount,
+    priceCents: trade.priceCents,
+    shares: trade.shares,
+    createdAt: new Date(trade.createdAt).toISOString(),
+  }));
+  const history = buildMultiHistory(market, options.historyTrades || []);
+  const quotes = Object.fromEntries(outcomes.map((o, i) => {
+    const cents = roundPriceToTick(prices[i], market);
+    return [o.id, { bid: cents, ask: cents }];
+  }));
+
+  return {
+    id: market.id,
+    title: market.title,
+    description: market.description,
+    category: market.category,
+    resolutionSource: market.resolutionSource,
+    resolutionRules: market.resolutionRules,
+    closeDate: new Date(market.closeDate).toISOString(),
+    startDate: new Date(market.startDate || market.createdAt).toISOString(),
+    status: market.status,
+    createdAt: new Date(market.createdAt).toISOString(),
+    createdBy: market.createdBy ? { id: market.createdBy, name: market.creatorName || 'Пользователь' } : null,
+    marketType: 'multi',
+    yesPool: roundMoney(asNumber(market.yesPool)),
+    noPool: roundMoney(asNumber(market.noPool)),
+    volume,
+    tradeCount: market.tradeCount,
+    liquidity: market.liquidity,
+    initialProbability: market.initialProbability,
+    tickSize: market.tickSize,
+    minOrderSize: market.minOrderSize,
+    feeBps: asNumber(market.feeBps, defaultFeeBps),
+    winningOutcome: market.winningOutcome || null,
+    resolvedAt: market.resolvedAt ? new Date(market.resolvedAt).toISOString() : null,
+    resolutionNote: market.resolutionNote || null,
+    // binary-shaped fields kept for back-compat with components that read them.
+    yesPrice: prices[0], noPrice: 0, yesPercent: prices[0], noPercent: 0,
+    quotes,
+    outcomes: outcomes.map((o, i) => ({
+      name: o.label,
+      outcome: o.id,
+      color: o.color,
+      percent: prices[i],
+      priceCents: prices[i],
+      pool: 0,
+    })),
+    recentTrades,
+    history,
+    viewer: options.viewer || null,
+  };
 }
 
 async function initPostgres() {
@@ -818,6 +989,14 @@ async function initPostgres() {
   await pool.query('CREATE INDEX IF NOT EXISTS positions_market_idx ON positions (market_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS ledger_account_idx ON ledger (account, ts DESC);');
   await pool.query('CREATE INDEX IF NOT EXISTS ledger_market_idx ON ledger (market_id);');
+  // Multi-outcome (categorical) markets.
+  await pool.query("ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type text NOT NULL DEFAULT 'binary';");
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS outcomes_def jsonb;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS q_vec jsonb;');
+  await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS prices_after jsonb;');
+  // Outcome can be an arbitrary outcome id for multi markets — drop the YES/NO checks.
+  await pool.query('ALTER TABLE votes DROP CONSTRAINT IF EXISTS votes_outcome_check;');
+  await pool.query('ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_outcome_check;');
 }
 
 async function ensureJsonDb() {
@@ -1333,13 +1512,14 @@ const storage = {
     tickSize,
     minOrderSize,
     createdBy,
+    outcomes,
   }) {
     const id = newId('mkt');
     const createdAt = new Date().toISOString();
-    // Seed the LMSR state so the opening price equals initialProbability.
     const b = lmsr.bFromLiquidity(liquidity);
-    const seeded = lmsr.seedQ(clampPercent(initialProbability) / 100, b);
-    const market = {
+    const isMulti = Array.isArray(outcomes) && outcomes.length >= 2;
+
+    const base = {
       id,
       title,
       description,
@@ -1356,8 +1536,6 @@ const storage = {
       tickSize,
       minOrderSize,
       bParam: b,
-      qYes: seeded.qYes,
-      qNo: seeded.qNo,
       feeBps: defaultFeeBps,
       winningOutcome: null,
       resolvedAt: null,
@@ -1368,34 +1546,47 @@ const storage = {
       tradeCount: 0,
     };
 
+    let market;
+    if (isMulti) {
+      const palette = ['#22c55e', '#ef4444', '#3b82f6', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#84cc16'];
+      const probsRaw = outcomes.map((o) => Math.max(1, asNumber(o.initialProbability, 100 / outcomes.length)));
+      const sum = probsRaw.reduce((acc, value) => acc + value, 0);
+      const probs = probsRaw.map((p) => p / sum);
+      const qVec = lmsr.seedVecFromProbs(probs, b);
+      market = {
+        ...base,
+        marketType: 'multi',
+        qYes: null,
+        qNo: null,
+        outcomesDef: outcomes.map((o, i) => ({
+          id: o.id,
+          label: o.label,
+          color: o.color || palette[i % palette.length],
+          initialProbability: clampPercent(probs[i] * 100),
+        })),
+        qVec,
+      };
+    } else {
+      const seeded = lmsr.seedQ(clampPercent(initialProbability) / 100, b);
+      market = { ...base, marketType: 'binary', qYes: seeded.qYes, qNo: seeded.qNo };
+    }
+
     if (pool) {
       const result = await pool.query(
         `INSERT INTO markets (
           id, title, description, category, resolution_source, resolution_rules, start_date, close_date,
           status, yes_pool, no_pool, liquidity, initial_probability, tick_size, min_order_size,
-          b_param, q_yes, q_no, fee_bps, created_by, created_at
+          b_param, q_yes, q_no, fee_bps, market_type, outcomes_def, q_vec, created_by, created_at
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING *`,
         [
-          id,
-          title,
-          description,
-          category,
-          resolutionSource,
-          resolutionRules,
-          market.startDate,
-          market.closeDate,
-          liquidity,
-          initialProbability,
-          tickSize,
-          minOrderSize,
-          b,
-          seeded.qYes,
-          seeded.qNo,
-          defaultFeeBps,
-          createdBy,
-          createdAt,
+          id, title, description, category, resolutionSource, resolutionRules,
+          market.startDate, market.closeDate, liquidity, initialProbability, tickSize, minOrderSize,
+          b, market.qYes, market.qNo, defaultFeeBps, market.marketType,
+          market.outcomesDef ? JSON.stringify(market.outcomesDef) : null,
+          market.qVec ? JSON.stringify(market.qVec) : null,
+          createdBy, createdAt,
         ],
       );
 
@@ -1617,6 +1808,7 @@ const storage = {
 
         const market = normalizeMarket(row);
         assertMarketIsOpen(market);
+        if (isMultiMarket(market)) throw tradeError('MULTI_PG_UNSUPPORTED', 400);
         const existing = positionResult.rows[0] || { shares: 0, avg_price_cents: 0, cost_basis: 0, realized_pnl: 0 };
         const result = applyTrade({
           market, side, outcome, amount, userId,
@@ -1678,8 +1870,12 @@ const storage = {
     });
     const { fill } = result;
 
-    market.qYes = result.qYesAfter;
-    market.qNo = result.qNoAfter;
+    if (isMultiMarket(normalizedMarket)) {
+      market.qVec = result.qVecAfter;
+    } else {
+      market.qYes = result.qYesAfter;
+      market.qNo = result.qNoAfter;
+    }
     market.yesPool = result.yesPool;
     market.noPool = result.noPool;
     market.bParam = normalizedMarket.bParam ?? marketLmsrState(normalizedMarket).b;
@@ -1699,8 +1895,9 @@ const storage = {
       id, marketId, userId, outcome, side,
       amount: roundMoney(Math.abs(fill.cashDelta)),
       priceCents: fill.priceCents,
-      yesPriceAfterCents: fill.yesPriceAfterCents,
-      noPriceAfterCents: fill.noPriceAfterCents,
+      yesPriceAfterCents: fill.yesPriceAfterCents ?? null,
+      noPriceAfterCents: fill.noPriceAfterCents ?? null,
+      pricesAfter: fill.pricesAfter ?? null,
       shares: fill.shares,
       createdAt,
     });
@@ -1715,8 +1912,15 @@ const storage = {
     if (!market) throw tradeError('MARKET_NOT_FOUND', 404);
 
     const fill = calculateFill({ market, side, outcome, amount });
-    const state = marketLmsrState(market);
-    const currentPrice = roundPriceToTick(lmsr.priceOf(outcome, state.qYes, state.qNo, state.b) * 100, market);
+    let currentPrice;
+    if (isMultiMarket(market)) {
+      const { outcomes, b, qVec } = marketMultiState(market);
+      const i = outcomes.findIndex((o) => o.id === outcome);
+      currentPrice = roundPriceToTick(lmsr.priceVec(qVec, b)[i] * 100, market);
+    } else {
+      const state = marketLmsrState(market);
+      currentPrice = roundPriceToTick(lmsr.priceOf(outcome, state.qYes, state.qNo, state.b) * 100, market);
+    }
     const cash = roundMoney(Math.abs(fill.cashDelta));
 
     return {
@@ -1978,8 +2182,9 @@ function applyTrade({
   }
 
   const nextAvg = nextShares > 1e-9 ? roundMoney((nextBasis / nextShares) * 100) : 0;
-  const yesPool = roundMoney(asNumber(market.yesPool) + (outcome === 'YES' ? cashMagnitude : 0));
-  const noPool = roundMoney(asNumber(market.noPool) + (outcome === 'NO' ? cashMagnitude : 0));
+  // Volume bucket: binary splits across yes/no pools; multi tracks total in yesPool.
+  const yesPool = roundMoney(asNumber(market.yesPool) + (fill.multi || outcome === 'YES' ? cashMagnitude : 0));
+  const noPool = roundMoney(asNumber(market.noPool) + (!fill.multi && outcome === 'NO' ? cashMagnitude : 0));
 
   const ledger = side === 'BUY'
     ? [
@@ -2002,6 +2207,8 @@ function applyTrade({
     nextRealized,
     qYesAfter: fill.qYesAfter,
     qNoAfter: fill.qNoAfter,
+    qVecAfter: fill.qVecAfter,
+    pricesAfter: fill.pricesAfter,
     yesPool,
     noPool,
     ledger,
@@ -2087,6 +2294,37 @@ function parseMarketInput(body) {
     tickSize,
     minOrderSize,
   };
+}
+
+// Parse a multi-outcome definition from the create-market body. Returns undefined
+// for a binary market (fewer than 2 outcomes given).
+function parseOutcomesInput(raw) {
+  if (!Array.isArray(raw) || raw.length < 2) return undefined;
+
+  if (raw.length > 12) {
+    throw validationError('У рынка может быть не больше 12 исходов.');
+  }
+
+  const seen = new Set();
+  const outcomes = raw.map((entry, index) => {
+    const label = String(entry?.label || '').trim();
+    if (label.length < 1 || label.length > 60) {
+      throw validationError('Название исхода должно быть от 1 до 60 символов.');
+    }
+    const id = String(entry?.id || label).trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `OUT_${index}`;
+    if (seen.has(id)) {
+      throw validationError('Исходы должны быть уникальными.');
+    }
+    seen.add(id);
+    return {
+      id,
+      label,
+      color: typeof entry?.color === 'string' ? entry.color : undefined,
+      initialProbability: entry?.initialProbability == null ? undefined : clampPercent(asNumber(entry.initialProbability, 0)),
+    };
+  });
+
+  return outcomes;
 }
 
 function validationError(message) {
@@ -2366,11 +2604,11 @@ app.patch('/api/admin/markets/:id/status', requireAuth, requireAdmin, adminLimit
 
 app.patch('/api/admin/markets/:id/resolve', requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
   const marketId = validateId(req.params.id, 'mkt');
-  const winningOutcome = String(req.body.winningOutcome || '').toUpperCase();
+  const winningOutcome = String(req.body.winningOutcome || '').trim().toUpperCase();
   const note = String(req.body.note || '').trim().slice(0, 2000);
 
-  if (winningOutcome !== 'YES' && winningOutcome !== 'NO') {
-    throw validationError('Выбери выигравший исход: Да или Нет.');
+  if (!winningOutcome) {
+    throw validationError('Выбери выигравший исход.');
   }
 
   const market = await storage.resolveMarket({
@@ -2408,7 +2646,8 @@ app.get(['/api/markets', '/api/posts'], asyncRoute(async (req, res) => {
 
 app.post(['/api/markets', '/api/posts'], requireAuth, requireAdmin, adminLimiter, asyncRoute(async (req, res) => {
   const input = parseMarketInput(req.body);
-  const market = await storage.createMarket({ ...input, createdBy: req.user.id });
+  const outcomes = parseOutcomesInput(req.body.outcomes);
+  const market = await storage.createMarket({ ...input, outcomes, createdBy: req.user.id });
   const detail = await marketDetailResponse(market.id, req.user.id);
 
   res.status(201).json({ market: detail });
@@ -2427,12 +2666,14 @@ app.get(['/api/markets/:id', '/api/posts/:id'], optionalAuth, asyncRoute(async (
 }));
 
 function parseTradeBody(body) {
-  const outcome = String(body.outcome || '').toUpperCase();
+  // Outcome is 'YES'/'NO' for binary markets or an outcome id for multi markets;
+  // the market-aware fill validates it. Ids are uppercased for a stable match.
+  const outcome = String(body.outcome || '').trim().toUpperCase();
   const side = String(body.side || 'BUY').toUpperCase();
   const amount = roundMoney(Number(body.amount));
 
-  if (outcome !== 'YES' && outcome !== 'NO') {
-    throw validationError('Выбери Да или Нет.');
+  if (!outcome) {
+    throw validationError('Выбери исход.');
   }
 
   if (side !== 'BUY' && side !== 'SELL') {
@@ -2495,6 +2736,8 @@ app.use((error, req, res, next) => {
     ORDER_TOO_SMALL: 'Сделка меньше минимального размера рынка.',
     SLIPPAGE_EXCEEDED: 'Цена сдвинулась сильнее допустимого. Повтори сделку.',
     MARKET_ALREADY_SETTLED: 'Рынок уже рассчитан или отменён.',
+    INVALID_OUTCOME: 'Недопустимый исход для этого рынка.',
+    MULTI_PG_UNSUPPORTED: 'Мульти-исходные рынки пока работают только на JSON-хранилище.',
   };
 
   if (status >= 500) {

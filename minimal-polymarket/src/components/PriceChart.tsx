@@ -10,26 +10,42 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { type MarketHistoryPoint } from '../lib/api';
+import { type Market } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
-function formatShortDate(value: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    day: 'numeric',
-    month: 'short',
-  }).format(new Date(value));
+// One drawn line. For a binary market this is a single YES series; for a
+// multi-outcome (categorical) market there is one per outcome.
+export type ChartSeries = { key: string; name: string; color: string };
+export type ChartHistoryPoint = { time: string; values: Record<string, number> };
+
+// Build the chart's series + history from a market. Binary markets draw a single
+// trend-coloured YES line; multi-outcome markets draw one line per outcome.
+export function marketChartProps(market: Market, yesLabel: string): { series: ChartSeries[]; history: ChartHistoryPoint[] } {
+  if (market.marketType === 'multi' && market.outcomes.length >= 2) {
+    return {
+      series: market.outcomes.map((o) => ({ key: o.outcome, name: o.name, color: o.color || '#888888' })),
+      history: market.history.map((p) => ({ time: p.time, values: p.values ?? {} })),
+    };
+  }
+
+  const history = market.history.map((p) => ({ time: p.time, values: { yes: p.yesPercent } }));
+  const up = history.length > 1 ? history[history.length - 1].values.yes >= history[0].values.yes : true;
+
+  return {
+    series: [{ key: 'yes', name: yesLabel, color: up ? '#22c55e' : '#ef4444' }],
+    history,
+  };
 }
 
-type ChartRow = {
-  time: string;
-  isoTime: string;
-  yes: number;
-  no: number;
-};
+function formatShortDate(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(value));
+}
+
+type ChartRow = { time: string; isoTime: string } & Record<string, number | string>;
 
 type ChartHoverPoint = {
   color: string;
-  key: 'yes' | 'no';
+  key: string;
   pathD: string;
   pathLength: number;
   totalLength: number;
@@ -46,12 +62,7 @@ type ChartHoverState = {
   exitProgress: number;
   x: number;
   svgX: number;
-  viewBox: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  viewBox: { x: number; y: number; width: number; height: number };
   time: string;
   points: ChartHoverPoint[];
 };
@@ -62,29 +73,42 @@ const hiddenChartHover: ChartHoverState = {
   exitProgress: 0,
   x: 0,
   svgX: 0,
-  viewBox: {
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  },
+  viewBox: { x: 0, y: 0, width: 0, height: 0 },
   time: '',
   points: [],
 };
 
-const chartSeries = [
-  { key: 'yes', color: '#22c55e' },
-  { key: 'no', color: '#ef4444' },
-] as const;
-
 const chartHoverExitDurationMs = 420;
-const chartHoverExitDuration = chartHoverExitDurationMs / 1000;
 
 function clampChartValue(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function getInterpolatedChartPoint(data: ChartRow[], progress: number) {
+// Auto-zoom the Y axis to the data band (like Polymarket): if every line sits
+// between 20% and 48%, show roughly 15%–55% with nice 5/10-step ticks instead
+// of squashing them around the middle of a fixed 0–100 axis.
+function niceYDomain(values: number[]): { domain: [number, number]; ticks: number[] } {
+  if (values.length === 0) return { domain: [0, 100], ticks: [0, 25, 50, 75, 100] };
+
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = Math.max(3, (hi - lo) * 0.12);
+  const paddedLo = Math.max(0, lo - pad);
+  const paddedHi = Math.min(100, hi + pad);
+  const rawStep = (paddedHi - paddedLo) / 5 || 25;
+  const step = [1, 2, 5, 10, 20, 25, 50].find((candidate) => candidate >= rawStep) ?? 25;
+  const domainMin = Math.max(0, Math.floor(paddedLo / step) * step);
+  const domainMax = Math.min(100, Math.ceil(paddedHi / step) * step);
+  const ticks: number[] = [];
+
+  for (let tick = domainMin; tick <= domainMax + 1e-9; tick += step) {
+    ticks.push(Math.round(tick));
+  }
+
+  return { domain: [domainMin, domainMax], ticks };
+}
+
+function getInterpolatedChartPoint(data: ChartRow[], progress: number, keys: string[]) {
   const exactIndex = progress * Math.max(1, data.length - 1);
   const leftIndex = Math.floor(exactIndex);
   const rightIndex = Math.min(data.length - 1, leftIndex + 1);
@@ -92,12 +116,15 @@ function getInterpolatedChartPoint(data: ChartRow[], progress: number) {
   const left = data[leftIndex];
   const right = data[rightIndex];
   const nearest = data[Math.round(exactIndex)] ?? data[data.length - 1];
+  const values: Record<string, number> = {};
 
-  return {
-    time: nearest?.isoTime ?? '',
-    yes: clampChartValue((left?.yes ?? 50) + ((right?.yes ?? 50) - (left?.yes ?? 50)) * mix),
-    no: clampChartValue((left?.no ?? 50) + ((right?.no ?? 50) - (left?.no ?? 50)) * mix),
-  };
+  for (const key of keys) {
+    const l = Number(left?.[key] ?? 50);
+    const r = Number(right?.[key] ?? 50);
+    values[key] = clampChartValue(l + (r - l) * mix);
+  }
+
+  return { isoTime: String(nearest?.isoTime ?? ''), values };
 }
 
 function getPathMeasureAtX(path: SVGPathElement, targetX: number) {
@@ -123,11 +150,7 @@ function getPathMeasureAtX(path: SVGPathElement, targetX: number) {
 
   const pathLength = (start + end) / 2;
 
-  return {
-    pathLength,
-    point: path.getPointAtLength(pathLength),
-    totalLength,
-  };
+  return { pathLength, point: path.getPointAtLength(pathLength), totalLength };
 }
 
 function getSvgViewport(svg: SVGSVGElement) {
@@ -167,13 +190,12 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
       </motion.div>
 
       {hover.points.map((point) => {
-        const labelTop = point.key === 'yes' ? point.y - 34 : point.y + 8;
         const labelPosition = labelsOnLeft
-          ? { left: point.x, top: labelTop, transform: 'translateX(calc(-100% - 12px))' }
-          : { left: point.x, top: labelTop };
+          ? { left: point.x, top: point.y - 30, transform: 'translateX(calc(-100% - 12px))' }
+          : { left: point.x, top: point.y - 30 };
 
         return (
-          <div key={point.name}>
+          <div key={point.key}>
             <motion.div
               animate={{ opacity: detailOpacity }}
               className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-pm-surface"
@@ -243,7 +265,7 @@ function ChartFutureLines({ hover }: { hover: ChartHoverState }) {
   );
 }
 
-function getChartLineDash(hover: ChartHoverState, key: 'yes' | 'no') {
+function getChartLineDash(hover: ChartHoverState, key: string) {
   if (!hover.visible) return undefined;
 
   const point = hover.points.find((item) => item.key === key);
@@ -253,8 +275,16 @@ function getChartLineDash(hover: ChartHoverState, key: 'yes' | 'no') {
   return `${point.pathLength} ${Math.max(0, point.totalLength - point.pathLength)}`;
 }
 
-export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: { history: MarketHistoryPoint[]; heightClass?: string }) {
-  const { t, locale } = useI18n();
+export function PriceChart({
+  history,
+  series,
+  heightClass = 'h-[220px] sm:h-[260px]',
+}: {
+  history: ChartHistoryPoint[];
+  series: ChartSeries[];
+  heightClass?: string;
+}) {
+  const { locale } = useI18n();
   const chartRef = useRef<HTMLDivElement>(null);
   const chartHoverExitTimeoutRef = useRef<number | null>(null);
   const chartHoverExitFrameRef = useRef<number | null>(null);
@@ -262,14 +292,12 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
 
   const clearChartHoverExitTimeout = () => {
     if (chartHoverExitTimeoutRef.current === null) return;
-
     window.clearTimeout(chartHoverExitTimeoutRef.current);
     chartHoverExitTimeoutRef.current = null;
   };
 
   const clearChartHoverExitFrame = () => {
     if (chartHoverExitFrameRef.current === null) return;
-
     window.cancelAnimationFrame(chartHoverExitFrameRef.current);
     chartHoverExitFrameRef.current = null;
   };
@@ -279,25 +307,31 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
     clearChartHoverExitFrame();
   }, []);
 
+  const seriesKeys = series.map((s) => s.key);
   const chartData = useMemo<ChartRow[]>(() => history.map((point) => ({
     time: formatShortDate(point.time, locale),
     isoTime: point.time,
-    yes: point.yesPercent,
-    no: point.noPercent ?? 100 - point.yesPercent,
+    ...point.values,
   })), [history, locale]);
+
+  const yAxis = useMemo(() => {
+    const values = chartData.flatMap((row) => seriesKeys.map((key) => Number(row[key] ?? 50)));
+    return niceYDomain(values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartData, seriesKeys.join(',')]);
 
   const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const container = chartRef.current;
     const svg = container?.querySelector<SVGSVGElement>('.recharts-surface');
 
-    if (!container || !svg || chartData.length === 0) return;
+    if (!container || !svg || chartData.length === 0 || series.length === 0) return;
 
     const containerRect = container.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();
     const viewport = getSvgViewport(svg);
     const targetSvgX = viewport.x + ((event.clientX - svgRect.left) / svgRect.width) * viewport.width;
     const firstPath =
-      svg.querySelector<SVGPathElement>('.market-detail-line-yes .recharts-line-curve')
+      svg.querySelector<SVGPathElement>(`.market-detail-line-${series[0].key} .recharts-line-curve`)
       ?? svg.querySelector<SVGPathElement>('.recharts-line-curve');
 
     if (!firstPath) return;
@@ -308,11 +342,9 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
     const maxPathX = Math.max(firstPoint.x, lastPoint.x);
     const hoverSvgX = Math.max(minPathX, Math.min(maxPathX, targetSvgX));
     const progress = Math.max(0, Math.min(1, (hoverSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
-    const activePoint = getInterpolatedChartPoint(chartData, progress);
-    const points = chartSeries.reduce<ChartHoverPoint[]>((result, series) => {
-      const path =
-        svg.querySelector<SVGPathElement>(`.market-detail-line-${series.key} .recharts-line-curve`)
-        ?? svg.querySelectorAll<SVGPathElement>('.recharts-line-curve')[series.key === 'yes' ? 0 : 1];
+    const activePoint = getInterpolatedChartPoint(chartData, progress, seriesKeys);
+    const points = series.reduce<ChartHoverPoint[]>((result, item) => {
+      const path = svg.querySelector<SVGPathElement>(`.market-detail-line-${item.key} .recharts-line-curve`);
 
       if (!path) return result;
 
@@ -321,13 +353,13 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
       const y = svgRect.top - containerRect.top + ((point.y - viewport.y) / viewport.height) * svgRect.height;
 
       result.push({
-        color: series.color,
-        key: series.key,
+        color: item.color,
+        key: item.key,
         pathD: path.getAttribute('d') ?? '',
         pathLength,
         totalLength,
-        name: series.key === 'yes' ? t('common.yes') : t('common.no'),
-        value: activePoint[series.key],
+        name: item.name,
+        value: activePoint.values[item.key] ?? 0,
         svgX: hoverSvgX,
         x,
         y,
@@ -347,7 +379,7 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
       x: points[0].x,
       svgX: points[0].svgX,
       viewBox: viewport,
-      time: activePoint.time,
+      time: activePoint.isoTime,
       points,
     });
   };
@@ -357,9 +389,7 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
 
     clearChartHoverExitTimeout();
     clearChartHoverExitFrame();
-    setChartHover((previous) => (
-      previous.visible ? { ...previous, isLeaving: true, exitProgress: 0 } : previous
-    ));
+    setChartHover((previous) => (previous.visible ? { ...previous, isLeaving: true, exitProgress: 0 } : previous));
 
     const startedAt = window.performance.now();
     const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
@@ -367,9 +397,7 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
       const progress = Math.min(1, (now - startedAt) / chartHoverExitDurationMs);
       const easedProgress = easeOutCubic(progress);
 
-      setChartHover((previous) => (
-        previous.isLeaving ? { ...previous, exitProgress: easedProgress } : previous
-      ));
+      setChartHover((previous) => (previous.isLeaving ? { ...previous, exitProgress: easedProgress } : previous));
 
       if (progress < 1) {
         chartHoverExitFrameRef.current = window.requestAnimationFrame(animateExit);
@@ -377,9 +405,7 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
       }
 
       chartHoverExitFrameRef.current = null;
-      setChartHover((previous) => (
-        previous.isLeaving ? { ...previous, visible: false, isLeaving: false, exitProgress: 0 } : previous
-      ));
+      setChartHover((previous) => (previous.isLeaving ? { ...previous, visible: false, isLeaving: false, exitProgress: 0 } : previous));
     };
 
     chartHoverExitFrameRef.current = window.requestAnimationFrame(animateExit);
@@ -404,47 +430,34 @@ export function PriceChart({ history, heightClass = 'h-[220px] sm:h-[260px]' }: 
           />
           <YAxis
             orientation="right"
-            domain={[0, 100]}
-            ticks={[0, 25, 50, 75, 100]}
+            domain={yAxis.domain}
+            ticks={yAxis.ticks}
             tickFormatter={(value) => `${value}%`}
             axisLine={false}
             tickLine={false}
             tick={{ fill: 'var(--color-pm-text-muted)', fontSize: 12, fontWeight: 600 }}
             width={46}
+            allowDataOverflow
           />
-          <Tooltip
-            cursor={false}
-            wrapperStyle={{ display: 'none' }}
-            formatter={(value, name) => [`${value}%`, name === 'yes' ? t('common.yes') : t('common.no')]}
-          />
-          <Line
-            className="market-detail-line-yes"
-            type="stepAfter"
-            dataKey="yes"
-            stroke="#22c55e"
-            strokeDasharray={getChartLineDash(chartHover, 'yes')}
-            strokeWidth={2.5}
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            className="market-detail-line-no"
-            type="stepAfter"
-            dataKey="no"
-            stroke="#ef4444"
-            strokeDasharray={getChartLineDash(chartHover, 'no')}
-            strokeWidth={2.5}
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
+          <Tooltip cursor={false} wrapperStyle={{ display: 'none' }} />
+          {series.map((item) => (
+            <Line
+              key={item.key}
+              className={`market-detail-line-${item.key}`}
+              type="stepAfter"
+              dataKey={item.key}
+              stroke={item.color}
+              strokeDasharray={getChartLineDash(chartHover, item.key)}
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          ))}
           <Customized component={<ChartFutureLines hover={chartHover} />} />
         </LineChart>
       </ResponsiveContainer>
-      {chartHover.visible && (
-        <ChartViewOverlay hover={chartHover} />
-      )}
+      {chartHover.visible && <ChartViewOverlay hover={chartHover} />}
     </div>
   );
 }
