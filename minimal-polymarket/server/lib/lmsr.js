@@ -156,3 +156,43 @@ export function applySharesN(q, i, deltaShares) {
   q2[i] += deltaShares;
   return q2;
 }
+
+// --- Independent per-outcome sub-markets (the Polymarket structure) ----------
+//
+// A multi-outcome event is modelled as N INDEPENDENT binary YES/NO sub-markets,
+// one per outcome, each with its own (qYes, qNo) and a shared b. Buying outcome
+// i buys YES of sub-market i and mutates ONLY that sub-market — so only line i
+// moves. There is no shared softmax denominator, so the lines are genuinely
+// independent (no mechanical see-saw / mirror). For display, the raw prices are
+// normalized to sum to 1 (they already sum to ~1 when the book is balanced).
+
+// Seed one binary sub-market to open at probability p0. Only qYes - qNo sets the
+// price, so put qNo at 0: qYes = b * logit(p0).
+export function seedBinaryState(p0, b) {
+  const p = Math.min(0.999, Math.max(0.001, Number(p0)));
+  return { qYes: b * Math.log(p / (1 - p)), qNo: 0 };
+}
+
+// Seed all N sub-markets from initial probabilities (normalized first, so the
+// opening normalized display reads the exact given numbers and Σr opens at 1).
+export function seedOutcomeStates(initialProbs, b) {
+  const sum = initialProbs.reduce((acc, x) => acc + x, 0) || 1;
+  return initialProbs.map((p) => seedBinaryState(p / sum, b));
+}
+
+// Raw, independent per-outcome prices r_i ∈ (0,1) — NOT normalized.
+export function rawPriceMulti(states, b) {
+  return states.map((s) => priceYes(s.qYes, s.qNo, b));
+}
+
+// Displayed prices: raw normalized to sum to exactly 1.
+export function displayedPriceMulti(states, b) {
+  const raw = rawPriceMulti(states, b);
+  const total = raw.reduce((acc, x) => acc + x, 0) || 1;
+  return raw.map((x) => x / total);
+}
+
+// Apply a YES-share delta to sub-market i only (returns a new states array).
+export function applyYesShares(states, i, deltaShares) {
+  return states.map((s, k) => (k === i ? { qYes: s.qYes + deltaShares, qNo: s.qNo } : { qYes: s.qYes, qNo: s.qNo }));
+}

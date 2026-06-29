@@ -24,11 +24,11 @@ export function marketChartProps(market: Market, yesLabel: string): { series: Ch
   if (market.marketType === 'multi' && market.outcomes.length >= 2) {
     return {
       series: market.outcomes.map((o) => ({ key: o.outcome, name: o.name, color: o.color || '#888888' })),
-      history: market.history.map((p) => ({ time: p.time, values: p.values ?? {} })),
+      history: (market.history ?? []).map((p) => ({ time: p.time, values: p.values ?? {} })),
     };
   }
 
-  const history = market.history.map((p) => ({ time: p.time, values: { yes: p.yesPercent } }));
+  const history = (market.history ?? []).map((p) => ({ time: p.time, values: { yes: p.yesPercent } }));
   const up = history.length > 1 ? history[history.length - 1].values.yes >= history[0].values.yes : true;
 
   return {
@@ -41,7 +41,21 @@ function formatShortDate(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(value));
 }
 
-type ChartRow = { time: string; isoTime: string } & Record<string, number | string>;
+// One day in ms; below ~2 days of total span we label the time axis by time-of-day
+// (HH:MM) instead of date, so an intraday market doesn't show the same date on every tick.
+const intradaySpanMs = 2 * 24 * 60 * 60 * 1000;
+
+function formatChartTime(value: string | number, locale: string, spanMs: number) {
+  const date = new Date(value);
+  const options: Intl.DateTimeFormatOptions =
+    spanMs > 0 && spanMs < intradaySpanMs
+      ? { hour: '2-digit', minute: '2-digit' }
+      : { day: 'numeric', month: 'short' };
+
+  return new Intl.DateTimeFormat(locale, options).format(date);
+}
+
+type ChartRow = { time: string; isoTime: string; ts: number } & Record<string, number | string>;
 
 type ChartHoverPoint = {
   color: string;
@@ -108,23 +122,20 @@ function niceYDomain(values: number[]): { domain: [number, number]; ticks: numbe
   return { domain: [domainMin, domainMax], ticks };
 }
 
-function getInterpolatedChartPoint(data: ChartRow[], progress: number, keys: string[]) {
+// Samples are dense and evenly spaced in time, so the cursor's fractional progress
+// maps linearly to a data index. We snap to the NEAREST sample; with ~140 points the
+// value there matches the line under the cursor to well under a percent (rounded away).
+function getActiveChartPoint(data: ChartRow[], progress: number, keys: string[]) {
   const exactIndex = progress * Math.max(1, data.length - 1);
-  const leftIndex = Math.floor(exactIndex);
-  const rightIndex = Math.min(data.length - 1, leftIndex + 1);
-  const mix = exactIndex - leftIndex;
-  const left = data[leftIndex];
-  const right = data[rightIndex];
-  const nearest = data[Math.round(exactIndex)] ?? data[data.length - 1];
+  const index = Math.min(data.length - 1, Math.max(0, Math.round(exactIndex)));
+  const point = data[index];
   const values: Record<string, number> = {};
 
   for (const key of keys) {
-    const l = Number(left?.[key] ?? 50);
-    const r = Number(right?.[key] ?? 50);
-    values[key] = clampChartValue(l + (r - l) * mix);
+    values[key] = clampChartValue(Number(point?.[key] ?? 50));
   }
 
-  return { isoTime: String(nearest?.isoTime ?? ''), values };
+  return { isoTime: String(point?.isoTime ?? ''), values };
 }
 
 function getPathMeasureAtX(path: SVGPathElement, targetX: number) {
@@ -164,11 +175,23 @@ function getSvgViewport(svg: SVGSVGElement) {
   };
 }
 
-function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
+function ChartViewOverlay({ hover, spanMs }: { hover: ChartHoverState; spanMs: number }) {
   const { locale } = useI18n();
   const labelsOnLeft = hover.x > 680;
   const detailOpacity = hover.isLeaving ? 0 : 1;
   const detailTransition = { duration: hover.isLeaving ? 0.12 : 0 };
+
+  // Spread the value boxes vertically so close lines don't overlap their labels:
+  // sort by y, then push each label down to keep a minimum gap from the one above.
+  const labelGap = 30;
+  const labelTop = new Map<string, number>();
+  [...hover.points]
+    .sort((a, b) => a.y - b.y)
+    .forEach((point, index, sorted) => {
+      const desired = point.y - 14;
+      const previous = index > 0 ? labelTop.get(sorted[index - 1].key) ?? -Infinity : -Infinity;
+      labelTop.set(point.key, Math.max(desired, previous + labelGap));
+    });
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 bottom-0 z-10">
@@ -186,13 +209,14 @@ function ChartViewOverlay({ hover }: { hover: ChartHoverState }) {
         style={{ left: hover.x, top: -2 }}
         transition={detailTransition}
       >
-        {formatShortDate(hover.time, locale)}
+        {formatChartTime(hover.time, locale, spanMs)}
       </motion.div>
 
       {hover.points.map((point) => {
+        const top = labelTop.get(point.key) ?? point.y - 13;
         const labelPosition = labelsOnLeft
-          ? { left: point.x, top: point.y - 30, transform: 'translateX(calc(-100% - 12px))' }
-          : { left: point.x, top: point.y - 30 };
+          ? { left: point.x, top, transform: 'translateX(calc(-100% - 12px))' }
+          : { left: point.x, top };
 
         return (
           <div key={point.key}>
@@ -311,8 +335,13 @@ export function PriceChart({
   const chartData = useMemo<ChartRow[]>(() => history.map((point) => ({
     time: formatShortDate(point.time, locale),
     isoTime: point.time,
+    ts: new Date(point.time).getTime(),
     ...point.values,
   })), [history, locale]);
+
+  // Total time span of the data — drives whether the axis/labels read as dates or
+  // intraday times, and is passed to the hover overlay for the same decision.
+  const spanMs = chartData.length > 1 ? chartData[chartData.length - 1].ts - chartData[0].ts : 0;
 
   const yAxis = useMemo(() => {
     const values = chartData.flatMap((row) => seriesKeys.map((key) => Number(row[key] ?? 50)));
@@ -342,7 +371,7 @@ export function PriceChart({
     const maxPathX = Math.max(firstPoint.x, lastPoint.x);
     const hoverSvgX = Math.max(minPathX, Math.min(maxPathX, targetSvgX));
     const progress = Math.max(0, Math.min(1, (hoverSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
-    const activePoint = getInterpolatedChartPoint(chartData, progress, seriesKeys);
+    const activePoint = getActiveChartPoint(chartData, progress, seriesKeys);
     const points = series.reduce<ChartHoverPoint[]>((result, item) => {
       const path = svg.querySelector<SVGPathElement>(`.market-detail-line-${item.key} .recharts-line-curve`);
 
@@ -422,7 +451,12 @@ export function PriceChart({
         <LineChart data={chartData} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--color-pm-chart-grid)" strokeDasharray="3 4" vertical={false} />
           <XAxis
-            dataKey="time"
+            dataKey="ts"
+            type="number"
+            scale="time"
+            domain={['dataMin', 'dataMax']}
+            tickCount={6}
+            tickFormatter={(value) => formatChartTime(value, locale, spanMs)}
             axisLine={false}
             tickLine={false}
             tick={{ fill: 'var(--color-pm-text-muted)', fontSize: 12, fontWeight: 600 }}
@@ -444,7 +478,7 @@ export function PriceChart({
             <Line
               key={item.key}
               className={`market-detail-line-${item.key}`}
-              type="stepAfter"
+              type="linear"
               dataKey={item.key}
               stroke={item.color}
               strokeDasharray={getChartLineDash(chartHover, item.key)}
@@ -457,7 +491,7 @@ export function PriceChart({
           <Customized component={<ChartFutureLines hover={chartHover} />} />
         </LineChart>
       </ResponsiveContainer>
-      {chartHover.visible && <ChartViewOverlay hover={chartHover} />}
+      {chartHover.visible && <ChartViewOverlay hover={chartHover} spanMs={spanMs} />}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import express from 'express';
 import pg from 'pg';
 
 import * as lmsr from './lib/lmsr.js';
+import * as priceHistory from './lib/priceHistory.js';
 
 dotenv.config({ quiet: true });
 
@@ -469,27 +470,39 @@ function isMultiMarket(market) {
   return market.marketType === 'multi' && Array.isArray(market.outcomesDef) && market.outcomesDef.length >= 2;
 }
 
+// Each outcome is an INDEPENDENT binary YES/NO sub-market with its own
+// (qYes, qNo) and a shared b. Migrates legacy markets that still store the old
+// coupled-softmax qVec by reseeding independent books at the same prices.
 function marketMultiState(market) {
   const outcomes = market.outcomesDef || [];
   const b = Math.max(1, asNumber(market.bParam, lmsr.bFromLiquidity(asNumber(market.liquidity, defaultMarketLiquidity))));
-  let qVec = Array.isArray(market.qVec) ? market.qVec.map((x) => asNumber(x)) : null;
+  let states = Array.isArray(market.outcomeStates)
+    ? market.outcomeStates.map((s) => ({ qYes: asNumber(s.qYes), qNo: asNumber(s.qNo) }))
+    : null;
 
-  if (!qVec || qVec.length !== outcomes.length) {
-    const fallback = 100 / Math.max(1, outcomes.length);
-    const probs = outcomes.map((o) => clampPercent(asNumber(o.initialProbability, fallback)) / 100);
-    qVec = lmsr.seedVecFromProbs(probs, b);
+  if (!states || states.length !== outcomes.length) {
+    let probs;
+    if (Array.isArray(market.qVec) && market.qVec.length === outcomes.length) {
+      probs = lmsr.priceVec(market.qVec.map((x) => asNumber(x)), b); // legacy softmax → current prices
+    } else {
+      const fallback = 1 / Math.max(1, outcomes.length);
+      probs = outcomes.map((o) => clampPercent(asNumber(o.initialProbability, fallback * 100)) / 100);
+    }
+    states = lmsr.seedOutcomeStates(probs, b);
   }
 
-  return { outcomes, b, qVec };
+  return { outcomes, b, states };
 }
 
 // Pure multi-outcome fill (categorical market). `outcome` is an outcome id.
+// Buying it buys YES of THAT sub-market only — no other line is touched.
 function calculateMultiFill({ market, side, outcome, amount }) {
-  const { outcomes, b, qVec } = marketMultiState(market);
+  const { outcomes, b, states } = marketMultiState(market);
   const i = outcomes.findIndex((o) => o.id === outcome);
 
   if (i < 0) throw tradeError('INVALID_OUTCOME', 400);
 
+  const sub = states[i];
   const feeRate = Math.max(0, asNumber(market.feeBps, defaultFeeBps)) / 10000;
   let shares;
   let ammPoints;
@@ -499,22 +512,22 @@ function calculateMultiFill({ market, side, outcome, amount }) {
 
   if (side === 'BUY') {
     const ammSpend = amount / (1 + feeRate);
-    shares = lmsr.sharesForSpendN(qVec, b, i, ammSpend);
+    shares = lmsr.sharesForSpend('YES', ammSpend, sub.qYes, sub.qNo, b);
     ammPoints = ammSpend;
     fee = amount - ammSpend;
     cashDelta = -amount;
     direction = 1;
   } else {
     shares = amount;
-    const proceeds = lmsr.proceedsForSellN(qVec, b, i, shares);
+    const proceeds = lmsr.proceedsForSell('YES', shares, sub.qYes, sub.qNo, b);
     fee = proceeds * feeRate;
     ammPoints = proceeds;
     cashDelta = proceeds - fee;
     direction = -1;
   }
 
-  const qVecAfter = lmsr.applySharesN(qVec, i, direction * shares);
-  const pricesAfter = lmsr.priceVec(qVecAfter, b).map((p) => roundMoney(clampPriceCents(p * 100)));
+  const statesAfter = lmsr.applyYesShares(states, i, direction * shares);
+  const pricesAfter = lmsr.displayedPriceMulti(statesAfter, b).map((p) => roundMoney(clampPriceCents(p * 100)));
   const avgPriceCents = shares > 0 ? roundMoney((ammPoints / shares) * 100) : 0;
 
   return {
@@ -526,8 +539,8 @@ function calculateMultiFill({ market, side, outcome, amount }) {
     cashDelta: roundMoney(cashDelta),
     avgPriceCents,
     priceCents: avgPriceCents,
-    qVecAfter,
-    pricesAfter, // array aligned to outcomesDef, in cents
+    statesAfter,
+    pricesAfter, // displayed (normalized) prices aligned to outcomesDef, in cents
     toWin: roundMoney(shares),
   };
 }
@@ -650,6 +663,7 @@ function normalizeMarket(row) {
     resolutionNote: row.resolution_note ?? row.resolutionNote ?? null,
     marketType: row.market_type ?? row.marketType ?? 'binary',
     outcomesDef: parseJsonField(row.outcomes_def ?? row.outcomesDef) || null,
+    outcomeStates: parseJsonField(row.outcome_states ?? row.outcomeStates) || null,
     qVec: parseJsonField(row.q_vec ?? row.qVec) || null,
   };
 }
@@ -761,64 +775,95 @@ function marketDto(market, options = {}) {
   };
 }
 
+// The synthetic price path spans the market's whole visible life. "Now" is
+// quantized to the minute so the path is byte-stable across rapid refetches: the
+// PRNG is seeded only by the marketId, so the time window is the only per-request
+// input — pinning it to the minute removes flicker.
+function historyWindow(market) {
+  const startTime = new Date(market.createdAt).getTime();
+  const nowFloor = Math.floor(Date.now() / 60000) * 60000;
+  const endTime = Math.max(startTime + 60000, nowFloor);
+
+  return { startTime, endTime };
+}
+
+// Peak micro-volatility (in percentage points) scaled gently by the market's age:
+// a market that has been open for days breathes a little wider than a fresh one.
+function historyVolatility(startTime, endTime) {
+  const spanDays = Math.max(0, (endTime - startTime) / 86400000);
+
+  return Math.max(2.5, Math.min(8, 2.5 + 2 * Math.sqrt(spanDays)));
+}
+
 function buildHistory(market, trades) {
   // YES and NO are mirror images (NO = 100 - YES) — the LMSR invariant carried
-  // through to the chart, so the two lines can never drift apart again.
-  const openYes = getDisplayPrices(market).yesPercent;
-  let latestYes = openYes;
-  const points = [{
-    time: new Date(market.createdAt).toISOString(),
-    yesPercent: latestYes,
-    noPercent: roundMoney(clampPriceCents(100 - latestYes)),
-  }];
+  // through to the chart. We synthesize a dense, realistic YES path that opens at
+  // the initial probability and ends at the exact current live price (see
+  // server/lib/priceHistory.js); NO is derived per point.
+  const openYes = clampPercent(asNumber(market.initialProbability, 50));
+  const currentYes = getDisplayPrices(market).yesPercent;
+  const { startTime, endTime } = historyWindow(market);
+  const count = priceHistory.pickCount(startTime, endTime);
+  const times = priceHistory.buildEvenTimeGrid(startTime, endTime, count);
 
-  for (const trade of trades) {
-    latestYes = asNumber(trade.yesPriceAfterCents, latestYes);
+  // Journey = the distinct price levels the market actually traded through,
+  // de-clustered and spread across the timeline (not pinned to the real,
+  // minutes-apart trade timestamps, which would cram all movement into the left edge).
+  const tradeLevels = trades.map((trade) => clampPriceCents(asNumber(trade.yesPriceAfterCents, openYes)));
+  const journey = [openYes, ...priceHistory.dedupeConsecutive(tradeLevels), currentYes];
+  const anchors = priceHistory.buildSpreadAnchors(journey, startTime, endTime);
 
-    points.push({
-      time: new Date(trade.createdAt).toISOString(),
-      yesPercent: latestYes,
-      noPercent: roundMoney(clampPriceCents(100 - latestYes)),
-    });
-  }
+  const values = priceHistory.buildPricePath({
+    seed: priceHistory.hashString(String(market.id)),
+    anchors,
+    times,
+    volatility: historyVolatility(startTime, endTime),
+  });
 
-  if (points.length === 1) {
-    const prices = getDisplayPrices(market);
-
-    points.push({
-      time: new Date().toISOString(),
-      yesPercent: prices.yesPercent,
-      noPercent: prices.noPercent,
-    });
-  }
-
-  return points.slice(-80);
+  return times.map((tm, i) => ({
+    time: new Date(tm).toISOString(),
+    yesPercent: values[i],
+    noPercent: roundMoney(clampPriceCents(100 - values[i])),
+  }));
 }
 
 // Multi-outcome chart history: each point carries a `values` map of
 // outcomeId -> probability%, so the chart draws one independent line per outcome.
+// Each line gets its own seeded noise (non-symmetric) and the per-point columns
+// are renormalized to sum to 100, exactly like Polymarket.
 function buildMultiHistory(market, trades) {
-  const { outcomes, b, qVec } = marketMultiState(market);
-  const openPrices = lmsr.priceVec(qVec, b).map((p) => roundMoney(clampPriceCents(p * 100)));
-  const toValues = (cents) => Object.fromEntries(outcomes.map((o, i) => [o.id, asNumber(cents[i], 0)]));
+  const { outcomes, b, states } = marketMultiState(market);
+  const n = Math.max(1, outcomes.length);
+  const openPrices = outcomes.map((o) => clampPercent(asNumber(o.initialProbability, 100 / n)));
+  const currentPrices = lmsr.displayedPriceMulti(states, b).map((p) => clampPriceCents(p * 100));
+  const { startTime, endTime } = historyWindow(market);
+  const count = priceHistory.pickCount(startTime, endTime);
+  const times = priceHistory.buildEvenTimeGrid(startTime, endTime, count);
 
-  const points = [{ time: new Date(market.createdAt).toISOString(), values: toValues(openPrices) }];
+  const tradeColumns = trades.filter((trade) => Array.isArray(trade.pricesAfter) && trade.pricesAfter.length === n);
+  const outcomeInputs = outcomes.map((o, k) => {
+    const levels = tradeColumns.map((trade) => clampPriceCents(asNumber(trade.pricesAfter[k], openPrices[k])));
+    const journey = [openPrices[k], ...priceHistory.dedupeConsecutive(levels), currentPrices[k]];
 
-  for (const trade of trades) {
-    const cents = Array.isArray(trade.pricesAfter) ? trade.pricesAfter : openPrices;
-    points.push({ time: new Date(trade.createdAt).toISOString(), values: toValues(cents) });
-  }
+    return { id: o.id, anchors: priceHistory.buildSpreadAnchors(journey, startTime, endTime) };
+  });
 
-  if (points.length === 1) {
-    points.push({ time: new Date().toISOString(), values: toValues(openPrices) });
-  }
+  const { series } = priceHistory.buildMultiPaths({
+    marketId: String(market.id),
+    outcomes: outcomeInputs,
+    times,
+    volatility: historyVolatility(startTime, endTime),
+  });
 
-  return points.slice(-80);
+  return times.map((tm, i) => ({
+    time: new Date(tm).toISOString(),
+    values: Object.fromEntries(outcomes.map((o) => [o.id, series[o.id][i]])),
+  }));
 }
 
 function multiMarketDto(market, options = {}) {
-  const { outcomes, b, qVec } = marketMultiState(market);
-  const prices = lmsr.priceVec(qVec, b).map((p) => roundPriceToTick(p * 100, market));
+  const { outcomes, b, states } = marketMultiState(market);
+  const prices = lmsr.displayedPriceMulti(states, b).map((p) => roundPriceToTick(p * 100, market));
   const volume = roundMoney(asNumber(market.yesPool) + asNumber(market.noPool));
   const recentTrades = (options.recentTrades || []).map((trade) => ({
     id: trade.id,
@@ -993,6 +1038,7 @@ async function initPostgres() {
   await pool.query("ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type text NOT NULL DEFAULT 'binary';");
   await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS outcomes_def jsonb;');
   await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS q_vec jsonb;');
+  await pool.query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS outcome_states jsonb;');
   await pool.query('ALTER TABLE votes ADD COLUMN IF NOT EXISTS prices_after jsonb;');
   // Outcome can be an arbitrary outcome id for multi markets — drop the YES/NO checks.
   await pool.query('ALTER TABLE votes DROP CONSTRAINT IF EXISTS votes_outcome_check;');
@@ -1552,7 +1598,7 @@ const storage = {
       const probsRaw = outcomes.map((o) => Math.max(1, asNumber(o.initialProbability, 100 / outcomes.length)));
       const sum = probsRaw.reduce((acc, value) => acc + value, 0);
       const probs = probsRaw.map((p) => p / sum);
-      const qVec = lmsr.seedVecFromProbs(probs, b);
+      const outcomeStates = lmsr.seedOutcomeStates(probs, b);
       market = {
         ...base,
         marketType: 'multi',
@@ -1564,7 +1610,7 @@ const storage = {
           color: o.color || palette[i % palette.length],
           initialProbability: clampPercent(probs[i] * 100),
         })),
-        qVec,
+        outcomeStates,
       };
     } else {
       const seeded = lmsr.seedQ(clampPercent(initialProbability) / 100, b);
@@ -1576,7 +1622,7 @@ const storage = {
         `INSERT INTO markets (
           id, title, description, category, resolution_source, resolution_rules, start_date, close_date,
           status, yes_pool, no_pool, liquidity, initial_probability, tick_size, min_order_size,
-          b_param, q_yes, q_no, fee_bps, market_type, outcomes_def, q_vec, created_by, created_at
+          b_param, q_yes, q_no, fee_bps, market_type, outcomes_def, outcome_states, created_by, created_at
         )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 0, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING *`,
@@ -1585,7 +1631,7 @@ const storage = {
           market.startDate, market.closeDate, liquidity, initialProbability, tickSize, minOrderSize,
           b, market.qYes, market.qNo, defaultFeeBps, market.marketType,
           market.outcomesDef ? JSON.stringify(market.outcomesDef) : null,
-          market.qVec ? JSON.stringify(market.qVec) : null,
+          market.outcomeStates ? JSON.stringify(market.outcomeStates) : null,
           createdBy, createdAt,
         ],
       );
@@ -1871,7 +1917,7 @@ const storage = {
     const { fill } = result;
 
     if (isMultiMarket(normalizedMarket)) {
-      market.qVec = result.qVecAfter;
+      market.outcomeStates = result.statesAfter;
     } else {
       market.qYes = result.qYesAfter;
       market.qNo = result.qNoAfter;
@@ -1914,9 +1960,9 @@ const storage = {
     const fill = calculateFill({ market, side, outcome, amount });
     let currentPrice;
     if (isMultiMarket(market)) {
-      const { outcomes, b, qVec } = marketMultiState(market);
+      const { outcomes, b, states } = marketMultiState(market);
       const i = outcomes.findIndex((o) => o.id === outcome);
-      currentPrice = roundPriceToTick(lmsr.priceVec(qVec, b)[i] * 100, market);
+      currentPrice = roundPriceToTick(lmsr.displayedPriceMulti(states, b)[i] * 100, market);
     } else {
       const state = marketLmsrState(market);
       currentPrice = roundPriceToTick(lmsr.priceOf(outcome, state.qYes, state.qNo, state.b) * 100, market);
@@ -2207,7 +2253,7 @@ function applyTrade({
     nextRealized,
     qYesAfter: fill.qYesAfter,
     qNoAfter: fill.qNoAfter,
-    qVecAfter: fill.qVecAfter,
+    statesAfter: fill.statesAfter,
     pricesAfter: fill.pricesAfter,
     yesPool,
     noPool,

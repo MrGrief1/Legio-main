@@ -3,6 +3,7 @@ import {
   bFromLiquidity, cost, priceYes, priceOf, costToBuy, proceedsForSell,
   sharesForSpend, applyShares, seedQ, maxSubsidy, LN2,
   priceVec, costToBuyN, proceedsForSellN, sharesForSpendN, seedVecFromProbs, applySharesN,
+  seedOutcomeStates, rawPriceMulti, displayedPriceMulti, applyYesShares,
 } from './lmsr.js';
 
 let passed = 0;
@@ -140,6 +141,34 @@ for (let i = 0; i < 5000; i += 1) {
   const seeded = seedVecFromProbs(probs, b);
   const got = priceVec(seeded, b);
   ok('seedVec hits target probs', probs.every((pr, j) => close(got[j], pr, 1e-4)), `want=${probs} got=${got}`);
+}
+
+// 10. Independent sub-markets: buying outcome i moves ONLY line i — every other
+//     raw price is bit-identical (the whole point of the rework, no see-saw).
+for (let i = 0; i < 20000; i += 1) {
+  const n = 3 + Math.floor(rnd() * 3);
+  const b = bFromLiquidity(randLiquidity());
+  const raw = Array.from({ length: n }, () => 0.05 + rnd());
+  const states = seedOutcomeStates(raw, b);
+  const before = rawPriceMulti(states, b);
+  const k = Math.floor(rnd() * n);
+  const after = rawPriceMulti(applyYesShares(states, k, 1 + rnd() * 500), b);
+  ok('buy raises only that line', after[k] > before[k]);
+  for (let j = 0; j < n; j += 1) {
+    if (j !== k) ok('other raw lines bit-identical', after[j] === before[j], `j=${j} before=${before[j]} after=${after[j]}`);
+  }
+}
+
+// 11. seedOutcomeStates: normalized displayed prices reproduce the target probs.
+for (let i = 0; i < 5000; i += 1) {
+  const n = 3 + Math.floor(rnd() * 3);
+  const b = bFromLiquidity(randLiquidity());
+  const rawP = Array.from({ length: n }, () => 0.05 + rnd());
+  const s = rawP.reduce((a, c) => a + c, 0);
+  const probs = rawP.map((x) => x / s);
+  const shown = displayedPriceMulti(seedOutcomeStates(probs, b), b);
+  ok('seedOutcomeStates hits target', probs.every((pr, j) => close(shown[j], pr, 1e-4)), `want=${probs} got=${shown}`);
+  ok('displayed sums to 1', close(shown.reduce((a, c) => a + c, 0), 1, 1e-9));
 }
 
 console.log(`\n${failed === 0 ? '✓ ALL PASS' : '✗ FAILURES'} — ${passed} assertions passed, ${failed} failed`);
