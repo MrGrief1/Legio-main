@@ -3,12 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   ArrowLeft,
-  Bookmark,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Code2,
   Info,
   Link as LinkIcon,
   ShieldCheck,
@@ -60,14 +58,17 @@ function categoryIcon(category: string) {
 
 function TradePanel({
   market,
+  outcome,
+  setOutcome,
   onMarketUpdated,
 }: {
   market: Market;
+  outcome: string;
+  setOutcome: (outcome: string) => void;
   onMarketUpdated: (market: Market) => void;
 }) {
   const { user } = useAuth();
   const { t, locale, outcomeLabel } = useI18n();
-  const [outcome, setOutcome] = useState<string>(market.outcomes[0]?.outcome ?? 'YES');
   const [side, setSide] = useState<TradeSide>('BUY');
   const [amount, setAmount] = useState('10');
   const [message, setMessage] = useState('');
@@ -186,7 +187,7 @@ function TradePanel({
     || (side === 'BUY' && !!quote && quote.cost > balance + 1e-6);
 
   return (
-    <aside className="self-start rounded-[28px] border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
+    <aside id="trade-ticket" className="self-start scroll-mt-24 rounded-[28px] border border-pm-border bg-pm-surface shadow-[0_18px_44px_var(--color-pm-card-shadow-strong)] lg:sticky lg:top-24">
       <div className="flex items-center gap-3 border-b border-pm-border p-4">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pm-surface-hover text-xl font-bold text-pm-text-strong">
           {categoryIcon(market.category)}
@@ -412,6 +413,8 @@ export function MarketDetail() {
   const [market, setMarket] = useState<Market | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [ticketOutcome, setTicketOutcome] = useState<string>('YES');
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!id) return;
 
@@ -435,6 +438,32 @@ export function MarketDetail() {
     };
   }, [id]);
 
+  // Keep the ticket outcome valid for the loaded market (binary always has YES/NO;
+  // a categorical market exposes outcome ids).
+  useEffect(() => {
+    if (market && !market.outcomes.some((outcome) => outcome.outcome === ticketOutcome)) {
+      setTicketOutcome(market.outcomes[0]?.outcome ?? 'YES');
+    }
+  }, [market, ticketOutcome]);
+
+  const selectOutcomeForTicket = (outcome: string) => {
+    setTicketOutcome(outcome);
+    if (typeof document !== 'undefined') {
+      document.getElementById('trade-ticket')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const handleShare = async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be blocked (e.g. insecure context) — fail quietly.
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
@@ -457,6 +486,8 @@ export function MarketDetail() {
       </div>
     );
   }
+
+  const isMarketOpen = market.status === 'open' && new Date(market.closeDate).getTime() > Date.now();
 
   return (
     <motion.div
@@ -494,14 +525,14 @@ export function MarketDetail() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-pm-text">
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.marketCode')}>
-                <Code2 className="h-5 w-5" />
-              </button>
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.link')}>
-                <LinkIcon className="h-5 w-5" />
-              </button>
-              <button className="rounded-2xl p-2 transition-colors hover:bg-pm-surface hover:text-pm-text-strong" aria-label={t('market.save')}>
-                <Bookmark className="h-5 w-5" />
+              <button
+                type="button"
+                onClick={handleShare}
+                className="flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors hover:bg-pm-surface hover:text-pm-text-strong"
+                aria-label={t('market.share')}
+              >
+                {copied ? <CheckCircle2 className="h-4 w-4 text-pm-green" /> : <LinkIcon className="h-4 w-4" />}
+                <span className="hidden sm:inline">{copied ? t('market.linkCopied') : t('market.share')}</span>
               </button>
             </div>
           </div>
@@ -532,37 +563,48 @@ export function MarketDetail() {
           </div>
 
           <div className="overflow-hidden rounded-[28px] border border-pm-border bg-pm-surface">
-            {market.outcomes.map((outcome) => (
-              <div
-                key={outcome.outcome}
-                className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: outcomeColor(outcome.outcome, outcome.color) }} />
-                  <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
-                </div>
-                <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
-                  <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
-                  <span className="text-sm font-bold text-pm-text-muted">{outcome.priceCents}¢</span>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:w-[170px]">
-                  <div
-                    className="h-9 rounded-full px-4 text-center text-sm font-bold leading-9"
-                    style={{ backgroundColor: `${outcomeColor(outcome.outcome, outcome.color)}1a`, color: outcomeColor(outcome.outcome, outcome.color) }}
-                  >
-                    {outcome.name}
+            {market.outcomes.map((outcome) => {
+              const color = outcomeColor(outcome.outcome, outcome.color);
+              const isWinner = market.winningOutcome === outcome.outcome;
+              return (
+                <div
+                  key={outcome.outcome}
+                  className="grid grid-cols-1 gap-3 border-b border-pm-border p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                    <h2 className="text-base font-bold text-pm-text-strong sm:text-lg">{outcome.name}</h2>
+                  </div>
+                  <div className="flex items-baseline gap-2 sm:min-w-[130px] sm:justify-end">
+                    <span className="text-2xl font-bold text-pm-text-strong sm:text-3xl">{outcome.percent}%</span>
+                    <span className="text-sm font-bold text-pm-text-muted">{outcome.priceCents}¢</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:w-[190px]">
+                    {isMarketOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => selectOutcomeForTicket(outcome.outcome)}
+                        className="h-9 rounded-full px-4 text-center text-sm font-bold leading-9 text-white transition-transform hover:scale-[1.02] active:scale-95"
+                        style={{ backgroundColor: color }}
+                      >
+                        {t('market.buyOutcome', { name: outcome.name, price: outcome.priceCents })}
+                      </button>
+                    ) : (
+                      <div
+                        className="flex h-9 items-center justify-center gap-1.5 rounded-full px-4 text-center text-sm font-bold"
+                        style={{ backgroundColor: `${color}1a`, color }}
+                      >
+                        {isWinner && <CheckCircle2 className="h-4 w-4" />}
+                        {outcome.name}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="space-y-5">
-            <div className="flex items-center gap-6 border-b border-pm-border text-lg font-bold">
-              <button className="border-b-2 border-pm-text-strong pb-3 text-pm-text-strong">{t('common.rules')}</button>
-              <button className="pb-3 text-pm-text-muted transition-colors hover:text-pm-text-strong">{t('admin.statTrades')}</button>
-            </div>
-
             <div className="rounded-[28px] border border-pm-border bg-pm-surface">
               <div className="flex items-center justify-between border-b border-pm-border p-4">
                 <div className="flex items-center gap-2 font-bold text-pm-text-strong">
@@ -625,7 +667,7 @@ export function MarketDetail() {
           </div>
         </section>
 
-        <TradePanel market={market} onMarketUpdated={setMarket} />
+        <TradePanel market={market} outcome={ticketOutcome} setOutcome={setTicketOutcome} onMarketUpdated={setMarket} />
       </div>
     </motion.div>
   );

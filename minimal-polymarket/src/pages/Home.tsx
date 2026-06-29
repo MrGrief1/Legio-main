@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, SlidersHorizontal, PlusCircle, X } from 'lucide-react';
+import { Search, PlusCircle, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { MarketCard } from '../components/MarketCard';
 import { Sidebar } from '../components/Sidebar';
@@ -50,6 +50,8 @@ export function Home() {
   const [error, setError] = useState('');
   const query = searchParams.get('q') ?? '';
   const activeCategory = searchParams.get('category') ?? ALL_CATEGORY;
+  const sort = searchParams.get('sort') ?? 'trending';
+  const status = searchParams.get('status') ?? 'all';
 
   useEffect(() => {
     let ignore = false;
@@ -96,22 +98,57 @@ export function Home() {
     setSearchParams(nextParams, { replace });
   };
 
-  const isFiltering = query.trim().length > 0 || activeCategory !== ALL_CATEGORY;
+  const setParam = (key: string, value: string, defaultValue: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (!value || value === defaultValue) {
+      nextParams.delete(key);
+    } else {
+      nextParams.set(key, value);
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const isFiltering = query.trim().length > 0
+    || activeCategory !== ALL_CATEGORY
+    || status !== 'all'
+    || sort !== 'trending';
 
   const filteredMarkets = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return markets.filter((market) => {
+    const matched = markets.filter((market) => {
       const matchesCategory = activeCategory === ALL_CATEGORY || market.category === activeCategory;
       const matchesQuery = !normalizedQuery
         || market.title.toLowerCase().includes(normalizedQuery)
         || market.description.toLowerCase().includes(normalizedQuery)
         || market.category.toLowerCase().includes(normalizedQuery)
         || categoryLabel(market.category).toLowerCase().includes(normalizedQuery);
+      const matchesStatus = status === 'all'
+        || (status === 'open' && market.status === 'open')
+        || (status === 'resolved' && (market.status === 'resolved' || market.status === 'canceled'));
 
-      return matchesCategory && matchesQuery;
+      return matchesCategory && matchesQuery && matchesStatus;
     });
-  }, [activeCategory, categoryLabel, markets, query]);
+
+    const sorted = [...matched];
+    const time = (value: string) => new Date(value).getTime();
+
+    if (sort === 'new') {
+      sorted.sort((left, right) => time(right.createdAt) - time(left.createdAt));
+    } else if (sort === 'ending') {
+      // Soonest close first, but keep already-closed markets at the bottom.
+      const closeKey = (market: Market) => (market.status === 'open' ? time(market.closeDate) : Number.MAX_SAFE_INTEGER);
+      sorted.sort((left, right) => closeKey(left) - closeKey(right));
+    } else if (sort === 'competitive') {
+      sorted.sort((left, right) => Math.abs(left.yesPercent - 50) - Math.abs(right.yesPercent - 50));
+    } else {
+      sorted.sort((left, right) => right.volume - left.volume); // trending = volume desc
+    }
+
+    return sorted;
+  }, [activeCategory, categoryLabel, markets, query, status, sort]);
 
   return (
     <motion.div
@@ -151,8 +188,8 @@ export function Home() {
           </p>
         </div>
 
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_40px] gap-2 sm:w-auto sm:flex sm:items-center">
-          <div className="flex h-10 min-w-0 items-center rounded-full border border-pm-border bg-pm-surface px-3 md:w-[320px]">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div className="flex h-10 min-w-0 items-center rounded-full border border-pm-border bg-pm-surface px-3 sm:w-[260px]">
             <Search className="mr-2 h-4 w-4 shrink-0 text-pm-text-muted" />
             <input
               value={query}
@@ -173,23 +210,38 @@ export function Home() {
               </button>
             )}
           </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-pm-surface text-pm-text transition-colors hover:bg-pm-surface-hover hover:text-pm-text-strong"
-            aria-label={t('common.filters')}
-          >
-            <SlidersHorizontal className="h-5 w-5" />
-          </motion.button>
-          {user?.isAdmin && (
-            <Link
-              to="/create"
-              className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-full bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700 sm:col-span-1"
+          <div className="flex items-center gap-2">
+            <select
+              value={sort}
+              onChange={(event) => setParam('sort', event.target.value, 'trending')}
+              aria-label={t('common.filters')}
+              className="h-10 flex-1 cursor-pointer rounded-full border border-pm-border bg-pm-surface px-3 text-sm font-semibold text-pm-text-strong outline-none transition-colors hover:bg-pm-surface-hover sm:flex-none"
             >
-              <PlusCircle className="h-4 w-4" />
-              {t('common.create')}
-            </Link>
-          )}
+              <option value="trending">{t('home.sortTrending')}</option>
+              <option value="new">{t('home.sortNew')}</option>
+              <option value="ending">{t('home.sortEnding')}</option>
+              <option value="competitive">{t('home.sortCompetitive')}</option>
+            </select>
+            <select
+              value={status}
+              onChange={(event) => setParam('status', event.target.value, 'all')}
+              aria-label={t('common.filters')}
+              className="h-10 flex-1 cursor-pointer rounded-full border border-pm-border bg-pm-surface px-3 text-sm font-semibold text-pm-text-strong outline-none transition-colors hover:bg-pm-surface-hover sm:flex-none"
+            >
+              <option value="all">{t('home.statusAll')}</option>
+              <option value="open">{t('home.statusOpen')}</option>
+              <option value="resolved">{t('home.statusResolved')}</option>
+            </select>
+            {user?.isAdmin && (
+              <Link
+                to="/create"
+                className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-pm-blue px-4 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+              >
+                <PlusCircle className="h-4 w-4" />
+                <span className="hidden sm:inline">{t('common.create')}</span>
+              </Link>
+            )}
+          </div>
         </div>
       </motion.div>
 
