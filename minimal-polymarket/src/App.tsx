@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useLayoutEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { AuthProvider, useAuth } from './lib/auth';
 import { LanguageProvider } from './lib/i18n';
@@ -14,6 +14,32 @@ import { CreateMarket } from './pages/CreateMarket';
 import { Home } from './pages/Home';
 import { HowItWorks } from './pages/HowItWorks';
 import { MarketDetail } from './pages/MarketDetail';
+import { Portfolio } from './pages/Portfolio';
+
+function NotFound() {
+  return (
+    <div className="mx-auto max-w-md px-6 py-16 text-center">
+      <h1 className="text-3xl font-bold text-pm-text-strong">Страница не найдена</h1>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-pm-text-muted">
+        Возможно, рынок был удалён или ссылка устарела.
+      </p>
+      <div className="mt-6 flex items-center justify-center gap-3">
+        <Link
+          to="/"
+          className="inline-flex h-11 items-center justify-center rounded-full bg-pm-blue px-5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+        >
+          На главную
+        </Link>
+        <Link
+          to="/portfolio"
+          className="inline-flex h-11 items-center justify-center rounded-full border border-pm-border px-5 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover"
+        >
+          Открыть портфель
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 type Theme = 'dark' | 'light';
 
@@ -71,6 +97,8 @@ function AppShell({ theme, onThemeToggle }: { theme: Theme; onThemeToggle: () =>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/register" element={<AuthPage mode="register" />} />
           <Route path="/market/:id" element={<MarketDetail />} />
+          <Route path="/portfolio" element={<Portfolio />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
     </div>

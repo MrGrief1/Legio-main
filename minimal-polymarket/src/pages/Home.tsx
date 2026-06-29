@@ -8,14 +8,7 @@ import { FeaturedMarket } from '../components/FeaturedMarket';
 import { api, ApiError, type Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ALL_CATEGORY, useI18n } from '../lib/i18n';
-
-function formatMoney(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value);
-}
+import { formatPoints } from '../lib/format';
 
 function categoryIcon(category: string) {
   const normalized = category.toLowerCase();
@@ -246,7 +239,7 @@ export function Home() {
                 id={market.id}
                 title={market.title}
                 icon={categoryIcon(market.category)}
-                volume={formatMoney(market.volume, locale)}
+                volume={formatPoints(market.volume, locale, { compact: true })}
                 status={market.tradeCount > 0 ? 'active' : 'new'}
                 category={categoryLabel(market.category)}
                 yesPercent={market.yesPercent}

@@ -19,14 +19,7 @@ import { PriceChart, marketChartProps } from '../components/PriceChart';
 import { api, ApiError, type Market, type Outcome, type TradeSide, type TradeQuote } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
-
-function formatMoney(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value);
-}
+import { formatPoints } from '../lib/format';
 
 function formatDate(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, {
@@ -329,7 +322,7 @@ function TradePanel({
               <span className="text-pm-text-strong">{t('market.toWin')}</span>
               <span className="text-right">
                 <span className="block text-lg font-bold text-pm-green">
-                  {quote ? `${quote.toWin.toLocaleString(locale, { maximumFractionDigits: 2 })} pts` : '—'}
+                  {quote ? `${quote.toWin.toLocaleString(locale, { maximumFractionDigits: 2 })} pt` : '—'}
                 </span>
                 {quote && (
                   <span className="text-xs font-bold text-pm-green">+{quote.returnPercent.toFixed(0)}%</span>
@@ -340,7 +333,7 @@ function TradePanel({
             <div className="mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-pm-border bg-pm-surface/60 px-3 py-2">
               <span className="text-pm-text-strong">{t('market.receive')}</span>
               <span className="text-lg font-bold text-pm-text-strong">
-                {quote ? `${quote.cost.toLocaleString(locale, { maximumFractionDigits: 2 })} pts` : '—'}
+                {quote ? `${quote.cost.toLocaleString(locale, { maximumFractionDigits: 2 })} pt` : '—'}
               </span>
             </div>
           )}
@@ -356,13 +349,13 @@ function TradePanel({
           {quote && quote.fee > 0 && (
             <div className="mt-1 flex justify-between gap-3">
               <span>{t('market.fee')}</span>
-              <span className="text-pm-text-strong">{quote.fee.toFixed(2)} pts</span>
+              <span className="text-pm-text-strong">{quote.fee.toFixed(2)} pt</span>
             </div>
           )}
           <div className="mt-1 flex justify-between gap-3">
             <span>{side === 'BUY' ? t('common.balance') : t('market.receive')}</span>
             <span className="text-pm-text-strong">
-              {side === 'BUY' ? `${balance.toLocaleString(locale)} pts` : `${viewerPosition.toFixed(2)} ${t('common.shares').toLowerCase()}`}
+              {side === 'BUY' ? `${balance.toLocaleString(locale)} pt` : `${viewerPosition.toFixed(2)} ${t('common.shares').toLowerCase()}`}
             </span>
           </div>
         </div>
@@ -371,12 +364,12 @@ function TradePanel({
           <div className="rounded-[20px] border border-pm-border bg-pm-surface/60 px-3 py-2 text-sm font-semibold">
             <div className="flex items-center justify-between gap-3">
               <span className="text-pm-text-muted">{t('market.holdingTitle')} · {outcomeName}</span>
-              <span className="text-pm-text-strong">{viewerPosition.toFixed(2)} · {currentValue.toLocaleString(locale, { maximumFractionDigits: 0 })} pts</span>
+              <span className="text-pm-text-strong">{viewerPosition.toFixed(2)} · {currentValue.toLocaleString(locale, { maximumFractionDigits: 0 })} pt</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-3">
               <span className="text-pm-text-muted">{t('market.pnl')}</span>
               <span className={unrealizedPnl >= 0 ? 'text-pm-green' : 'text-pm-red'}>
-                {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toLocaleString(locale, { maximumFractionDigits: 2 })} pts
+                {unrealizedPnl >= 0 ? '+' : ''}{unrealizedPnl.toLocaleString(locale, { maximumFractionDigits: 2 })} pt
               </span>
             </div>
           </div>
@@ -491,7 +484,7 @@ export function MarketDetail() {
                 </div>
                 <h1 className="text-xl font-bold leading-tight text-pm-text-strong sm:text-2xl">{market.title}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm font-semibold text-pm-text-muted">
-                  <span>{formatMoney(market.volume, locale)} {t('common.volume')}</span>
+                  <span>{formatPoints(market.volume, locale, { compact: true })} {t('common.volume')}</span>
                   <span>•</span>
                   <span>{market.tradeCount} {t('common.trades')}</span>
                   <span>•</span>
@@ -614,7 +607,7 @@ export function MarketDetail() {
                         {market.outcomes.find((o) => o.outcome === trade.outcome)?.name ?? outcomeLabel(trade.outcome as Outcome)}
                       </span>
                     </div>
-                    <div className="text-sm font-semibold text-pm-text">{t('admin.amountAtPrice', { amount: formatMoney(trade.amount, locale), price: trade.priceCents })}</div>
+                    <div className="text-sm font-semibold text-pm-text">{t('admin.amountAtPrice', { amount: formatPoints(trade.amount, locale), price: trade.priceCents })}</div>
                     <div className="text-sm font-semibold text-pm-text-muted">{formatDate(trade.createdAt, locale)}</div>
                   </div>
                 ))}

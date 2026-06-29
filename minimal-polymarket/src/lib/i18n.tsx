@@ -85,6 +85,7 @@ const translations: Record<Language, Record<string, string>> = {
     'common.rules': 'Правила',
 
     'nav.howItWorks': 'Как это работает',
+    'nav.portfolio': 'Портфель',
     'nav.adminPanel': 'Админ-панель',
     'nav.adminShort': 'Админка',
     'nav.logout': 'Выйти',
@@ -221,11 +222,11 @@ const translations: Record<Language, Record<string, string>> = {
     'create.previewNote': 'Правила, источник и даты появятся в карточке рынка.',
     'create.creating': 'Создаю...',
 
-    'market.loginToVote': 'Войди в аккаунт, чтобы голосовать.',
+    'market.loginToVote': 'Войди в аккаунт, чтобы торговать.',
     'market.buyDone': 'Покупка исполнена.',
     'market.sellDone': 'Продажа исполнена.',
     'market.tradeFailed': 'Не удалось записать сделку.',
-    'market.voteTitle': 'Голосование',
+    'market.voteTitle': 'Сделка',
     'market.tradeTitle': 'Сделка',
     'market.orderMode': 'Цена = вероятность · выигрыш 1 поинт за долю',
     'market.amount': 'Сумма',
@@ -370,6 +371,7 @@ const translations: Record<Language, Record<string, string>> = {
     'common.rules': 'Rules',
 
     'nav.howItWorks': 'How it works',
+    'nav.portfolio': 'Portfolio',
     'nav.adminPanel': 'Admin panel',
     'nav.adminShort': 'Admin',
     'nav.logout': 'Log out',
@@ -506,11 +508,11 @@ const translations: Record<Language, Record<string, string>> = {
     'create.previewNote': 'Rules, source, and dates will appear on the market card.',
     'create.creating': 'Creating...',
 
-    'market.loginToVote': 'Log in to vote.',
+    'market.loginToVote': 'Log in to trade.',
     'market.buyDone': 'Purchase filled.',
     'market.sellDone': 'Sale filled.',
     'market.tradeFailed': 'Could not record the trade.',
-    'market.voteTitle': 'Voting',
+    'market.voteTitle': 'Trade',
     'market.tradeTitle': 'Trade',
     'market.orderMode': 'Price = probability · 1 point per winning share',
     'market.amount': 'Amount',

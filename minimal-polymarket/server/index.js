@@ -2114,6 +2114,121 @@ const storage = {
 
     return this.getMarket(marketId);
   },
+
+  // Aggregate a user's OPEN positions across all markets with live valuation,
+  // unrealized P&L, and potential payout (1 winning share = 1 point). Resolved
+  // markets zero their positions on settlement, so they do not appear here; the
+  // realized P&L total carries their closed result. Powers the /portfolio screen.
+  async getPortfolio(userId) {
+    const user = await this.findUserById(userId);
+    if (!user) throw tradeError('USER_NOT_FOUND', 404);
+
+    const cash = roundMoney(asNumber(user.balance, defaultStartingBalance));
+    let rawPositions = [];
+    let realizedPnl = 0;
+
+    if (pool) {
+      const [openResult, realizedResult] = await Promise.all([
+        pool.query(
+          'SELECT market_id, outcome, shares, avg_price_cents, cost_basis FROM positions WHERE user_id = $1 AND shares > 0',
+          [userId],
+        ),
+        pool.query('SELECT COALESCE(SUM(realized_pnl), 0) AS total FROM positions WHERE user_id = $1', [userId]),
+      ]);
+      rawPositions = openResult.rows.map((row) => ({
+        marketId: row.market_id,
+        outcome: row.outcome,
+        shares: asNumber(row.shares),
+        avgPriceCents: asNumber(row.avg_price_cents),
+        costBasis: asNumber(row.cost_basis),
+      }));
+      realizedPnl = roundMoney(asNumber(realizedResult.rows[0]?.total));
+    } else {
+      const db = await readJsonDb();
+      for (const row of db.positions.filter((position) => position.userId === userId)) {
+        realizedPnl += asNumber(row.realizedPnl);
+        if (asNumber(row.shares) > 0) {
+          rawPositions.push({
+            marketId: row.marketId,
+            outcome: row.outcome,
+            shares: asNumber(row.shares),
+            avgPriceCents: asNumber(row.avgPriceCents),
+            costBasis: asNumber(row.costBasis),
+          });
+        }
+      }
+      realizedPnl = roundMoney(realizedPnl);
+    }
+
+    // Value each position at the market's live price. getMarket is normalized and
+    // already derives current prices from LMSR state; cache per market id.
+    const marketCache = new Map();
+    const positions = [];
+
+    for (const pos of rawPositions) {
+      if (!marketCache.has(pos.marketId)) marketCache.set(pos.marketId, await this.getMarket(pos.marketId));
+      const market = marketCache.get(pos.marketId);
+      if (!market) continue;
+
+      // getMarket returns the raw (normalizeMarket) shape — prices are NOT on it,
+      // they are derived from the LMSR state with the same helpers marketDto uses.
+      let currentPriceCents;
+      let outcomeLabel;
+      if (isMultiMarket(market)) {
+        const { outcomes, b, states } = marketMultiState(market);
+        const index = outcomes.findIndex((outcome) => outcome.id === pos.outcome);
+        const prices = lmsr.displayedPriceMulti(states, b);
+        currentPriceCents = index >= 0 ? roundMoney(clampPriceCents(prices[index] * 100)) : 0;
+        outcomeLabel = index >= 0 ? outcomes[index].name || outcomes[index].label || pos.outcome : pos.outcome;
+      } else {
+        const prices = getDisplayPrices(market);
+        currentPriceCents = pos.outcome === 'YES' ? prices.yesPrice : prices.noPrice;
+        outcomeLabel = pos.outcome === 'YES' ? 'Да' : 'Нет';
+      }
+
+      const shares = roundMoney(pos.shares);
+      const costBasis = roundMoney(pos.costBasis);
+      const currentValue = roundMoney((shares * currentPriceCents) / 100);
+      const unrealizedPnl = roundMoney(currentValue - costBasis);
+
+      positions.push({
+        marketId: market.id,
+        marketTitle: market.title,
+        marketStatus: market.status,
+        category: market.category,
+        closeDate: market.closeDate,
+        winningOutcome: market.winningOutcome,
+        outcome: pos.outcome,
+        outcomeLabel,
+        shares,
+        avgPriceCents: roundMoney(pos.avgPriceCents),
+        currentPriceCents: roundMoney(currentPriceCents),
+        costBasis,
+        currentValue,
+        unrealizedPnl,
+        unrealizedPnlPercent: costBasis > 0 ? roundMoney((unrealizedPnl / costBasis) * 100) : 0,
+        toWin: shares,
+      });
+    }
+
+    positions.sort((left, right) => right.currentValue - left.currentValue);
+
+    const positionsValue = roundMoney(positions.reduce((sum, position) => sum + position.currentValue, 0));
+    const totalCost = roundMoney(positions.reduce((sum, position) => sum + position.costBasis, 0));
+    const unrealizedPnl = roundMoney(positionsValue - totalCost);
+
+    return {
+      cash,
+      positionsValue,
+      totalValue: roundMoney(cash + positionsValue),
+      totalCost,
+      unrealizedPnl,
+      unrealizedPnlPercent: totalCost > 0 ? roundMoney((unrealizedPnl / totalCost) * 100) : 0,
+      realizedPnl,
+      openCount: positions.length,
+      positions,
+    };
+  },
 };
 
 function assertMarketIsOpen(market) {
@@ -2743,6 +2858,11 @@ app.post('/api/markets/:id/quote', optionalAuth, asyncRoute(async (req, res) => 
 
   const quote = await storage.quoteTrade({ marketId, outcome, side, amount });
   res.json({ quote });
+}));
+
+app.get('/api/portfolio', requireAuth, asyncRoute(async (req, res) => {
+  const portfolio = await storage.getPortfolio(req.user.id);
+  res.json({ portfolio });
 }));
 
 app.post(['/api/markets/:id/trades', '/api/markets/:id/votes', '/api/posts/:id/votes'], requireAuth, tradeLimiter, asyncRoute(async (req, res) => {

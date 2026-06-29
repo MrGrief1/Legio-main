@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   Moon,
+  PieChart,
   PlusCircle,
   Search,
   ShieldCheck,
@@ -46,6 +47,10 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
   const isAdminRoute = pathname === '/admin';
   const isCreateRoute = pathname === '/create';
   const isHowItWorksRoute = pathname === '/how-it-works';
+  const isPortfolioRoute = pathname === '/portfolio';
+  const balanceLabel = user
+    ? `${new Intl.NumberFormat(language === 'en' ? 'en-US' : 'ru-RU', { maximumFractionDigits: user.balance >= 100 ? 0 : 2 }).format(user.balance)} pt`
+    : '';
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') ?? '');
   const desktopSearchRef = useRef<HTMLInputElement>(null);
 
@@ -227,7 +232,23 @@ export function Navbar({ theme, onThemeToggle }: NavbarProps) {
                     </>
                   )}
 
-                  <div className="hidden max-w-[180px] items-center gap-2 text-sm font-semibold text-pm-text-strong md:flex">
+                  <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                    <Link
+                      to="/portfolio"
+                      title={t('nav.portfolio')}
+                      aria-label={t('nav.portfolio')}
+                      className={
+                        isPortfolioRoute
+                          ? 'inline-flex items-center gap-2 rounded-2xl bg-pm-blue px-3 py-2 text-sm font-bold text-white'
+                          : 'inline-flex items-center gap-2 rounded-2xl border border-pm-border bg-pm-surface px-3 py-2 text-sm font-bold text-pm-text-strong transition-colors hover:bg-pm-surface-hover'
+                      }
+                    >
+                      <PieChart className="h-4 w-4 text-pm-blue" />
+                      <span className="tabular-nums">{balanceLabel}</span>
+                    </Link>
+                  </motion.div>
+
+                  <div className="hidden max-w-[160px] items-center gap-2 text-sm font-semibold text-pm-text-strong lg:flex">
                     <span className="truncate">{user.name}</span>
                     {user.isAdmin && <ShieldCheck className="h-4 w-4 shrink-0 text-pm-green" />}
                   </div>

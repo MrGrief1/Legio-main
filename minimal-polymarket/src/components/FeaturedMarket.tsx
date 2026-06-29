@@ -6,14 +6,7 @@ import { PriceChart, marketChartProps } from './PriceChart';
 import { api, type Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
-
-function formatMoney(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value);
-}
+import { formatPoints } from '../lib/format';
 
 function formatDate(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, {
@@ -92,7 +85,7 @@ export function FeaturedMarket({ market }: { market?: Market }) {
             </h2>
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm font-semibold text-pm-text-muted">
-            <span>{formatMoney(market.volume, locale)} {t('common.volume')}</span>
+            <span>{formatPoints(market.volume, locale, { compact: true })} {t('common.volume')}</span>
             <span>•</span>
             <span>{market.tradeCount} {t('common.trades')}</span>
             <span>•</span>

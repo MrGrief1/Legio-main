@@ -4,14 +4,7 @@ import { motion } from 'motion/react';
 import type { Market } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
-
-function formatMoney(value: number, locale: string) {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value);
-}
+import { formatPoints } from '../lib/format';
 
 function MarketRow({ market, index }: { market: Market; index: number }) {
   const { t, locale } = useI18n();
@@ -24,7 +17,7 @@ function MarketRow({ market, index }: { market: Market; index: number }) {
       <span className="text-xs font-mono text-pm-text-muted">{index + 1}</span>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13px] leading-tight text-pm-text group-hover:text-pm-text-strong">{market.title}</p>
-        <div className="mt-1 text-[11px] font-semibold text-pm-text-muted">{formatMoney(market.volume, locale)} {t('common.volume')}</div>
+        <div className="mt-1 text-[11px] font-semibold text-pm-text-muted">{formatPoints(market.volume, locale, { compact: true })} {t('common.volume')}</div>
       </div>
       <div className="shrink-0 text-right">
         <div className="text-sm font-semibold leading-tight text-pm-text-strong">{market.yesPercent}%</div>

@@ -102,6 +102,37 @@ export type TradeQuote = {
   returnPercent: number;
 };
 
+export type PortfolioPosition = {
+  marketId: string;
+  marketTitle: string;
+  marketStatus: MarketStatus;
+  category: string;
+  closeDate: string;
+  winningOutcome: string | null;
+  outcome: string;
+  outcomeLabel: string;
+  shares: number;
+  avgPriceCents: number;
+  currentPriceCents: number;
+  costBasis: number;
+  currentValue: number;
+  unrealizedPnl: number;
+  unrealizedPnlPercent: number;
+  toWin: number;
+};
+
+export type Portfolio = {
+  cash: number;
+  positionsValue: number;
+  totalValue: number;
+  totalCost: number;
+  unrealizedPnl: number;
+  unrealizedPnlPercent: number;
+  realizedPnl: number;
+  openCount: number;
+  positions: PortfolioPosition[];
+};
+
 export type AdminUser = User & {
   marketCount: number;
   tradeCount: number;
@@ -255,6 +286,10 @@ export const api = {
 
   async getMarket(id: string) {
     return apiRequest<{ market: Market }>(`/api/markets/${id}`);
+  },
+
+  async getPortfolio() {
+    return apiRequest<{ portfolio: Portfolio }>('/api/portfolio');
   },
 
   async createMarket(input: {
