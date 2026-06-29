@@ -138,30 +138,67 @@ function getActiveChartPoint(data: ChartRow[], progress: number, keys: string[])
   return { isoTime: String(point?.isoTime ?? ''), values };
 }
 
-function getPathMeasureAtX(path: SVGPathElement, targetX: number) {
+// Per-series path geometry, sampled ONCE into monotonic-x arrays. `getPointAtLength`
+// forces synchronous layout, so calling it ~24×/series on every pointermove is what
+// made hovering lag. We sample each path a single time (per data/size change) and then
+// resolve the cursor with a pure-JS binary search — no DOM reads on the hot path.
+type SeriesSamples = {
+  pathD: string;
+  totalLength: number;
+  xs: Float64Array;
+  ys: Float64Array;
+  ls: Float64Array;
+};
+
+type PathCache = {
+  signature: string;
+  minX: number;
+  maxX: number;
+  byKey: Map<string, SeriesSamples>;
+};
+
+const pathSampleCount = 220;
+
+function sampleSeriesPath(path: SVGPathElement): SeriesSamples {
   const totalLength = path.getTotalLength();
-  const firstPoint = path.getPointAtLength(0);
-  const lastPoint = path.getPointAtLength(totalLength);
-  const minX = Math.min(firstPoint.x, lastPoint.x);
-  const maxX = Math.max(firstPoint.x, lastPoint.x);
-  const clampedX = Math.max(minX, Math.min(maxX, targetX));
-  let start = 0;
-  let end = totalLength;
+  const xs = new Float64Array(pathSampleCount);
+  const ys = new Float64Array(pathSampleCount);
+  const ls = new Float64Array(pathSampleCount);
 
-  for (let index = 0; index < 24; index += 1) {
-    const middle = (start + end) / 2;
-    const point = path.getPointAtLength(middle);
-
-    if (point.x < clampedX) {
-      start = middle;
-    } else {
-      end = middle;
-    }
+  for (let i = 0; i < pathSampleCount; i += 1) {
+    const length = (totalLength * i) / (pathSampleCount - 1);
+    const point = path.getPointAtLength(length);
+    xs[i] = point.x;
+    ys[i] = point.y;
+    ls[i] = length;
   }
 
-  const pathLength = (start + end) / 2;
+  return { pathD: path.getAttribute('d') ?? '', totalLength, xs, ys, ls };
+}
 
-  return { pathLength, point: path.getPointAtLength(pathLength), totalLength };
+// Binary search the cached samples for the y / path-length at a given svg x (x is
+// monotonic increasing because the line is plotted left→right on a time axis).
+function measureSampledAtX(samples: SeriesSamples, targetX: number) {
+  const { xs, ys, ls } = samples;
+  const last = xs.length - 1;
+  const clampedX = Math.max(xs[0], Math.min(xs[last], targetX));
+  let lo = 0;
+  let hi = last;
+
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid] < clampedX) lo = mid;
+    else hi = mid;
+  }
+
+  const span = xs[hi] - xs[lo];
+  const fraction = span > 1e-6 ? (clampedX - xs[lo]) / span : 0;
+
+  return {
+    y: ys[lo] + (ys[hi] - ys[lo]) * fraction,
+    pathLength: ls[lo] + (ls[hi] - ls[lo]) * fraction,
+    totalLength: samples.totalLength,
+  };
 }
 
 function getSvgViewport(svg: SVGSVGElement) {
@@ -312,6 +349,10 @@ export function PriceChart({
   const chartRef = useRef<HTMLDivElement>(null);
   const chartHoverExitTimeoutRef = useRef<number | null>(null);
   const chartHoverExitFrameRef = useRef<number | null>(null);
+  const pathCacheRef = useRef<PathCache | null>(null);
+  const pointerFrameRef = useRef<number | null>(null);
+  const pointerClientXRef = useRef<number | null>(null);
+  const lastHoverXRef = useRef<number>(-1);
   const [chartHover, setChartHover] = useState<ChartHoverState>(hiddenChartHover);
 
   const clearChartHoverExitTimeout = () => {
@@ -326,9 +367,16 @@ export function PriceChart({
     chartHoverExitFrameRef.current = null;
   };
 
+  const clearPointerFrame = () => {
+    if (pointerFrameRef.current === null) return;
+    window.cancelAnimationFrame(pointerFrameRef.current);
+    pointerFrameRef.current = null;
+  };
+
   useEffect(() => () => {
     clearChartHoverExitTimeout();
     clearChartHoverExitFrame();
+    clearPointerFrame();
   }, []);
 
   const seriesKeys = series.map((s) => s.key);
@@ -349,53 +397,89 @@ export function PriceChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartData, seriesKeys.join(',')]);
 
-  const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  // The cached path geometry is only valid for a given dataset; drop it when the data
+  // changes (e.g. a polling refetch) so it is re-sampled from the new line on next hover.
+  useEffect(() => {
+    pathCacheRef.current = null;
+    lastHoverXRef.current = -1;
+  }, [chartData]);
+
+  // Sample every series path once for the current size; reused across pointer moves.
+  // The signature keys on the svg size, so a resize transparently rebuilds it.
+  const ensurePathCache = (svg: SVGSVGElement, svgRect: DOMRect): PathCache | null => {
+    const signature = `${Math.round(svgRect.width)}x${Math.round(svgRect.height)}`;
+
+    if (pathCacheRef.current && pathCacheRef.current.signature === signature) return pathCacheRef.current;
+
+    const byKey = new Map<string, SeriesSamples>();
+    for (const item of series) {
+      const path = svg.querySelector<SVGPathElement>(`.market-detail-line-${item.key} .recharts-line-curve`);
+      if (path) byKey.set(item.key, sampleSeriesPath(path));
+    }
+
+    if (byKey.size === 0) return null;
+
+    const first = byKey.get(series[0].key) ?? byKey.values().next().value!;
+    const cache: PathCache = {
+      signature,
+      minX: first.xs[0],
+      maxX: first.xs[first.xs.length - 1],
+      byKey,
+    };
+    pathCacheRef.current = cache;
+
+    return cache;
+  };
+
+  // Runs at most once per animation frame (see handleChartPointerMove) using cached
+  // geometry, so the per-move cost is a handful of array reads instead of dozens of
+  // layout-forcing getPointAtLength calls.
+  const processPointerAt = (clientX: number) => {
     const container = chartRef.current;
     const svg = container?.querySelector<SVGSVGElement>('.recharts-surface');
 
     if (!container || !svg || chartData.length === 0 || series.length === 0) return;
 
-    const containerRect = container.getBoundingClientRect();
     const svgRect = svg.getBoundingClientRect();
+    const cache = ensurePathCache(svg, svgRect);
+
+    if (!cache) return;
+
+    const containerRect = container.getBoundingClientRect();
     const viewport = getSvgViewport(svg);
-    const targetSvgX = viewport.x + ((event.clientX - svgRect.left) / svgRect.width) * viewport.width;
-    const firstPath =
-      svg.querySelector<SVGPathElement>(`.market-detail-line-${series[0].key} .recharts-line-curve`)
-      ?? svg.querySelector<SVGPathElement>('.recharts-line-curve');
+    const targetSvgX = viewport.x + ((clientX - svgRect.left) / svgRect.width) * viewport.width;
+    const hoverSvgX = Math.max(cache.minX, Math.min(cache.maxX, targetSvgX));
 
-    if (!firstPath) return;
+    // Skip the work + re-render entirely if the cursor is still within the same pixel.
+    const roundedX = Math.round(hoverSvgX);
+    if (roundedX === lastHoverXRef.current) return;
+    lastHoverXRef.current = roundedX;
 
-    const firstPoint = firstPath.getPointAtLength(0);
-    const lastPoint = firstPath.getPointAtLength(firstPath.getTotalLength());
-    const minPathX = Math.min(firstPoint.x, lastPoint.x);
-    const maxPathX = Math.max(firstPoint.x, lastPoint.x);
-    const hoverSvgX = Math.max(minPathX, Math.min(maxPathX, targetSvgX));
-    const progress = Math.max(0, Math.min(1, (hoverSvgX - minPathX) / Math.max(1, maxPathX - minPathX)));
+    const progress = Math.max(0, Math.min(1, (hoverSvgX - cache.minX) / Math.max(1, cache.maxX - cache.minX)));
     const activePoint = getActiveChartPoint(chartData, progress, seriesKeys);
-    const points = series.reduce<ChartHoverPoint[]>((result, item) => {
-      const path = svg.querySelector<SVGPathElement>(`.market-detail-line-${item.key} .recharts-line-curve`);
+    const points: ChartHoverPoint[] = [];
 
-      if (!path) return result;
+    for (const item of series) {
+      const samples = cache.byKey.get(item.key);
+      if (!samples) continue;
 
-      const { pathLength, point, totalLength } = getPathMeasureAtX(path, hoverSvgX);
+      const measure = measureSampledAtX(samples, hoverSvgX);
       const x = svgRect.left - containerRect.left + ((hoverSvgX - viewport.x) / viewport.width) * svgRect.width;
-      const y = svgRect.top - containerRect.top + ((point.y - viewport.y) / viewport.height) * svgRect.height;
+      const y = svgRect.top - containerRect.top + ((measure.y - viewport.y) / viewport.height) * svgRect.height;
 
-      result.push({
+      points.push({
         color: item.color,
         key: item.key,
-        pathD: path.getAttribute('d') ?? '',
-        pathLength,
-        totalLength,
+        pathD: samples.pathD,
+        pathLength: measure.pathLength,
+        totalLength: measure.totalLength,
         name: item.name,
         value: activePoint.values[item.key] ?? 0,
         svgX: hoverSvgX,
         x,
         y,
       });
-
-      return result;
-    }, []);
+    }
 
     if (points.length === 0) return;
 
@@ -413,7 +497,21 @@ export function PriceChart({
     });
   };
 
+  // Coalesce the high-frequency pointermove stream into one update per frame.
+  const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    pointerClientXRef.current = event.clientX;
+    if (pointerFrameRef.current !== null) return;
+
+    pointerFrameRef.current = window.requestAnimationFrame(() => {
+      pointerFrameRef.current = null;
+      if (pointerClientXRef.current !== null) processPointerAt(pointerClientXRef.current);
+    });
+  };
+
   const handleChartPointerLeave = () => {
+    clearPointerFrame();
+    lastHoverXRef.current = -1;
+
     if (!chartHover.visible) return;
 
     clearChartHoverExitTimeout();
