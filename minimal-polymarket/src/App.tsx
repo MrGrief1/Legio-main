@@ -83,7 +83,7 @@ function ScrollToTop() {
 
 function AppShell({ theme, onThemeToggle }: { theme: Theme; onThemeToggle: () => void }) {
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-pm-bg font-sans">
+    <div className="flex min-h-screen flex-col overflow-x-clip bg-pm-bg font-sans">
       <ScrollToTop />
       <Navbar theme={theme} onThemeToggle={onThemeToggle} />
       <main className="flex-1">
