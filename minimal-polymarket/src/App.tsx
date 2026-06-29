@@ -6,7 +6,7 @@
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
-import { AuthProvider, useAuth } from './lib/auth';
+import { AuthProvider } from './lib/auth';
 import { LanguageProvider } from './lib/i18n';
 import { AuthPage } from './pages/AuthPage';
 import { AdminPage } from './pages/AdminPage';
@@ -82,13 +82,11 @@ function ScrollToTop() {
 }
 
 function AppShell({ theme, onThemeToggle }: { theme: Theme; onThemeToggle: () => void }) {
-  const { user } = useAuth();
-
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-pm-bg font-sans">
       <ScrollToTop />
       <Navbar theme={theme} onThemeToggle={onThemeToggle} />
-      <main className={user?.isAdmin ? 'flex-1 pb-20 sm:pb-0' : 'flex-1'}>
+      <main className="flex-1">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<AdminPage />} />

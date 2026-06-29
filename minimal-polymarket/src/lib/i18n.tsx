@@ -86,6 +86,7 @@ const translations: Record<Language, Record<string, string>> = {
 
     'nav.howItWorks': 'Как это работает',
     'nav.portfolio': 'Портфель',
+    'nav.menu': 'Меню',
     'nav.adminPanel': 'Админ-панель',
     'nav.adminShort': 'Админка',
     'nav.logout': 'Выйти',
@@ -382,6 +383,7 @@ const translations: Record<Language, Record<string, string>> = {
 
     'nav.howItWorks': 'How it works',
     'nav.portfolio': 'Portfolio',
+    'nav.menu': 'Menu',
     'nav.adminPanel': 'Admin panel',
     'nav.adminShort': 'Admin',
     'nav.logout': 'Log out',
