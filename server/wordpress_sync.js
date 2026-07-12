@@ -776,6 +776,15 @@ async function syncWordpressToSQLite({ db, fullReplace = true, logger = console 
     settings: { ...DEFAULT_POINTS_SETTINGS },
   };
 
+  // better-sqlite3 enforces foreign keys by default (node-sqlite3 does not). Legacy
+  // WordPress data contains orphan rows: votes/points_history from since-deleted users
+  // and likes/complaints on non-published posts. Disable FK checks for the bulk import
+  // so a single dangling reference doesn't abort the whole migration; restore after.
+  const canToggleForeignKeys = typeof db.exec === 'function';
+  if (canToggleForeignKeys) {
+    try { db.exec('PRAGMA foreign_keys = OFF'); } catch (fkErr) { /* best effort */ }
+  }
+
   try {
     const settings = await getPointsSettings(connection, config.prefix);
     stats.settings = settings;
@@ -828,6 +837,9 @@ async function syncWordpressToSQLite({ db, fullReplace = true, logger = console 
 
     return stats;
   } finally {
+    if (canToggleForeignKeys) {
+      try { db.exec('PRAGMA foreign_keys = ON'); } catch (fkErr) { /* best effort */ }
+    }
     await connection.end();
   }
 }
