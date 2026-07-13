@@ -2,7 +2,8 @@
 import React from 'react';
 import { LEVELS, getLevel } from '../constants';
 import { LevelsModal } from './LevelsModal';
-import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, Newspaper } from 'lucide-react';
+import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, Newspaper, Users, Landmark, Construction, HeartPulse, Tag, Car, Dumbbell, TrendingUp, Clapperboard, Banknote, Leaf, Home, Plane, Baby, Bitcoin } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -31,6 +32,41 @@ type SidebarCategory = {
   name: string;
   count: number;
 };
+
+// Ids match news.category values on the server: WordPress slugs + English aliases (see CATEGORY_LABELS_RU in server/index.js)
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  obshhestvo: Users,
+  society: Users,
+  politika: Landmark,
+  politics: Landmark,
+  blagoustrojstvo: Construction,
+  zdorove: HeartPulse,
+  health: HeartPulse,
+  'bez-rubriki': Tag,
+  general: Tag,
+  avto: Car,
+  auto: Car,
+  sport: Dumbbell,
+  ekonomika: TrendingUp,
+  economy: TrendingUp,
+  kino: Clapperboard,
+  cinema: Clapperboard,
+  'bankovskij-sektor': Banknote,
+  finance: Banknote,
+  ekologiya: Leaf,
+  ecology: Leaf,
+  zhile: Home,
+  housing: Home,
+  turizm: Plane,
+  tourism: Plane,
+  semya: Baby,
+  family: Baby,
+  kriptovalyuta: Bitcoin,
+  crypto: Bitcoin,
+};
+
+const getCategoryIcon = (id: string): LucideIcon =>
+  CATEGORY_ICONS[id.trim().toLowerCase()] || Newspaper;
 
 export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, onAdminClick, onFeedClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
@@ -244,18 +280,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
         <h3 className="text-[11px] font-bold text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">{t.sidebar.categories}</h3>
       </div>
       <div className="space-y-1">
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => onCategorySelect && onCategorySelect(cat.id)}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm group"
-          >
-            <span className="text-zinc-400 dark:text-zinc-600 group-hover:text-zinc-600 dark:group-hover:text-zinc-400 transition-colors">
-              <Newspaper size={18} />
-            </span>
-            {cat.name}
-          </button>
-        ))}
+        {categories.map((cat) => {
+          const CategoryIcon = getCategoryIcon(cat.id);
+          return (
+            <button
+              key={cat.id}
+              onClick={() => onCategorySelect && onCategorySelect(cat.id)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm group"
+            >
+              <span className="text-zinc-400 dark:text-zinc-600 group-hover:text-zinc-600 dark:group-hover:text-zinc-400 transition-colors">
+                <CategoryIcon size={18} />
+              </span>
+              {cat.name}
+            </button>
+          );
+        })}
       </div>
 
       <LevelsModal isOpen={isLevelsModalOpen} onClose={() => setIsLevelsModalOpen(false)} />
