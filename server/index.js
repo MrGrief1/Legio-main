@@ -526,8 +526,21 @@ const isBcryptHash = (hash) => {
 
 const isPortableWpHash = (hash) => typeof hash === 'string' && (hash.startsWith('$P$') || hash.startsWith('$H$'));
 
+// WordPress 6.8+ stores passwords as bcrypt over a base64(HMAC-SHA384) pre-hash of
+// the password, wrapped with a "$wp$" prefix. The raw password MUST be pre-hashed the
+// same way before bcrypt verification — otherwise even the correct password never
+// matches. (This is how the vast majority of migrated legio.news users are stored.)
+const wpBcryptPrehash = (plainPassword) =>
+    crypto.createHmac('sha384', 'wp-sha384')
+        .update(String(plainPassword).trim(), 'utf8')
+        .digest('base64');
+
 const verifyPassword = async (plainPassword, storedHash) => {
     if (!storedHash) return false;
+
+    if (String(storedHash).startsWith('$wp$')) {
+        return bcrypt.compare(wpBcryptPrehash(plainPassword), normalizeBcryptHash(storedHash));
+    }
 
     if (isBcryptHash(storedHash)) {
         return bcrypt.compare(plainPassword, normalizeBcryptHash(storedHash));
