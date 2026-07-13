@@ -2614,6 +2614,52 @@ const shutdown = (signal, exitCode = 0) => {
     closeDatabase();
 };
 
+// Ensure the admin configured via INITIAL_ADMIN_EMAIL / INITIAL_ADMIN_PASSWORD can log
+// in. Runs on startup: creates the account if missing, otherwise guarantees the admin
+// role and sets the configured password ONLY when the current one doesn't already match
+// (so it doesn't clobber a password changed later in-app on every redeploy). Remove
+// INITIAL_ADMIN_PASSWORD once you've logged in if you don't want it reset on deploys.
+const ensureConfiguredAdmin = async () => {
+    const email = String(process.env.INITIAL_ADMIN_EMAIL || '').trim();
+    const password = String(process.env.INITIAL_ADMIN_PASSWORD || '');
+    if (!email) return;
+
+    const existing = await dbGetAsync(
+        `SELECT id, password, role FROM users
+         WHERE LOWER(username) = LOWER(?) OR LOWER(name) = LOWER(?)
+         ORDER BY CASE WHEN LOWER(username) = LOWER(?) THEN 0 ELSE 1 END
+         LIMIT 1`,
+        [email, email, email]
+    );
+
+    if (existing) {
+        if (existing.role !== 'admin') {
+            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [existing.id]);
+        }
+        if (password) {
+            const alreadyMatches = await verifyPassword(password, existing.password);
+            if (!alreadyMatches) {
+                const hashed = await bcrypt.hash(password, 10);
+                await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashed, existing.id]);
+                console.log('[Admin Bootstrap] Password set for configured admin:', email);
+            }
+        }
+        return;
+    }
+
+    if (!password) return;
+    const hashed = await bcrypt.hash(password, 10);
+    const settings = await getPointsSettings();
+    const startPoints = settings.start_points;
+    const level = calculateLevel(startPoints);
+    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`;
+    await dbRunAsync(
+        "INSERT INTO users (username, password, role, points, level, avatar, name) VALUES (?, ?, 'admin', ?, ?, ?, ?)",
+        [email, hashed, startPoints, level, avatarUrl, email]
+    );
+    console.log('[Admin Bootstrap] Created configured admin:', email);
+};
+
 const startServer = async () => {
     await db.ready;
 
@@ -2635,6 +2681,12 @@ const startServer = async () => {
         await enforceForcedAdminRoles();
     } catch (error) {
         console.error('[Admin Override] Failed to enforce forced admin roles:', error.message);
+    }
+
+    try {
+        await ensureConfiguredAdmin();
+    } catch (error) {
+        console.error('[Admin Bootstrap] Failed to ensure configured admin:', error.message);
     }
 
     server = app.listen(PORT, HOST, () => {
