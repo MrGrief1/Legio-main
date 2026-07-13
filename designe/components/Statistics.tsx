@@ -43,7 +43,7 @@ interface StatsResponse {
     series: SeriesPoint[];
     activityByHour: { hour: number; label: string; votes: number }[];
     prediction: { correct: number; incorrect: number; pending: number; accuracy: number };
-    categories: { category: string; polls: number; votes: number }[];
+    categories: { category: string; label: string; polls: number; votes: number }[];
     topPolls: { id: number; question: string; votes: number; active: boolean; category: string }[];
     topUsers: { id: number; name: string; username: string; points: number; avatar: string | null }[];
     roles: { admin: number; creator: number; user: number };
@@ -442,11 +442,11 @@ const Donut: React.FC<{ prediction: StatsResponse['prediction'] }> = ({ predicti
             </div>
             <div className="flex-1 w-full space-y-2.5">
                 {segments.map((s, i) => (
-                    <div key={i} className="flex items-center gap-3">
+                    <div key={i} className="flex items-center gap-2.5">
                         <s.Icon size={16} style={{ color: s.color }} className="shrink-0" />
-                        <span className="text-sm text-zinc-600 dark:text-zinc-300 flex-1">{s.label}</span>
-                        <span className="text-sm font-bold text-zinc-900 dark:text-white tabular-nums">{fmtFull(s.value)}</span>
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400 tabular-nums w-10 text-right">
+                        <span className="text-sm text-zinc-600 dark:text-zinc-300 flex-1 min-w-0 truncate">{s.label}</span>
+                        <span className="text-sm font-bold text-zinc-900 dark:text-white tabular-nums shrink-0">{fmtFull(s.value)}</span>
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400 tabular-nums w-9 text-right shrink-0">
                             {total > 0 ? Math.round((s.value / total) * 100) : 0}%
                         </span>
                     </div>
@@ -638,13 +638,13 @@ export const Statistics: React.FC = () => {
                 </Card>
 
                 {/* Activity + Prediction */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card className="p-5 sm:p-6">
                         <div className="flex items-center gap-2 mb-1">
                             <Clock size={18} className="text-blue-500" />
                             <h3 className="text-lg font-bold">Активность по часам</h3>
                         </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-5">голоса за последние 30 дней по времени суток</p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-5">распределение голосов по времени суток</p>
                         <HourBars data={stats.activityByHour} />
                     </Card>
 
@@ -659,7 +659,7 @@ export const Statistics: React.FC = () => {
                 </div>
 
                 {/* Categories + Roles */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card className="p-5 sm:p-6">
                         <div className="flex items-center gap-2 mb-5">
                             <Newspaper size={18} className="text-blue-500" />
@@ -669,9 +669,9 @@ export const Statistics: React.FC = () => {
                             <div className="space-y-3.5">
                                 {stats.categories.map((c, i) => (
                                     <div key={i}>
-                                        <div className="flex items-center justify-between mb-1.5 text-sm">
-                                            <span className="text-zinc-700 dark:text-zinc-300 font-medium">{catLabel(c.category)}</span>
-                                            <span className="text-zinc-600 dark:text-zinc-300 tabular-nums">
+                                        <div className="flex items-center justify-between gap-3 mb-1.5 text-sm">
+                                            <span className="text-zinc-700 dark:text-zinc-300 font-medium min-w-0 truncate">{c.label || catLabel(c.category)}</span>
+                                            <span className="text-zinc-600 dark:text-zinc-300 tabular-nums shrink-0">
                                                 {fmtFull(c.votes)} <span className="text-zinc-500 dark:text-zinc-400">· {c.polls}&nbsp;опр.</span>
                                             </span>
                                         </div>
@@ -718,7 +718,7 @@ export const Statistics: React.FC = () => {
                 </div>
 
                 {/* Top polls + Top users */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card className="p-5 sm:p-6">
                         <div className="flex items-center gap-2 mb-5">
                             <Vote size={18} className="text-blue-500" />
@@ -731,7 +731,7 @@ export const Statistics: React.FC = () => {
                                         <span className="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-500 font-bold text-sm">{i + 1}</span>
                                         <div className="flex-1 min-w-0">
                                             <p className="font-medium text-sm truncate" title={p.question}>{p.question || 'Без названия'}</p>
-                                            <p className="text-xs text-zinc-500 dark:text-zinc-400">{fmtFull(p.votes)} голосов · {catLabel(p.category)}</p>
+                                            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">{fmtFull(p.votes)} голосов · {p.category}</p>
                                         </div>
                                         <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold shrink-0 ${p.active
                                             ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'

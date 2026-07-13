@@ -2109,10 +2109,10 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             };
         });
 
-        // ---- Activity by hour of day (fixed 30-day window, distinct from the series) ----
-        const activityWindowStr = toSqlUtc(new Date(now.getTime() - 30 * 86_400_000));
+        // ---- Activity by hour of day (all-time distribution; the dataset is largely
+        // imported/historical, so a recent window would usually be empty) ----
         const activityRows = await getAll(
-            `SELECT strftime('%H', created_at) as h, COUNT(*) as c FROM votes WHERE created_at >= ? GROUP BY h`, [activityWindowStr]);
+            `SELECT strftime('%H', created_at) as h, COUNT(*) as c FROM votes GROUP BY h`);
         const activityMap = new Map(activityRows.map((r) => [String(r.h), Number(r.c) || 0]));
         const activityByHour = Array.from({ length: 24 }, (_, h) => ({
             hour: h,
@@ -2150,7 +2150,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             HAVING polls > 0
             ORDER BY votes DESC, polls DESC
             LIMIT 8
-        `)).map((r) => ({ category: r.category, polls: Number(r.polls) || 0, votes: Number(r.votes) || 0 }));
+        `)).map((r) => ({ category: r.category, label: formatCategoryLabel(r.category), polls: Number(r.polls) || 0, votes: Number(r.votes) || 0 }));
 
         // ---- Top polls ----
         const topPolls = (await getAll(`
@@ -2167,7 +2167,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             question: p.question,
             votes: Number(p.votes) || 0,
             active: !p.is_resolved,
-            category: p.category,
+            category: formatCategoryLabel(p.category),
         }));
 
         // ---- Top users ----

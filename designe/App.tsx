@@ -183,7 +183,7 @@ const AppContent: React.FC = () => {
           />
         </div>
 
-        <div className="flex-1 max-w-3xl w-full min-w-0">
+        <div className={`flex-1 w-full min-w-0 ${view === 'statistics' ? '' : 'max-w-3xl'}`}>
           {view === 'feed' ? <Feed category={category} search={search} /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><AdminPanel /></div> :
               view === 'statistics' ? <Statistics /> :
@@ -192,7 +192,7 @@ const AppContent: React.FC = () => {
                     <div className="py-0 lg:py-8 px-0 lg:px-8"><Leaderboard /></div>}
         </div>
 
-        <RightPanel />
+        {view !== 'statistics' && <RightPanel />}
       </div>
 
       <ChatModal isOpen={chatOpen} onClose={() => setChatOpen(false)} />
