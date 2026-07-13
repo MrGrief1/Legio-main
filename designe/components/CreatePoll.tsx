@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button, Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Loader2, Trash, Plus, Check, Upload, X, ChevronLeft, ChevronRight, Link as LinkIcon, Calendar } from 'lucide-react';
-import { CATEGORIES } from '../constants';
+import { CATEGORIES, getCategoryIcon } from '../constants';
 import { getApiUrl } from '../config';
+
+type CategoryOption = { id: string; name: string };
 
 // Multi-step "Create poll" wizard (admins + creators).
 // Sequence: Category -> Article -> Tags -> Poll -> Review & publish.
@@ -18,6 +20,33 @@ export const CreatePoll: React.FC = () => {
     const { showAlert } = useDialog();
 
     const [step, setStep] = useState(1);
+
+    // Categories shown in the feed sidebar (from real data), merged with the
+    // canonical list so the wizard offers exactly what the user sees on the left
+    // (plus any not-yet-used categories) with the same icons.
+    const [serverCategories, setServerCategories] = useState<CategoryOption[]>([]);
+
+    useEffect(() => {
+        fetch(getApiUrl('/api/categories'))
+            .then(res => (res.ok ? res.json() : []))
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setServerCategories(
+                        data
+                            .filter(item => item && item.id)
+                            .map(item => ({ id: String(item.id), name: String(item.name || item.id) }))
+                    );
+                }
+            })
+            .catch(() => { /* fall back to the canonical list */ });
+    }, []);
+
+    const categoryOptions: CategoryOption[] = useMemo(() => {
+        const byId = new Map<string, CategoryOption>();
+        CATEGORIES.forEach(c => byId.set(c.id, { id: c.id, name: c.name }));
+        serverCategories.forEach(c => { if (!byId.has(c.id)) byId.set(c.id, c); });
+        return Array.from(byId.values());
+    }, [serverCategories]);
 
     // Article fields
     const [category, setCategory] = useState('');
@@ -227,7 +256,7 @@ export const CreatePoll: React.FC = () => {
         t.wizard.stepReview,
     ];
 
-    const selectedCategory = CATEGORIES.find(c => c.id === category);
+    const selectedCategory = categoryOptions.find(c => c.id === category);
 
     return (
         <div className="bg-white dark:bg-[#121212] rounded-2xl lg:rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 w-full">
@@ -277,23 +306,27 @@ export const CreatePoll: React.FC = () => {
                     <div className="space-y-3">
                         <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t.wizard.selectCategoryHint}</label>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full">
-                            {CATEGORIES.map(cat => (
-                                <button
-                                    key={cat.id}
-                                    type="button"
-                                    onClick={() => setCategory(cat.id)}
-                                    className={`flex items-center gap-2 p-3 rounded-xl border transition-all text-left ${category === cat.id
-                                        ? 'bg-blue-50 border-blue-500 text-blue-600 dark:bg-blue-500/20 dark:border-blue-500 dark:text-blue-400 shadow-sm ring-1 ring-blue-500/20'
-                                        : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-white dark:hover:bg-zinc-900'
-                                        }`}
-                                >
-                                    <span className={category === cat.id ? 'text-blue-500' : 'text-zinc-400'}>
-                                        {cat.icon}
-                                    </span>
-                                    <span className="text-sm font-medium truncate">{cat.name}</span>
-                                    {category === cat.id && <Check size={14} className="ml-auto shrink-0" />}
-                                </button>
-                            ))}
+                            {categoryOptions.map(cat => {
+                                const CatIcon = getCategoryIcon(cat.id);
+                                const selected = category === cat.id;
+                                return (
+                                    <button
+                                        key={cat.id}
+                                        type="button"
+                                        onClick={() => setCategory(cat.id)}
+                                        className={`flex items-center gap-2 p-3 rounded-xl border transition-all text-left ${selected
+                                            ? 'bg-blue-50 border-blue-500 text-blue-600 dark:bg-blue-500/20 dark:border-blue-500 dark:text-blue-400 shadow-sm ring-1 ring-blue-500/20'
+                                            : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-white dark:hover:bg-zinc-900'
+                                            }`}
+                                    >
+                                        <span className={selected ? 'text-blue-500' : 'text-zinc-400'}>
+                                            <CatIcon size={18} />
+                                        </span>
+                                        <span className="text-sm font-medium truncate">{cat.name}</span>
+                                        {selected && <Check size={14} className="ml-auto shrink-0" />}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                 )}

@@ -1,9 +1,8 @@
 
 import React from 'react';
-import { LEVELS, getLevel } from '../constants';
+import { LEVELS, getLevel, getCategoryIcon } from '../constants';
 import { LevelsModal } from './LevelsModal';
-import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, Newspaper, Users, Landmark, Construction, HeartPulse, Tag, Car, Dumbbell, TrendingUp, Clapperboard, Banknote, Leaf, Home, Plane, Baby, Bitcoin, PlusCircle } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, PlusCircle } from 'lucide-react';
 import { Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -33,41 +32,6 @@ type SidebarCategory = {
   name: string;
   count: number;
 };
-
-// Ids match news.category values on the server: WordPress slugs + English aliases (see CATEGORY_LABELS_RU in server/index.js)
-const CATEGORY_ICONS: Record<string, LucideIcon> = {
-  obshhestvo: Users,
-  society: Users,
-  politika: Landmark,
-  politics: Landmark,
-  blagoustrojstvo: Construction,
-  zdorove: HeartPulse,
-  health: HeartPulse,
-  'bez-rubriki': Tag,
-  general: Tag,
-  avto: Car,
-  auto: Car,
-  sport: Dumbbell,
-  ekonomika: TrendingUp,
-  economy: TrendingUp,
-  kino: Clapperboard,
-  cinema: Clapperboard,
-  'bankovskij-sektor': Banknote,
-  finance: Banknote,
-  ekologiya: Leaf,
-  ecology: Leaf,
-  zhile: Home,
-  housing: Home,
-  turizm: Plane,
-  tourism: Plane,
-  semya: Baby,
-  family: Baby,
-  kriptovalyuta: Bitcoin,
-  crypto: Bitcoin,
-};
-
-const getCategoryIcon = (id: string): LucideIcon =>
-  CATEGORY_ICONS[id.trim().toLowerCase()] || Newspaper;
 
 export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, onAdminClick, onCreatePollClick, onFeedClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();

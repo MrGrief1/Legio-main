@@ -2,21 +2,22 @@ import React from 'react';
 import {
   Car,
   Landmark,
+  Construction,
   HeartPulse,
+  Tag,
+  Dumbbell,
+  TrendingUp,
+  Clapperboard,
+  Banknote,
+  Leaf,
   Home,
-  Video,
+  Plane,
+  Baby,
   Bitcoin,
   Users,
-  MessageSquare,
-  ShieldAlert,
-  Dumbbell,
-  Plane,
-  Leaf,
-  TrendingUp,
-  Search,
-  Info,
-  Newspaper
+  Newspaper,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Category, User, NewsItem } from './types';
 
 // Category names by language
@@ -57,21 +58,64 @@ export const getCategoryName = (categoryId: string, language: 'ru' | 'en' = 'ru'
   return CATEGORY_NAMES[language][categoryId as keyof typeof CATEGORY_NAMES.ru] || categoryId;
 };
 
+// Category id -> icon. Ids match news.category values on the server: WordPress
+// slugs from the migration plus English aliases. Single source of truth shared by
+// the sidebar and the create-poll wizard so their icons always stay in sync.
+export const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  obshhestvo: Users,
+  society: Users,
+  politika: Landmark,
+  politics: Landmark,
+  blagoustrojstvo: Construction,
+  zdorove: HeartPulse,
+  health: HeartPulse,
+  'bez-rubriki': Tag,
+  general: Tag,
+  avto: Car,
+  auto: Car,
+  sport: Dumbbell,
+  ekonomika: TrendingUp,
+  economy: TrendingUp,
+  kino: Clapperboard,
+  cinema: Clapperboard,
+  'bankovskij-sektor': Banknote,
+  finance: Banknote,
+  ekologiya: Leaf,
+  ecology: Leaf,
+  zhile: Home,
+  housing: Home,
+  turizm: Plane,
+  tourism: Plane,
+  semya: Baby,
+  family: Baby,
+  kriptovalyuta: Bitcoin,
+  crypto: Bitcoin,
+};
+
+export const getCategoryIcon = (id: string): LucideIcon =>
+  CATEGORY_ICONS[String(id).trim().toLowerCase()] || Newspaper;
+
+// Canonical category list for the create-poll wizard. Ids are the WordPress slugs
+// used by the migrated data (news.category), so newly created posts land in the
+// same sidebar category as the imported ones. Icons come from getCategoryIcon so
+// they match the sidebar exactly.
 export const CATEGORIES: Category[] = [
-  { id: 'auto', name: 'Авто', icon: <Car size={18} /> },
-  { id: 'finance', name: 'Банковский сектор', icon: <Landmark size={18} /> },
-  { id: 'housing', name: 'Жилье', icon: <Home size={18} /> },
-  { id: 'health', name: 'Здоровье', icon: <HeartPulse size={18} /> },
-  { id: 'cinema', name: 'Кино', icon: <Video size={18} /> },
-  { id: 'crypto', name: 'Криптовалюта', icon: <Bitcoin size={18} /> },
-  { id: 'society', name: 'Общество', icon: <Users size={18} /> },
-  { id: 'politics', name: 'Политика', icon: <ShieldAlert size={18} /> },
-  { id: 'family', name: 'Семья', icon: <HeartPulse size={18} /> }, // Reusing heart for family
-  { id: 'sport', name: 'Спорт', icon: <Dumbbell size={18} /> },
-  { id: 'tourism', name: 'Туризм', icon: <Plane size={18} /> },
-  { id: 'ecology', name: 'Экология', icon: <Leaf size={18} /> },
-  { id: 'economy', name: 'Экономика', icon: <TrendingUp size={18} /> },
-];
+  { id: 'avto', name: 'Авто' },
+  { id: 'bankovskij-sektor', name: 'Банковский сектор' },
+  { id: 'blagoustrojstvo', name: 'Благоустройство' },
+  { id: 'zhile', name: 'Жилье' },
+  { id: 'zdorove', name: 'Здоровье' },
+  { id: 'kino', name: 'Кино' },
+  { id: 'kriptovalyuta', name: 'Криптовалюта' },
+  { id: 'obshhestvo', name: 'Общество' },
+  { id: 'politika', name: 'Политика' },
+  { id: 'semya', name: 'Семья' },
+  { id: 'sport', name: 'Спорт' },
+  { id: 'turizm', name: 'Туризм' },
+  { id: 'ekologiya', name: 'Экология' },
+  { id: 'ekonomika', name: 'Экономика' },
+  { id: 'bez-rubriki', name: 'Без рубрики' },
+].map((c) => ({ ...c, icon: React.createElement(getCategoryIcon(c.id), { size: 18 }) }));
 
 export const LEADERS: User[] = [
   { id: '1', name: 'Julia', username: 'julia', points: 74002, avatar: 'https://picsum.photos/seed/julia/50/50', rank: 1 },
