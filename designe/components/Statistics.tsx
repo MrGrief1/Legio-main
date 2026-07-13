@@ -504,7 +504,9 @@ export const Statistics: React.FC = () => {
     // immediately instead of showing a stale/empty frame for one paint.
     const metric: MetricKey = availableMetrics.some(m => m.key === selectedMetric) ? selectedMetric : 'votes';
 
-    if (loading) {
+    // Full-screen spinner only on the very first load. Period switches keep the
+    // dashboard mounted and just swap values in place (see refresh-icon spinner).
+    if (loading && !stats) {
         return (
             <main className="flex-1 min-h-screen flex justify-center items-center">
                 <Loader2 className="animate-spin text-blue-500" size={40} />
@@ -512,7 +514,7 @@ export const Statistics: React.FC = () => {
         );
     }
 
-    if (error || !stats) {
+    if (!stats) {
         return (
             <main className="flex-1 min-h-screen flex flex-col justify-center items-center gap-4 px-4">
                 <p className="text-rose-500">{error || 'Нет данных'}</p>
@@ -576,7 +578,7 @@ export const Statistics: React.FC = () => {
                             className="p-2.5 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-500/40 transition-colors"
                             title="Обновить"
                         >
-                            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                            <RefreshCw size={16} className={(refreshing || loading) ? 'animate-spin' : ''} />
                         </button>
                     </div>
                 </div>
