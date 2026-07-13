@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './UI';
-import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon } from 'lucide-react';
-import { PollData, NewsItem } from '../types';
+import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X } from 'lucide-react';
+import { PollData, PollOption, NewsItem, User } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { NewsModal } from './NewsModal';
@@ -14,6 +14,59 @@ import { getApiUrl } from '../config';
 const formatPollDate = (value: string): string => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
+};
+
+// How many voter chips to show inline before collapsing the rest behind a "+N" button.
+const VISIBLE_VOTERS = 3;
+
+// Full list of everyone who picked a given option — opened from the "+N" button.
+const VotersModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  optionText: string;
+  voters: User[];
+  onSelectUser: (user: User) => void;
+}> = ({ isOpen, onClose, optionText, voters, onSelectUser }) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+    >
+      <div
+        className="bg-white dark:bg-[#181818] rounded-[24px] w-full max-w-sm max-h-[70vh] flex flex-col border border-zinc-200 dark:border-zinc-800 shadow-2xl animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 p-4 border-b border-zinc-100 dark:border-zinc-800">
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-400 font-medium">Проголосовали · {voters.length}</div>
+            <div className="font-semibold text-sm text-zinc-900 dark:text-white truncate">{optionText}</div>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 p-1.5 rounded-full text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-2">
+          {voters.map((voter) => (
+            <button
+              key={voter.id}
+              onClick={() => onSelectUser(voter)}
+              className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
+            >
+              <Avatar src={voter.avatar} alt={voter.username} size={36} fallbackText={voter.name || voter.username} />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">{voter.name || voter.username}</div>
+                <div className="text-xs text-zinc-500 truncate">@{voter.username}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 interface PollProps {
@@ -30,6 +83,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
   const [pollData, setPollData] = useState<PollData>(data);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showVoters, setShowVoters] = useState(false);
+  const [votersModalOption, setVotersModalOption] = useState<PollOption | null>(null);
 
   useEffect(() => {
     setPollData(data);
@@ -193,8 +247,8 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
               </div>
 
               {showVoters && isAdmin && option.voters && option.voters.length > 0 && (
-                <div className="pl-10 pr-2 py-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-2">
-                  {option.voters.map((voter) => (
+                <div className="pl-10 pr-2 py-2 flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                  {option.voters.slice(0, VISIBLE_VOTERS).map((voter) => (
                     <div
                       key={voter.id}
                       className="flex items-center gap-2 bg-white dark:bg-zinc-800 px-2 py-1 rounded-full border border-zinc-100 dark:border-zinc-700 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700"
@@ -214,6 +268,18 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
                       </span>
                     </div>
                   ))}
+                  {option.voters.length > VISIBLE_VOTERS && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setVotersModalOption(option);
+                      }}
+                      className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-500 hover:text-white text-zinc-600 dark:text-zinc-300 px-2.5 py-1 rounded-full border border-zinc-200 dark:border-zinc-700 text-xs font-semibold transition-colors"
+                    >
+                      <Users size={12} />
+                      +{option.voters.length - VISIBLE_VOTERS}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -255,6 +321,17 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
           )}
         </div>
       </div>
+
+      <VotersModal
+        isOpen={!!votersModalOption}
+        onClose={() => setVotersModalOption(null)}
+        optionText={votersModalOption?.text || ''}
+        voters={votersModalOption?.voters || []}
+        onSelectUser={(voter) => {
+          setVotersModalOption(null);
+          setSelectedUser(voter);
+        }}
+      />
 
       <UserProfileModal
         isOpen={!!selectedUser}

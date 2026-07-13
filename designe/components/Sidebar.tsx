@@ -2,7 +2,7 @@
 import React from 'react';
 import { LEVELS, getLevel, getCategoryIcon } from '../constants';
 import { LevelsModal } from './LevelsModal';
-import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, PlusCircle } from 'lucide-react';
+import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, PlusCircle, ListChecks } from 'lucide-react';
 import { Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -15,6 +15,7 @@ interface SidebarProps {
   showHeader?: boolean;
   onAdminClick?: () => void;
   onCreatePollClick?: () => void;
+  onManagePollsClick?: () => void;
   onFeedClick?: () => void;
   onLeaderboardClick?: () => void;
   onStatisticsClick?: () => void;
@@ -33,7 +34,7 @@ type SidebarCategory = {
   count: number;
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, onAdminClick, onCreatePollClick, onFeedClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [leaders, setLeaders] = React.useState<User[]>([]);
@@ -160,13 +161,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
         </button>
 
         {user && (user.role === 'admin' || user.role === 'creator') && (
-          <button
-            onClick={onCreatePollClick}
-            className="flex items-center gap-3 w-full px-4 py-3 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm font-medium"
-          >
-            <PlusCircle size={18} />
-            {t.sidebar.createPoll}
-          </button>
+          <>
+            <button
+              onClick={onCreatePollClick}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm font-medium"
+            >
+              <PlusCircle size={18} />
+              {t.sidebar.createPoll}
+            </button>
+
+            <button
+              onClick={onManagePollsClick}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-full text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors text-sm font-medium"
+            >
+              <ListChecks size={18} />
+              {t.sidebar.managePolls}
+            </button>
+          </>
         )}
 
         {user && user.role === 'admin' && (

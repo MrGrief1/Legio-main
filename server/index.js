@@ -1868,6 +1868,55 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
     }
 });
 
+// List polls that still need a correct answer (Admin/Creator only).
+// Lets moderators find & resolve open polls from one place instead of hunting
+// through the feed.
+app.get('/api/polls/pending', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    try {
+        const polls = await dbAllAsync(
+            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id,
+                    n.title as news_title, n.image as news_image, n.category as news_category,
+                    (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id) as total_votes
+             FROM polls p
+             LEFT JOIN news n ON p.news_id = n.id
+             WHERE p.is_resolved = 0
+             ORDER BY (p.ends_at IS NULL), p.ends_at ASC, p.id DESC`,
+            []
+        );
+
+        const result = await Promise.all(polls.map(async (poll) => {
+            const options = await dbAllAsync(
+                `SELECT po.id, po.text,
+                        (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count
+                 FROM poll_options po
+                 WHERE po.poll_id = ?`,
+                [poll.poll_id]
+            );
+
+            return {
+                id: poll.poll_id,
+                question: poll.question,
+                news_id: poll.news_id,
+                news_title: poll.news_title || '',
+                news_image: poll.news_image || '',
+                news_category: poll.news_category || '',
+                ends_at: poll.ends_at || null,
+                total_votes: Number(poll.total_votes) || 0,
+                options: options.map((opt) => ({
+                    id: opt.id,
+                    text: opt.text,
+                    vote_count: Number(opt.vote_count) || 0,
+                })),
+            };
+        }));
+
+        res.json(result);
+    } catch (error) {
+        console.error('Failed to list pending polls:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- Admin Routes ---
 
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {

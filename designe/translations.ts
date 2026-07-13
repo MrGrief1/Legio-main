@@ -20,11 +20,23 @@ export interface Translations {
         leaderboard: string;
         adminPanel: string;
         createPoll: string;
+        managePolls: string;
         statistics: string;
         errorReports: string;
         information: string;
         searchPlaceholder: string;
         categories: string;
+    };
+
+    // Manage / resolve pending polls
+    managePolls: {
+        title: string;
+        subtitle: string;
+        loading: string;
+        empty: string;
+        votes: string;
+        pickCorrect: string;
+        resolving: string;
     };
 
     // Auth
@@ -154,6 +166,9 @@ export interface Translations {
         checkIntuition: string;
         promoText: string;
         topLeader: string;
+        prizeWinner: string;
+        prizePoints: string;
+        prizeGift: string;
         topPredictors: string;
         noLeaders: string;
         loadError: string;
@@ -252,11 +267,22 @@ export const translations: Record<Language, Translations> = {
             leaderboard: 'Таблица лидеров',
             adminPanel: 'Админ панель',
             createPoll: 'Создать опрос',
+            managePolls: 'Завершить опросы',
             statistics: 'Статистика',
             errorReports: 'Сообщения об ошибках',
             information: 'Информация',
             searchPlaceholder: 'Я ищу...',
             categories: 'Категории',
+        },
+
+        managePolls: {
+            title: 'Завершение опросов',
+            subtitle: 'Незавершённые опросы. Нажмите на верный вариант, чтобы завершить опрос и начислить баллы.',
+            loading: 'Загрузка опросов...',
+            empty: 'Все опросы завершены',
+            votes: 'голосов',
+            pickCorrect: 'Выберите правильный ответ:',
+            resolving: 'Завершаем...',
         },
 
         // Auth
@@ -386,6 +412,9 @@ export const translations: Record<Language, Translations> = {
             checkIntuition: 'Проверь свою интуицию',
             promoText: 'Выбирайте опросы и прогнозируйте исходы. Зарабатывайте баллы, открывайте новые уровни и получайте эксклюзивные призы!',
             topLeader: 'Лидер рейтинга',
+            prizeWinner: 'Призёр',
+            prizePoints: 'баллов',
+            prizeGift: 'и Приз от Легио!',
             topPredictors: 'Лидеры прогнозов',
             noLeaders: 'Пока нет лидеров',
             loadError: 'Ошибка загрузки',
@@ -482,11 +511,22 @@ export const translations: Record<Language, Translations> = {
             leaderboard: 'Leaderboard',
             adminPanel: 'Admin Panel',
             createPoll: 'Create poll',
+            managePolls: 'Resolve polls',
             statistics: 'Statistics',
             errorReports: 'Error Reports',
             information: 'Information',
             searchPlaceholder: 'I\'m looking for...',
             categories: 'Categories',
+        },
+
+        managePolls: {
+            title: 'Resolve polls',
+            subtitle: 'Open polls awaiting a result. Tap the correct option to close the poll and award points.',
+            loading: 'Loading polls...',
+            empty: 'All polls are resolved',
+            votes: 'votes',
+            pickCorrect: 'Pick the correct answer:',
+            resolving: 'Resolving...',
         },
 
         // Auth
@@ -616,6 +656,9 @@ export const translations: Record<Language, Translations> = {
             checkIntuition: 'Check Your Intuition',
             promoText: 'Choose polls and predict outcomes. Earn points, unlock new levels and get exclusive prizes!',
             topLeader: 'Top Leader',
+            prizeWinner: 'winner',
+            prizePoints: 'points',
+            prizeGift: 'and a prize from Legio!',
             topPredictors: 'Top Predictors',
             noLeaders: 'No leaders yet',
             loadError: 'Loading error',
