@@ -89,7 +89,8 @@ test('rejects weak passwords during registration', async () => {
     const response = await requestJson('/api/auth/register', {
         method: 'POST',
         json: {
-            username: 'weak-user',
+            name: 'Weak User',
+            email: 'weak@example.com',
             password: 'weakpass',
         },
     });
@@ -106,7 +107,8 @@ test('sanitizes stored news content before it reaches the feed', async () => {
     const registerResponse = await requestJson('/api/auth/register', {
         method: 'POST',
         json: {
-            username: 'admin-user',
+            name: 'Admin User',
+            email: 'admin@example.com',
             password: 'StrongPass1',
         },
     });

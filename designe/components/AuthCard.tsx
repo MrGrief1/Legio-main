@@ -16,6 +16,8 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -29,10 +31,13 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
 
     try {
       const endpoint = activeTab === 'login' ? '/auth/login' : '/auth/register';
+      const payload = activeTab === 'login'
+        ? { username, password }
+        : { name, email, password };
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
@@ -103,14 +108,35 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
         {/* OAuth buttons omitted for brevity as they require backend implementation */}
 
         <form className="space-y-3" onSubmit={handleSubmit}>
-          <Input
-            type="text"
-            placeholder={t.auth.username}
-            className="!bg-zinc-100 dark:!bg-zinc-900"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-          />
+          {activeTab === 'register' && (
+            <Input
+              type="text"
+              placeholder={t.auth.name}
+              className="!bg-zinc-100 dark:!bg-zinc-900"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          )}
+          {activeTab === 'register' ? (
+            <Input
+              type="email"
+              placeholder={t.auth.email}
+              className="!bg-zinc-100 dark:!bg-zinc-900"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          ) : (
+            <Input
+              type="text"
+              placeholder={t.auth.email}
+              className="!bg-zinc-100 dark:!bg-zinc-900"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+          )}
           <Input
             type={showPassword ? "text" : "password"}
             placeholder={t.auth.password}

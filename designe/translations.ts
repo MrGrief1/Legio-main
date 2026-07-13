@@ -31,6 +31,8 @@ export interface Translations {
         login: string;
         register: string;
         username: string;
+        email: string;
+        name: string;
         password: string;
         loginButton: string;
         registerButton: string;
@@ -233,6 +235,8 @@ export const translations: Record<Language, Translations> = {
             login: 'Вход',
             register: 'Регистрация',
             username: 'Имя пользователя',
+            email: 'Email',
+            name: 'Имя',
             password: 'Пароль',
             loginButton: 'Войти в аккаунт',
             registerButton: 'Создать аккаунт',
@@ -433,6 +437,8 @@ export const translations: Record<Language, Translations> = {
             login: 'Login',
             register: 'Register',
             username: 'Username',
+            email: 'Email',
+            name: 'Name',
             password: 'Password',
             loginButton: 'Sign In',
             registerButton: 'Create Account',

@@ -941,10 +941,31 @@ const validatePoll = (poll) => {
     return { question, options };
 };
 
-const validateRegisterPayload = (body = {}) => ({
-    username: validateUsername(body.username),
-    password: validatePassword(body.password),
-});
+const validateEmail = (value) => {
+    const email = String(value ?? '').trim();
+    if (!email) {
+        throw createValidationError('email', 'Email обязателен');
+    }
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw createValidationError('email', 'Укажите корректный email');
+    }
+    return email;
+};
+
+// Registration keeps the email (login identifier, stored in `username`) and the display
+// `name` separate — like the original site. They must not be identical.
+const validateRegisterPayload = (body = {}) => {
+    const email = validateEmail(body.email ?? body.username);
+    const password = validatePassword(body.password);
+    const name = validateDisplayName(body.name, 'name');
+    if (!name) {
+        throw createValidationError('name', 'Имя обязательно');
+    }
+    if (name.trim().toLowerCase() === email.toLowerCase()) {
+        throw createValidationError('name', 'Имя и email не должны совпадать');
+    }
+    return { username: email, name, password };
+};
 
 const validateLoginPayload = (body = {}) => ({
     username: validateUsername(body.username),
@@ -1091,10 +1112,11 @@ const validateRolePayload = (body = {}) => {
 
 app.post('/api/auth/register', async (req, res) => {
     let username;
+    let name;
     let password;
 
     try {
-        ({ username, password } = validateRegisterPayload(req.body));
+        ({ username, name, password } = validateRegisterPayload(req.body));
     } catch (error) {
         return sendValidationError(res, error);
     }
@@ -1105,12 +1127,19 @@ app.post('/api/auth/register', async (req, res) => {
             [username]
         );
         if (existingUser) {
-            return res.status(400).json({ message: "Email or Nickname already exists" });
+            return res.status(400).json({ message: "Пользователь с таким email уже существует" });
+        }
+
+        const existingName = await dbGetAsync(
+            "SELECT id FROM users WHERE LOWER(name) = LOWER(?)",
+            [name]
+        );
+        if (existingName) {
+            return res.status(400).json({ message: "Это имя уже занято, выберите другое" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
-        const name = username;
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
         const isFirstUser = Number(countRow?.count) === 0;
