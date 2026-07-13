@@ -5,6 +5,7 @@ import { Feed } from './components/Feed';
 import { RightPanel } from './components/RightPanel';
 import { AuthCard } from './components/AuthCard';
 import { AdminPanel } from './components/AdminPanel';
+import { CreatePoll } from './components/CreatePoll';
 import { Leaderboard } from './components/Leaderboard';
 import { Statistics } from './components/Statistics';
 import { ErrorReports } from './components/ErrorReports';
@@ -19,7 +20,7 @@ import { DialogProvider } from './context/DialogContext';
 const AppContent: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [view, setView] = useState<'feed' | 'admin' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
+  const [view, setView] = useState<'feed' | 'admin' | 'create' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
@@ -154,6 +155,7 @@ const AppContent: React.FC = () => {
               className="!pt-0 !px-0 !h-auto overflow-visible"
               showHeader={false}
               onAdminClick={() => { setView('admin'); setMobileMenuOpen(false) }}
+              onCreatePollClick={() => { setView('create'); setMobileMenuOpen(false) }}
               onFeedClick={() => { setView('feed'); setCategory('all'); setMobileMenuOpen(false); }}
               onLeaderboardClick={() => { setView('leaderboard'); setMobileMenuOpen(false) }}
               onStatisticsClick={() => { setView('statistics'); setMobileMenuOpen(false) }}
@@ -172,6 +174,7 @@ const AppContent: React.FC = () => {
             theme={theme}
             toggleTheme={toggleTheme}
             onAdminClick={() => setView('admin')}
+            onCreatePollClick={() => setView('create')}
             onFeedClick={() => { setView('feed'); setCategory('all'); }}
             onLeaderboardClick={() => setView('leaderboard')}
             onStatisticsClick={() => setView('statistics')}
@@ -186,6 +189,7 @@ const AppContent: React.FC = () => {
         <div className={`flex-1 w-full min-w-0 ${view === 'statistics' ? '' : 'max-w-3xl'}`}>
           {view === 'feed' ? <Feed category={category} search={search} /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><AdminPanel /></div> :
+              view === 'create' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><CreatePoll /></div> :
               view === 'statistics' ? <Statistics /> :
                 view === 'reports' ? <ErrorReports /> :
                   view === 'info' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><Information /></div> :

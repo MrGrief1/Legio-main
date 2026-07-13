@@ -156,6 +156,24 @@ function mapCategoryToNewProject(rawValue) {
   return 'general';
 }
 
+// Normalize the old ACF okonchanie_oprosa value to YYYY-MM-DD (ACF stores dates
+// as Ymd; also tolerate d/m/Y and Y-m-d). Returns null if it can't be parsed.
+function normalizeWpDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  let m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/); // Y-m-d
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+  m = raw.match(/^(\d{4})(\d{2})(\d{2})$/); // Ymd (ACF default storage)
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+  m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); // d/m/Y (display format)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+
+  return null;
+}
+
 function parsePollMeta(metaRows) {
   const polls = new Map();
 
@@ -167,6 +185,8 @@ function parsePollMeta(metaRows) {
       polls.set(postId, {
         question: '',
         optionsByIndex: new Map(),
+        source: '',
+        endsAt: null,
       });
     }
 
@@ -176,6 +196,16 @@ function parsePollMeta(metaRows) {
 
     if (metaKey === 'question') {
       poll.question = metaValue;
+      continue;
+    }
+
+    if (metaKey === 'istochnik') {
+      poll.source = metaValue;
+      continue;
+    }
+
+    if (metaKey === 'okonchanie_oprosa') {
+      poll.endsAt = normalizeWpDate(row.meta_value);
       continue;
     }
 
@@ -210,6 +240,8 @@ function parsePollMeta(metaRows) {
     normalized.set(postId, {
       question: poll.question,
       options,
+      source: poll.source || '',
+      endsAt: poll.endsAt || null,
     });
   }
 
@@ -496,6 +528,8 @@ async function loadPollMeta(connection, prefix) {
          pm.meta_key = 'question'
          OR pm.meta_key LIKE 'answers\\_%\\_answer'
          OR pm.meta_key LIKE 'answers\\_%\\_counter'
+         OR pm.meta_key = 'istochnik'
+         OR pm.meta_key = 'okonchanie_oprosa'
        )`
   );
 
@@ -531,17 +565,19 @@ async function importNewsAndPolls(db, posts, taxonomy, featuredImages, pollMetaM
 
     const tax = taxonomy.get(postId) || { category: 'general', tags: [] };
     const tags = Array.isArray(tax.tags) ? tax.tags : [];
+    const meta = pollMetaMap.get(postId);
 
     await sqliteRun(
       db,
-      `INSERT INTO news (id, title, description, image, tags, category, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO news (id, title, description, image, tags, category, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          description = excluded.description,
          image = excluded.image,
          tags = excluded.tags,
          category = excluded.category,
+         source = excluded.source,
          created_at = excluded.created_at`,
       [
         postId,
@@ -550,11 +586,12 @@ async function importNewsAndPolls(db, posts, taxonomy, featuredImages, pollMetaM
         featuredImages.get(postId) || '',
         JSON.stringify(tags),
         sanitizeText(tax.category || 'general') || 'general',
+        (meta && meta.source) || '',
         cleanDate(post.post_date),
       ]
     );
 
-    const poll = pollMetaMap.get(postId);
+    const poll = meta;
     if (!poll || !poll.question || !Array.isArray(poll.options) || poll.options.length === 0) {
       await sqliteRun(db, 'DELETE FROM poll_options WHERE poll_id = ?', [postId]);
       await sqliteRun(db, 'DELETE FROM polls WHERE id = ?', [postId]);
@@ -565,12 +602,13 @@ async function importNewsAndPolls(db, posts, taxonomy, featuredImages, pollMetaM
 
     await sqliteRun(
       db,
-      `INSERT INTO polls (id, news_id, question, correct_option_id, is_resolved)
-       VALUES (?, ?, ?, NULL, 0)
+      `INSERT INTO polls (id, news_id, question, correct_option_id, is_resolved, ends_at)
+       VALUES (?, ?, ?, NULL, 0, ?)
        ON CONFLICT(id) DO UPDATE SET
          news_id = excluded.news_id,
-         question = excluded.question`,
-      [postId, postId, poll.question]
+         question = excluded.question,
+         ends_at = excluded.ends_at`,
+      [postId, postId, poll.question, poll.endsAt || null]
     );
 
     await sqliteRun(db, 'DELETE FROM poll_options WHERE poll_id = ?', [postId]);

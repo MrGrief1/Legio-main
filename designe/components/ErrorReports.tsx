@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, CheckCircle2, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useDialog } from '../context/DialogContext';
+import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { Button } from './UI';
 import { getApiUrl } from '../config';
 
@@ -16,6 +18,8 @@ interface ErrorReport {
 
 export const ErrorReports: React.FC = () => {
     const { showAlert } = useDialog();
+    const { user } = useAuth();
+    const { t } = useLanguage();
     const [reports, setReports] = useState<ErrorReport[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -78,6 +82,11 @@ export const ErrorReports: React.FC = () => {
             minute: '2-digit'
         }).format(date);
     };
+
+    // Defense-in-depth: admin-only view, also gated in the Sidebar and by requireAdmin.
+    if (!user || user.role !== 'admin') {
+        return <div className="p-8 text-center text-zinc-900 dark:text-white">{t.admin.accessDenied}</div>;
+    }
 
     if (loading) {
         return (

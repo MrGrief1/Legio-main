@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Heart, Share2, AlertTriangle } from 'lucide-react';
+import { X, Heart, Share2, AlertTriangle, Link as LinkIcon } from 'lucide-react';
 import { NewsItem, PollData } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
@@ -121,9 +121,21 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
 
           {/* Content Scrollable Area */}
           <div className="flex-1 overflow-y-auto p-6 lg:p-8">
-            <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed text-base lg:text-lg mb-8">
+            <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed text-base lg:text-lg mb-4">
               {item.description}
             </p>
+
+            {item.source && (
+              <a
+                href={item.source}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 mb-8 break-all"
+              >
+                <LinkIcon size={15} className="shrink-0" />
+                <span>Источник: {item.source}</span>
+              </a>
+            )}
 
             {/* Poll Section */}
             {children}

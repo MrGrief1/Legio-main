@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './UI';
-import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2 } from 'lucide-react';
+import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon } from 'lucide-react';
 import { PollData, NewsItem } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
@@ -9,6 +9,12 @@ import { ReportModal } from './ReportModal';
 import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
+
+// Format a YYYY-MM-DD poll end date to DD.MM.YYYY; fall back to the raw string.
+const formatPollDate = (value: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
+};
 
 interface PollProps {
   data: PollData;
@@ -103,10 +109,19 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
     >
-      <h4 className="font-semibold text-zinc-900 dark:text-white text-[15px] mb-5 leading-snug">
+      <h4 className="font-semibold text-zinc-900 dark:text-white text-[15px] mb-2 leading-snug">
         {pollData.question}
         {pollData.is_resolved === 1 && <span className="ml-2 text-xs text-green-500 font-bold uppercase border border-green-500 rounded px-1">Завершен</span>}
       </h4>
+
+      {pollData.ends_at && !pollData.is_resolved ? (
+        <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-5">
+          <Clock size={13} />
+          <span>Голосование до {formatPollDate(pollData.ends_at)}</span>
+        </div>
+      ) : (
+        <div className="mb-3" />
+      )}
 
       <div className="space-y-3 mb-6">
         {pollData.options.map((option) => {
@@ -343,6 +358,19 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
             <p className="text-zinc-500 dark:text-zinc-400 text-sm leading-relaxed mb-6 line-clamp-3">
               {item.description}
             </p>
+
+            {item.source && (
+              <a
+                href={item.source}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 mb-6 -mt-2 max-w-full truncate"
+              >
+                <LinkIcon size={13} className="shrink-0" />
+                <span className="truncate">Источник</span>
+              </a>
+            )}
 
             {item.poll && (
               <div

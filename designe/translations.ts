@@ -19,6 +19,7 @@ export interface Translations {
         chats: string;
         leaderboard: string;
         adminPanel: string;
+        createPoll: string;
         statistics: string;
         errorReports: string;
         information: string;
@@ -82,8 +83,6 @@ export interface Translations {
     // Admin Panel
     admin: {
         title: string;
-        createNews: string;
-        createNewsPoll: string;
         titleLabel: string;
         descriptionLabel: string;
         coverImage: string;
@@ -112,6 +111,35 @@ export interface Translations {
         tagsPlaceholder: string;
         questionPlaceholder: string;
         optionPlaceholder: string;
+    };
+
+    // Create-poll wizard
+    wizard: {
+        title: string;
+        stepLabel: string;
+        of: string;
+        next: string;
+        back: string;
+        stepCategory: string;
+        stepContent: string;
+        stepTags: string;
+        stepPoll: string;
+        stepReview: string;
+        selectCategoryHint: string;
+        sourceLabel: string;
+        sourcePlaceholder: string;
+        pollEndDateLabel: string;
+        pollEndDateHint: string;
+        optional: string;
+        reviewHeading: string;
+        reviewCategory: string;
+        reviewNoTags: string;
+        reviewNoSource: string;
+        reviewNoEndDate: string;
+        validationCategory: string;
+        validationContent: string;
+        validationPoll: string;
+        validationPollUnique: string;
     };
 
     // Leaderboard
@@ -223,6 +251,7 @@ export const translations: Record<Language, Translations> = {
             chats: 'Чаты',
             leaderboard: 'Таблица лидеров',
             adminPanel: 'Админ панель',
+            createPoll: 'Создать опрос',
             statistics: 'Статистика',
             errorReports: 'Сообщения об ошибках',
             information: 'Информация',
@@ -286,8 +315,6 @@ export const translations: Record<Language, Translations> = {
         // Admin Panel
         admin: {
             title: 'Админ панель',
-            createNews: 'Создать новость',
-            createNewsPoll: 'Создать новость и опрос',
             titleLabel: 'Заголовок',
             descriptionLabel: 'Описание',
             coverImage: 'Обложка',
@@ -316,6 +343,35 @@ export const translations: Record<Language, Translations> = {
             tagsPlaceholder: 'Введите тег и нажмите Enter или запятую',
             questionPlaceholder: 'Вопрос',
             optionPlaceholder: 'Вариант',
+        },
+
+        // Create-poll wizard
+        wizard: {
+            title: 'Создать опрос',
+            stepLabel: 'Шаг',
+            of: 'из',
+            next: 'Далее',
+            back: 'Назад',
+            stepCategory: 'Категория',
+            stepContent: 'Новость',
+            stepTags: 'Теги',
+            stepPoll: 'Опрос',
+            stepReview: 'Проверка',
+            selectCategoryHint: 'Выберите категорию для новости',
+            sourceLabel: 'Источник (ссылка)',
+            sourcePlaceholder: 'https://example.com/article',
+            pollEndDateLabel: 'Окончание опроса',
+            pollEndDateHint: 'Необязательно — показывается пользователям как срок голосования',
+            optional: 'необязательно',
+            reviewHeading: 'Проверьте и опубликуйте',
+            reviewCategory: 'Категория',
+            reviewNoTags: 'Без тегов',
+            reviewNoSource: 'Источник не указан',
+            reviewNoEndDate: 'Дата окончания не указана',
+            validationCategory: 'Выберите категорию, чтобы продолжить',
+            validationContent: 'Заполните заголовок, описание и обложку',
+            validationPoll: 'Укажите вопрос и минимум 2 варианта ответа',
+            validationPollUnique: 'Варианты ответа не должны повторяться',
         },
 
         // Leaderboard
@@ -425,6 +481,7 @@ export const translations: Record<Language, Translations> = {
             chats: 'Chats',
             leaderboard: 'Leaderboard',
             adminPanel: 'Admin Panel',
+            createPoll: 'Create poll',
             statistics: 'Statistics',
             errorReports: 'Error Reports',
             information: 'Information',
@@ -488,8 +545,6 @@ export const translations: Record<Language, Translations> = {
         // Admin Panel
         admin: {
             title: 'Admin Panel',
-            createNews: 'Create News',
-            createNewsPoll: 'Create News & Poll',
             titleLabel: 'Title',
             descriptionLabel: 'Description',
             coverImage: 'Cover Image',
@@ -518,6 +573,35 @@ export const translations: Record<Language, Translations> = {
             tagsPlaceholder: 'Type a tag and press Enter or comma',
             questionPlaceholder: 'Question',
             optionPlaceholder: 'Option',
+        },
+
+        // Create-poll wizard
+        wizard: {
+            title: 'Create poll',
+            stepLabel: 'Step',
+            of: 'of',
+            next: 'Next',
+            back: 'Back',
+            stepCategory: 'Category',
+            stepContent: 'Article',
+            stepTags: 'Tags',
+            stepPoll: 'Poll',
+            stepReview: 'Review',
+            selectCategoryHint: 'Choose a category for the article',
+            sourceLabel: 'Source (link)',
+            sourcePlaceholder: 'https://example.com/article',
+            pollEndDateLabel: 'Poll end date',
+            pollEndDateHint: 'Optional — shown to users as the voting deadline',
+            optional: 'optional',
+            reviewHeading: 'Review & publish',
+            reviewCategory: 'Category',
+            reviewNoTags: 'No tags',
+            reviewNoSource: 'No source provided',
+            reviewNoEndDate: 'No end date set',
+            validationCategory: 'Select a category to continue',
+            validationContent: 'Fill in the title, description and cover image',
+            validationPoll: 'Provide a question and at least 2 options',
+            validationPollUnique: 'Poll options must not repeat',
         },
 
         // Leaderboard

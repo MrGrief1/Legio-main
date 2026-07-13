@@ -95,6 +95,13 @@ function initDb() {
       }
     });
 
+    // Source (istochnik) for news — ported from the old WordPress version
+    db.run(`ALTER TABLE news ADD COLUMN source TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding source column:', err);
+      }
+    });
+
     // Add name and avatar to users if missing
     db.run(`ALTER TABLE users ADD COLUMN name TEXT`, (err) => {
       if (err && !err.message.includes('duplicate column name')) {
@@ -116,6 +123,14 @@ function initDb() {
       is_resolved INTEGER DEFAULT 0,
       FOREIGN KEY (news_id) REFERENCES news(id)
     )`);
+
+    // Poll end date (okonchanie_oprosa) — ported from the old WordPress version.
+    // CREATE TABLE IF NOT EXISTS above won't add this to pre-existing databases, so ALTER separately.
+    db.run(`ALTER TABLE polls ADD COLUMN ends_at TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding ends_at column:', err);
+      }
+    });
 
     // Poll Options table
     db.run(`CREATE TABLE IF NOT EXISTS poll_options (

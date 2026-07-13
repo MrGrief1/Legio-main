@@ -32,6 +32,8 @@ export interface PollData {
   options: PollOption[];
   is_resolved?: number;
   correct_option_id?: number | null;
+  ends_at?: string | null;
+  user_voted_option_id?: number | null;
 }
 
 export interface NewsItem {
@@ -41,6 +43,8 @@ export interface NewsItem {
   image: string;
   tags: string[];
   date: string;
+  source?: string;
+  category?: string;
   poll?: PollData | null;
   isLiked?: boolean;
 }

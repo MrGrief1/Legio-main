@@ -5,6 +5,8 @@ import {
     CheckCircle2, XCircle, HelpCircle, ArrowRight, Shield, Sparkles
 } from 'lucide-react';
 import { getApiUrl } from '../config';
+import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -461,6 +463,8 @@ const Donut: React.FC<{ prediction: StatsResponse['prediction'] }> = ({ predicti
 /* ------------------------------------------------------------------ */
 
 export const Statistics: React.FC = () => {
+    const { user } = useAuth();
+    const { t } = useLanguage();
     const [stats, setStats] = useState<StatsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -503,6 +507,12 @@ export const Statistics: React.FC = () => {
     // selected metric (e.g. switching to 24h while on "visits"), fall back to votes
     // immediately instead of showing a stale/empty frame for one paint.
     const metric: MetricKey = availableMetrics.some(m => m.key === selectedMetric) ? selectedMetric : 'votes';
+
+    // Defense-in-depth: this admin-only view is also gated in the Sidebar and by
+    // the requireAdmin backend, but guard here too for symmetry with AdminPanel.
+    if (!user || user.role !== 'admin') {
+        return <div className="p-8 text-center text-zinc-900 dark:text-white">{t.admin.accessDenied}</div>;
+    }
 
     // Full-screen spinner only on the very first load. Period switches keep the
     // dashboard mounted and just swap values in place (see refresh-icon spinner).

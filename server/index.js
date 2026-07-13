@@ -876,10 +876,6 @@ const validateTags = (value) => {
         throw createValidationError('tags', 'Tags must be an array');
     }
 
-    if (value.length > 10) {
-        throw createValidationError('tags', 'No more than 10 tags are allowed');
-    }
-
     const uniqueTags = [];
     const seenTags = new Set();
 
@@ -923,8 +919,8 @@ const validatePoll = (poll) => {
         throw createValidationError('poll.options', 'Poll options must be an array');
     }
 
-    if (poll.options.length < 2 || poll.options.length > 10) {
-        throw createValidationError('poll.options', 'Poll must contain between 2 and 10 options');
+    if (poll.options.length < 2) {
+        throw createValidationError('poll.options', 'Poll must contain at least 2 options');
     }
 
     const options = poll.options.map((option) => {
@@ -940,7 +936,17 @@ const validatePoll = (poll) => {
         throw createValidationError('poll.options', 'Poll options must be unique');
     }
 
-    return { question, options };
+    // Optional poll end date (okonchanie_oprosa) — ported from the old WordPress version.
+    let endsAt = null;
+    if (poll.endDate !== undefined && poll.endDate !== null && String(poll.endDate).trim() !== '') {
+        const raw = String(poll.endDate).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            throw createValidationError('poll.endDate', 'Poll end date must use YYYY-MM-DD format');
+        }
+        endsAt = raw;
+    }
+
+    return { question, options, endsAt };
 };
 
 const validateEmail = (value) => {
@@ -1070,6 +1076,8 @@ const validateNewsPayload = (body = {}) => ({
         return description;
     })(),
     image: validateUrl(body.image, 'image', { allowRelative: true }) ?? '',
+    // Source (istochnik) — optional link to the news source, ported from the old version.
+    source: validateUrl(body.source, 'source', { allowRelative: false }) ?? '',
     tags: validateTags(body.tags),
     poll: validatePoll(body.poll),
     category: validateCategory(body.category),
@@ -1436,8 +1444,8 @@ app.get('/api/feed', (req, res) => {
     const offset = (page - 1) * limit;
 
     let query = `
-        SELECT n.*, 
-               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved,
+        SELECT n.*,
+               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
                (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
         FROM news n
         LEFT JOIN polls p ON n.id = p.news_id
@@ -1480,6 +1488,7 @@ app.get('/api/feed', (req, res) => {
                     image: row.image,
                     category: row.category,
                     tags: JSON.parse(row.tags || '[]'),
+                    source: row.source || '',
                     date: row.created_at,
                     isLiked: row.is_liked > 0,
                     poll: null
@@ -1568,6 +1577,7 @@ app.get('/api/feed', (req, res) => {
                         options: formattedOptions,
                         is_resolved: row.is_resolved,
                         correct_option_id: row.correct_option_id,
+                        ends_at: row.ends_at || null,
                         user_voted_option_id: userVotedOptionId // Flag for frontend
                     };
                 }
@@ -1658,20 +1668,21 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
         await dbRunAsync('BEGIN TRANSACTION');
 
         const newsResult = await dbRunAsync(
-            "INSERT INTO news (title, description, image, tags, category) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO news (title, description, image, tags, category, source) VALUES (?, ?, ?, ?, ?, ?)",
             [
                 payload.title,
                 payload.description,
                 payload.image,
                 JSON.stringify(payload.tags),
                 payload.category,
+                payload.source,
             ]
         );
 
         if (payload.poll) {
             const pollResult = await dbRunAsync(
-                "INSERT INTO polls (news_id, question) VALUES (?, ?)",
-                [newsResult.lastID, payload.poll.question]
+                "INSERT INTO polls (news_id, question, ends_at) VALUES (?, ?, ?)",
+                [newsResult.lastID, payload.poll.question, payload.poll.endsAt]
             );
 
             for (const option of payload.poll.options) {
