@@ -826,19 +826,21 @@ const validateFeedCategory = (value) => {
     return validateCategory(normalized);
 };
 
-const ALLOWED_STATISTICS_PERIODS = new Map([
-    ['24h', 1],
-    ['7d', 7],
-    ['28d', 28],
+// Each period declares the bucket granularity and how many buckets to render.
+const STATISTICS_PERIODS = new Map([
+    ['24h', { granularity: 'hour', buckets: 24 }],
+    ['7d', { granularity: 'day', buckets: 7 }],
+    ['30d', { granularity: 'day', buckets: 30 }],
+    ['12m', { granularity: 'month', buckets: 12 }],
 ]);
 
 const validateStatisticsPeriod = (value) => {
     if (value === undefined || value === null || value === '') {
-        return '28d';
+        return '30d';
     }
 
     const normalized = sanitizeTextInput(value).toLowerCase();
-    if (!ALLOWED_STATISTICS_PERIODS.has(normalized)) {
+    if (!STATISTICS_PERIODS.has(normalized)) {
         throw createValidationError('period', 'Period is invalid');
     }
 
@@ -1907,6 +1909,49 @@ app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (re
     }
 });
 
+// ---- Statistics helpers ------------------------------------------------
+
+const STAT_PAD = (n) => String(n).padStart(2, '0');
+
+// Format a Date as the exact string SQLite stores for CURRENT_TIMESTAMP
+// ("YYYY-MM-DD HH:MM:SS", UTC) so lexicographic range comparisons line up.
+const toSqlUtc = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
+const toDateStr = (date) => date.toISOString().slice(0, 10);
+
+const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+// Build the ordered, gap-free list of buckets for a period. Every bucket carries
+// the strftime key it will be matched against, a display label, and an ISO start.
+const buildStatBuckets = (granularity, count, now) => {
+    const buckets = [];
+
+    if (granularity === 'hour') {
+        const anchor = new Date(Date.UTC(
+            now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()
+        ));
+        for (let i = count - 1; i >= 0; i--) {
+            const d = new Date(anchor.getTime() - i * 3600_000);
+            const key = `${d.getUTCFullYear()}-${STAT_PAD(d.getUTCMonth() + 1)}-${STAT_PAD(d.getUTCDate())} ${STAT_PAD(d.getUTCHours())}`;
+            buckets.push({ key, iso: d.toISOString(), label: `${STAT_PAD(d.getUTCHours())}:00` });
+        }
+    } else if (granularity === 'day') {
+        const anchor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        for (let i = count - 1; i >= 0; i--) {
+            const d = new Date(anchor.getTime() - i * 86_400_000);
+            const key = toDateStr(d);
+            buckets.push({ key, iso: d.toISOString(), label: `${STAT_PAD(d.getUTCDate())}.${STAT_PAD(d.getUTCMonth() + 1)}` });
+        }
+    } else { // month
+        for (let i = count - 1; i >= 0; i--) {
+            const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+            const key = `${d.getUTCFullYear()}-${STAT_PAD(d.getUTCMonth() + 1)}`;
+            buckets.push({ key, iso: d.toISOString(), label: RU_MONTHS_SHORT[d.getUTCMonth()] });
+        }
+    }
+
+    return buckets;
+};
+
 app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, res) => {
     let period;
 
@@ -1916,117 +1961,255 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
         return sendValidationError(res, error);
     }
 
-    const days = ALLOWED_STATISTICS_PERIODS.get(period);
-
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    const startDateStr = startDate.toISOString().split('T')[0];
+    const { granularity, buckets: bucketCount } = STATISTICS_PERIODS.get(period);
 
     try {
         const getCount = (query, params = []) => new Promise((resolve, reject) => {
             db.get(query, params, (err, row) => {
                 if (err) reject(err);
-                else resolve(row ? row.count : 0);
+                else resolve(row && row.count != null ? Number(row.count) : 0);
             });
+        });
+
+        const getRow = (query, params = []) => new Promise((resolve, reject) => {
+            db.get(query, params, (err, row) => (err ? reject(err) : resolve(row || {})));
         });
 
         const getAll = (query, params = []) => new Promise((resolve, reject) => {
-            db.all(query, params, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
-            });
+            db.all(query, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
         });
 
-        const totalUsers = await getCount("SELECT COUNT(*) as count FROM users");
-        const totalPolls = await getCount("SELECT COUNT(*) as count FROM polls");
-        const totalVotes = await getCount("SELECT COUNT(*) as count FROM votes");
-        const totalNews = await getCount("SELECT COUNT(*) as count FROM news");
-        const resolvedPolls = await getCount("SELECT COUNT(*) as count FROM polls WHERE is_resolved = 1");
-        const totalLikes = await getCount("SELECT COUNT(*) as count FROM likes");
-        const pendingReports = await getCount("SELECT COUNT(*) as count FROM error_reports WHERE status = 'pending'");
+        const now = new Date();
+        const buckets = buildStatBuckets(granularity, bucketCount, now);
 
-        // Period stats
-        const periodVotes = await getCount(`SELECT COUNT(*) as count FROM votes WHERE created_at >= ?`, [startDateStr]);
-        const periodVisits = await getCount(`SELECT SUM(count) as count FROM visits WHERE date >= ?`, [startDateStr]);
-        const newUsers = await getCount(`SELECT COUNT(*) as count FROM users WHERE created_at >= ?`, [startDateStr]);
-        const activeUsers = await getCount(`SELECT COUNT(DISTINCT user_id) as count FROM votes WHERE created_at >= ?`, [startDateStr]);
-        const periodLikes = await getCount(`SELECT COUNT(*) as count FROM likes WHERE created_at >= ?`, [startDateStr]);
-        const engagementRate = periodVisits > 0
-            ? Math.round(((periodVotes + periodLikes) / periodVisits) * 100)
-            : 0;
+        // Window bounds (UTC). The window starts at the first bucket's start.
+        const windowStart = new Date(buckets[0].iso);
+        const windowMs = now.getTime() - windowStart.getTime();
+        const prevStart = new Date(windowStart.getTime() - windowMs);
 
-        // Graphs Data
-        const getHistory = async (table, dateField = 'created_at') => {
-            const rows = await getAll(`
-                SELECT strftime('%Y-%m-%d', ${dateField}) as date, COUNT(*) as count 
-                FROM ${table} 
-                WHERE ${dateField} >= ? 
-                GROUP BY date 
-                ORDER BY date
-            `, [startDateStr]);
-            return rows;
+        const startStr = toSqlUtc(windowStart);
+        const nowStr = toSqlUtc(now);
+        const prevStartStr = toSqlUtc(prevStart);
+        const startDateStr = toDateStr(windowStart);
+
+        // strftime pattern per granularity.
+        const gran = granularity === 'hour' ? '%Y-%m-%d %H' : (granularity === 'month' ? '%Y-%m' : '%Y-%m-%d');
+        const hasVisitSeries = granularity !== 'hour'; // visits are only stored per day
+
+        // ---- All-time totals ----
+        const totals = {
+            users: await getCount('SELECT COUNT(*) as count FROM users'),
+            news: await getCount('SELECT COUNT(*) as count FROM news'),
+            polls: await getCount('SELECT COUNT(*) as count FROM polls'),
+            votes: await getCount('SELECT COUNT(*) as count FROM votes'),
+            likes: await getCount('SELECT COUNT(*) as count FROM likes'),
+            messages: await getCount('SELECT COUNT(*) as count FROM messages'),
+            resolvedPolls: await getCount('SELECT COUNT(*) as count FROM polls WHERE is_resolved = 1'),
+            activePolls: await getCount('SELECT COUNT(*) as count FROM polls WHERE is_resolved = 0'),
+            uniqueVoters: await getCount('SELECT COUNT(DISTINCT user_id) as count FROM votes'),
+            pendingReports: await getCount("SELECT COUNT(*) as count FROM error_reports WHERE status = 'pending'"),
         };
 
-        const votesHistory = await getHistory('votes');
-        const usersHistory = await getHistory('users');
-        const pollsHistory = await getAll(`
-            SELECT strftime('%Y-%m-%d', n.created_at) as date, COUNT(*) as count 
-            FROM polls p
-            JOIN news n ON p.news_id = n.id
-            WHERE n.created_at >= ? 
-            GROUP BY date 
-            ORDER BY date
-        `, [startDateStr]);
+        // ---- Period metrics + previous window (for deltas) ----
+        const rangeCount = (table, field, from, to) =>
+            getCount(`SELECT COUNT(*) as count FROM ${table} WHERE ${field} >= ? AND ${field} < ?`, [from, to]);
+        const rangeDistinct = (table, distinctField, field, from, to) =>
+            getCount(`SELECT COUNT(DISTINCT ${distinctField}) as count FROM ${table} WHERE ${field} >= ? AND ${field} < ?`, [from, to]);
 
-        const visitsHistory = await getAll(`
-            SELECT date, count FROM visits WHERE date >= ? ORDER BY date
-        `, [startDateStr]);
+        // Visits/sessions are stored per UTC calendar day. KPI visit windows must be
+        // whole days AND symmetric with the previous window, otherwise the 24h view
+        // compares 2 calendar days against 1 (over-counting + a bogus +100% delta).
+        const VISIT_DAYS = { '24h': 1, '7d': 7, '30d': 30, '12m': 365 };
+        const visitDays = VISIT_DAYS[period];
+        const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        const todayStr = toDateStr(now);
+        const visitStartStr = toDateStr(new Date(todayUTC - (visitDays - 1) * 86_400_000));
+        const prevVisitStartStr = toDateStr(new Date(todayUTC - (2 * visitDays - 1) * 86_400_000));
 
-        // Engagement History (Votes per day / Visits per day * 100)
-        // We need to merge votes and visits by date
-        const engagementHistory = visitsHistory.map(v => {
-            const voteDay = votesHistory.find(vo => vo.date === v.date);
-            const votes = voteDay ? voteDay.count : 0;
+        const cur = {
+            votes: await rangeCount('votes', 'created_at', startStr, nowStr),
+            likes: await rangeCount('likes', 'created_at', startStr, nowStr),
+            newUsers: await rangeCount('users', 'created_at', startStr, nowStr),
+            activeUsers: await rangeDistinct('votes', 'user_id', 'created_at', startStr, nowStr),
+            visits: await getCount('SELECT SUM(count) as count FROM visits WHERE date >= ? AND date <= ?', [visitStartStr, todayStr]),
+            uniqueVisitors: await getCount('SELECT COUNT(DISTINCT visitor_id) as count FROM visitor_sessions WHERE date >= ? AND date <= ?', [visitStartStr, todayStr]),
+        };
+        const prev = {
+            votes: await rangeCount('votes', 'created_at', prevStartStr, startStr),
+            newUsers: await rangeCount('users', 'created_at', prevStartStr, startStr),
+            activeUsers: await rangeDistinct('votes', 'user_id', 'created_at', prevStartStr, startStr),
+            visits: await getCount('SELECT SUM(count) as count FROM visits WHERE date >= ? AND date < ?', [prevVisitStartStr, visitStartStr]),
+        };
+
+        const pctDelta = (curVal, prevVal) => {
+            if (!prevVal) return curVal > 0 ? 100 : 0;
+            return Math.round(((curVal - prevVal) / prevVal) * 100);
+        };
+
+        const engagementRate = cur.visits > 0
+            ? Math.round(((cur.votes + cur.likes) / cur.visits) * 100)
+            : 0;
+
+        const periodMetrics = {
+            visits: cur.visits,
+            uniqueVisitors: cur.uniqueVisitors,
+            newUsers: cur.newUsers,
+            activeUsers: cur.activeUsers,
+            votes: cur.votes,
+            likes: cur.likes,
+            engagementRate,
+            deltas: {
+                visits: pctDelta(cur.visits, prev.visits),
+                newUsers: pctDelta(cur.newUsers, prev.newUsers),
+                votes: pctDelta(cur.votes, prev.votes),
+                activeUsers: pctDelta(cur.activeUsers, prev.activeUsers),
+            },
+        };
+
+        // ---- Time series (bucketed + gap-filled) ----
+        const bucketMap = async (query, params) => {
+            const rows = await getAll(query, params);
+            const map = new Map();
+            for (const r of rows) map.set(String(r.k), Number(r.c) || 0);
+            return map;
+        };
+
+        const votesByBucket = await bucketMap(
+            `SELECT strftime('${gran}', created_at) as k, COUNT(*) as c FROM votes WHERE created_at >= ? GROUP BY k`, [startStr]);
+        const usersByBucket = await bucketMap(
+            `SELECT strftime('${gran}', created_at) as k, COUNT(*) as c FROM users WHERE created_at >= ? GROUP BY k`, [startStr]);
+        const likesByBucket = await bucketMap(
+            `SELECT strftime('${gran}', created_at) as k, COUNT(*) as c FROM likes WHERE created_at >= ? GROUP BY k`, [startStr]);
+        const pollsByBucket = await bucketMap(
+            `SELECT strftime('${gran}', n.created_at) as k, COUNT(*) as c FROM polls p JOIN news n ON p.news_id = n.id WHERE n.created_at >= ? GROUP BY k`, [startStr]);
+
+        let visitsByBucket = new Map();
+        let uniqueVisitorsByBucket = new Map();
+        if (hasVisitSeries) {
+            visitsByBucket = await bucketMap(
+                `SELECT strftime('${gran}', date) as k, SUM(count) as c FROM visits WHERE date >= ? GROUP BY k`, [startDateStr]);
+            uniqueVisitorsByBucket = await bucketMap(
+                `SELECT strftime('${gran}', date) as k, COUNT(DISTINCT visitor_id) as c FROM visitor_sessions WHERE date >= ? GROUP BY k`, [startDateStr]);
+        }
+
+        const series = buckets.map((b) => {
+            const votes = votesByBucket.get(b.key) || 0;
+            const likes = likesByBucket.get(b.key) || 0;
+            const visits = visitsByBucket.get(b.key) || 0;
             return {
-                date: v.date,
-                count: v.count > 0 ? Math.round((votes / v.count) * 100) : 0
+                label: b.label,
+                iso: b.iso,
+                votes,
+                newUsers: usersByBucket.get(b.key) || 0,
+                likes,
+                polls: pollsByBucket.get(b.key) || 0,
+                visits,
+                uniqueVisitors: uniqueVisitorsByBucket.get(b.key) || 0,
+                engagement: hasVisitSeries && visits > 0 ? Math.round(((votes + likes) / visits) * 100) : 0,
             };
         });
 
-        const topPolls = await getAll(`
-            SELECT p.id, p.question, COUNT(v.id) as votes, p.is_resolved as active
+        // ---- Activity by hour of day (fixed 30-day window, distinct from the series) ----
+        const activityWindowStr = toSqlUtc(new Date(now.getTime() - 30 * 86_400_000));
+        const activityRows = await getAll(
+            `SELECT strftime('%H', created_at) as h, COUNT(*) as c FROM votes WHERE created_at >= ? GROUP BY h`, [activityWindowStr]);
+        const activityMap = new Map(activityRows.map((r) => [String(r.h), Number(r.c) || 0]));
+        const activityByHour = Array.from({ length: 24 }, (_, h) => ({
+            hour: h,
+            label: `${STAT_PAD(h)}:00`,
+            votes: activityMap.get(STAT_PAD(h)) || 0,
+        }));
+
+        // ---- Prediction accuracy across resolved polls ----
+        const predRow = await getRow(`
+            SELECT
+                SUM(CASE WHEN p.is_resolved = 1 AND p.correct_option_id IS NOT NULL AND v.option_id = p.correct_option_id THEN 1 ELSE 0 END) as correct,
+                SUM(CASE WHEN p.is_resolved = 1 AND p.correct_option_id IS NOT NULL AND v.option_id <> p.correct_option_id THEN 1 ELSE 0 END) as incorrect,
+                SUM(CASE WHEN p.is_resolved = 0 OR p.correct_option_id IS NULL THEN 1 ELSE 0 END) as pending
+            FROM votes v JOIN polls p ON v.poll_id = p.id
+        `);
+        const correct = Number(predRow.correct) || 0;
+        const incorrect = Number(predRow.incorrect) || 0;
+        const pending = Number(predRow.pending) || 0;
+        const prediction = {
+            correct,
+            incorrect,
+            pending,
+            accuracy: (correct + incorrect) > 0 ? Math.round((correct / (correct + incorrect)) * 100) : 0,
+        };
+
+        // ---- Category breakdown ----
+        const categories = (await getAll(`
+            SELECT COALESCE(NULLIF(n.category, ''), 'general') as category,
+                   COUNT(DISTINCT p.id) as polls,
+                   COUNT(v.id) as votes
+            FROM news n
+            LEFT JOIN polls p ON p.news_id = n.id
+            LEFT JOIN votes v ON v.poll_id = p.id
+            GROUP BY category
+            HAVING polls > 0
+            ORDER BY votes DESC, polls DESC
+            LIMIT 8
+        `)).map((r) => ({ category: r.category, polls: Number(r.polls) || 0, votes: Number(r.votes) || 0 }));
+
+        // ---- Top polls ----
+        const topPolls = (await getAll(`
+            SELECT p.id, p.question, COUNT(v.id) as votes, p.is_resolved,
+                   COALESCE(NULLIF(n.category, ''), 'general') as category
             FROM polls p
             LEFT JOIN votes v ON p.id = v.poll_id
+            LEFT JOIN news n ON p.news_id = n.id
             GROUP BY p.id
             ORDER BY votes DESC
             LIMIT 5
-        `);
+        `)).map((p) => ({
+            id: p.id,
+            question: p.question,
+            votes: Number(p.votes) || 0,
+            active: !p.is_resolved,
+            category: p.category,
+        }));
+
+        // ---- Top users ----
+        const topUsers = (await getAll(`
+            SELECT id, COALESCE(NULLIF(name, ''), username) as name, username, points, avatar
+            FROM users
+            ORDER BY points DESC, id ASC
+            LIMIT 5
+        `)).map((u) => ({
+            id: u.id,
+            name: u.name,
+            username: u.username,
+            points: Number(u.points) || 0,
+            avatar: u.avatar,
+        }));
+
+        // ---- Role distribution ----
+        const roleRows = await getAll('SELECT role, COUNT(*) as count FROM users GROUP BY role');
+        const roles = { admin: 0, creator: 0, user: 0 };
+        for (const r of roleRows) {
+            const key = r.role || 'user';
+            roles[key] = (roles[key] || 0) + (Number(r.count) || 0);
+        }
 
         res.json({
-            totalUsers,
-            totalPolls,
-            totalVotes,
-            uniqueVoters: activeUsers, // Approximation
-            totalNews,
-            resolvedPolls,
-            totalLikes,
-            pendingReports,
-            votesHistory,
-            usersHistory,
-            pollsHistory,
-            visitsHistory,
-            engagementHistory,
-            topPolls: topPolls.map(p => ({ ...p, active: !p.active })), // is_resolved 1 means NOT active
-            activeUsers,
-            engagementRate,
-            newUsers,
-            periodLikes,
-            periodVotes,
-            periodVisits
+            period,
+            granularity,
+            hasVisitSeries,
+            generatedAt: now.toISOString(),
+            totals,
+            periodMetrics,
+            series,
+            activityByHour,
+            prediction,
+            categories,
+            topPolls,
+            topUsers,
+            roles,
         });
 
     } catch (err) {
-        console.error(err);
+        console.error('Statistics error:', err);
         res.status(500).json({ error: err.message });
     }
 });
