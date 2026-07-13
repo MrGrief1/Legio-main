@@ -4,6 +4,7 @@ import { Button, Input } from './UI';
 import { Eye, EyeOff, Loader2, Settings, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SettingsModal } from './SettingsModal';
+import { Avatar } from './Avatar';
 import { useLanguage } from '../context/LanguageContext';
 import { API_URL } from '../config';
 
@@ -58,7 +59,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
         <div className={`bg-white dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-[32px] p-6 ${className}`}>
           <div className="flex flex-col items-center gap-4">
             <div className="relative">
-              <img src={user.avatar} alt={user.username} className="w-20 h-20 rounded-full object-cover" />
+              <Avatar src={user.avatar} alt={user.username} size={80} fallbackText={user.name || user.username} />
               <button
                 onClick={() => setIsSettingsOpen(true)}
                 className="absolute bottom-0 right-0 bg-blue-500 text-white p-1.5 rounded-full hover:bg-blue-600 transition-colors"

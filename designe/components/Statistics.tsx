@@ -7,6 +7,7 @@ import {
 import { getApiUrl } from '../config';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { Avatar } from './Avatar';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -766,9 +767,7 @@ export const Statistics: React.FC = () => {
                                 {stats.topUsers.map((u, i) => (
                                     <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-2xl hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
                                         <span className={`w-6 text-center font-bold text-sm shrink-0 ${i === 0 ? 'text-amber-500' : i === 2 ? 'text-orange-400' : 'text-zinc-500 dark:text-zinc-400'}`}>{i + 1}</span>
-                                        {u.avatar
-                                            ? <img src={u.avatar} alt="" className="w-9 h-9 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700 shrink-0" />
-                                            : <span className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-sm font-bold shrink-0">{(u.name || u.username || '?').charAt(0).toUpperCase()}</span>}
+                                        <Avatar src={u.avatar} alt={u.name || u.username} size={36} className="shrink-0" fallbackText={u.name || u.username} />
                                         <span className="flex-1 min-w-0 font-medium text-sm truncate">{u.name || u.username}</span>
                                         <span className="text-sm font-bold text-blue-500 tabular-nums shrink-0">{fmtFull(u.points)}</span>
                                     </div>

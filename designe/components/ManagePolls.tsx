@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useDialog } from '../context/DialogContext';
 import { getApiUrl } from '../config';
-import { CheckCircle2, Clock, Loader2, ListChecks, CheckCheck } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, ListChecks, CheckCheck, Search } from 'lucide-react';
 
 interface PendingOption {
     id: number;
@@ -47,6 +47,7 @@ export const ManagePolls: React.FC = () => {
     const [polls, setPolls] = useState<PendingPoll[]>([]);
     const [loading, setLoading] = useState(true);
     const [resolvingId, setResolvingId] = useState<number | null>(null);
+    const [search, setSearch] = useState('');
 
     const canManage = !!user && (user.role === 'admin' || user.role === 'creator');
 
@@ -112,6 +113,14 @@ export const ManagePolls: React.FC = () => {
         return <div className="p-8 text-center text-zinc-500 dark:text-zinc-400">{t.admin.accessDenied}</div>;
     }
 
+    const query = search.trim().toLowerCase();
+    const filteredPolls = query
+        ? polls.filter((p) =>
+            p.question.toLowerCase().includes(query) ||
+            (p.news_title || '').toLowerCase().includes(query)
+        )
+        : polls;
+
     return (
         <div className="bg-white dark:bg-[#121212] rounded-2xl lg:rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 w-full">
             <div className="flex items-center gap-3 mb-2">
@@ -127,6 +136,19 @@ export const ManagePolls: React.FC = () => {
             </div>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">{t.managePolls.subtitle}</p>
 
+            {!loading && polls.length > 0 && (
+                <div className="relative mb-5">
+                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder={t.managePolls.searchPlaceholder}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border-none focus:ring-2 focus:ring-blue-500 outline-none text-sm dark:text-white placeholder-zinc-400"
+                    />
+                </div>
+            )}
+
             {loading ? (
                 <div className="flex flex-col items-center justify-center py-20 text-zinc-500 gap-3">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
@@ -139,9 +161,14 @@ export const ManagePolls: React.FC = () => {
                     </div>
                     <p className="font-medium">{t.managePolls.empty}</p>
                 </div>
+            ) : filteredPolls.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-zinc-500 dark:text-zinc-400 gap-3">
+                    <Search className="w-7 h-7 text-zinc-400" />
+                    <p className="font-medium">{t.managePolls.noResults}</p>
+                </div>
             ) : (
                 <div className="space-y-5">
-                    {polls.map((poll) => {
+                    {filteredPolls.map((poll) => {
                         const overdue = isOverdue(poll.ends_at);
                         const busy = resolvingId === poll.id;
                         return (

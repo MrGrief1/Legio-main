@@ -37,6 +37,8 @@ export interface Translations {
         votes: string;
         pickCorrect: string;
         resolving: string;
+        searchPlaceholder: string;
+        noResults: string;
     };
 
     // Auth
@@ -283,6 +285,8 @@ export const translations: Record<Language, Translations> = {
             votes: 'голосов',
             pickCorrect: 'Выберите правильный ответ:',
             resolving: 'Завершаем...',
+            searchPlaceholder: 'Поиск по незавершённым опросам...',
+            noResults: 'Ничего не найдено',
         },
 
         // Auth
@@ -527,6 +531,8 @@ export const translations: Record<Language, Translations> = {
             votes: 'votes',
             pickCorrect: 'Pick the correct answer:',
             resolving: 'Resolving...',
+            searchPlaceholder: 'Search unresolved polls...',
+            noResults: 'Nothing found',
         },
 
         // Auth

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useDialog } from '../context/DialogContext';
 import { ChatContactItem, ChatMessageItem, Message, ChatContact } from './ChatComponents';
+import { Avatar } from './Avatar';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { getApiUrl } from '../config';
 
@@ -478,7 +479,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
                                         <ChevronLeft size={24} />
                                     </button>
                                     <div className="relative">
-                                        <img src={activeContact.avatar} alt={activeContact.name} className="w-10 h-10 rounded-full ring-2 ring-white dark:ring-zinc-900 shadow-sm" loading="lazy" />
+                                        <Avatar src={activeContact.avatar} alt={activeContact.name} size={40} className="ring-2 ring-white dark:ring-zinc-900 shadow-sm" fallbackText={activeContact.name || activeContact.username} />
                                         {activeContact.online && (
                                             <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-zinc-900 rounded-full" />
                                         )}
@@ -602,7 +603,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
                                         </div>
 
                                         <div className="flex flex-col items-center mb-8">
-                                            <img src={activeContact.avatar} alt={activeContact.name} className="w-24 h-24 rounded-full object-cover mb-4 ring-4 ring-zinc-100 dark:ring-zinc-800" loading="lazy" />
+                                            <div className="mb-4"><Avatar src={activeContact.avatar} alt={activeContact.name} size={96} className="ring-4 ring-zinc-100 dark:ring-zinc-800" fallbackText={activeContact.name || activeContact.username} /></div>
                                             <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-1">{activeContact.name}</h2>
                                             <p className="text-zinc-500 dark:text-zinc-400">@{activeContact.username || 'user'}</p>
                                         </div>
