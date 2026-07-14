@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle } from 'lucide-react';
 import { DialogType } from '../context/DialogContext';
 import { Button } from './UI';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface DialogModalProps {
     isOpen: boolean;
@@ -23,16 +24,7 @@ export const DialogModal: React.FC<DialogModalProps> = ({
     const hasTransitionedIn = useMountTransition(isOpen, 300);
 
     // Lock body scroll when dialog is open
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
-        }
-        return () => {
-            document.body.style.overflow = 'unset';
-        };
-    }, [isOpen]);
+    useScrollLock(isOpen);
 
     // Handle escape key
     useEffect(() => {

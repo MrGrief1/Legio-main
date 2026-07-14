@@ -9,6 +9,7 @@ import { ReportModal } from './ReportModal';
 import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 // Format a YYYY-MM-DD poll end date to DD.MM.YYYY; fall back to the raw string.
 const formatPollDate = (value: string): string => {
@@ -27,6 +28,7 @@ const VotersModal: React.FC<{
   voters: User[];
   onSelectUser: (user: User) => void;
 }> = ({ isOpen, onClose, optionText, voters, onSelectUser }) => {
+  useScrollLock(isOpen);
   if (!isOpen) return null;
   return (
     <div

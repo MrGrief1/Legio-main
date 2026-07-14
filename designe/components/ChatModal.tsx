@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { ChatContactItem, ChatMessageItem, Message, ChatContact } from './ChatComponents';
 import { Avatar } from './Avatar';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { useScrollLock } from '../hooks/useScrollLock';
 import { getApiUrl } from '../config';
 
 interface ChatModalProps {
@@ -139,14 +140,7 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
         if (files.length > 0) scrollToBottom();
     }, [files, scrollToBottom]);
 
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
-        }
-        return () => { document.body.style.overflow = 'unset'; };
-    }, [isOpen]);
+    useScrollLock(isOpen);
 
     const fetchChats = async () => {
         try {

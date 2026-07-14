@@ -1417,6 +1417,112 @@ app.post('/api/visit', (req, res) => {
 // --- News/Poll Routes ---
 
 // Get Feed (News + Polls)
+// Build a single feed item (news + nested poll) in the exact shape the feed returns.
+// Shared by GET /api/feed and GET /api/news/:id so a shared link renders identically.
+async function buildFeedItem(row, userId, isAdminViewer) {
+    const item = {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        image: row.image,
+        category: row.category,
+        tags: JSON.parse(row.tags || '[]'),
+        source: row.source || '',
+        date: row.created_at,
+        isLiked: row.is_liked > 0,
+        poll: null
+    };
+
+    if (!row.poll_id) return item;
+
+    // Get options for this poll
+    const options = await new Promise((resolve, reject) => {
+        db.all(
+            `SELECT po.id, po.text,
+        (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count,
+        (SELECT COUNT(*) FROM votes v WHERE v.poll_id = po.poll_id) as total_votes
+        FROM poll_options po
+        WHERE po.poll_id = ?`,
+            [row.poll_id],
+            async (err, opts) => {
+                if (err) reject(err);
+                else {
+                    // If admin, fetch voters for each option
+                    if (isAdminViewer) {
+                        const optsWithVoters = await Promise.all(opts.map(async (opt) => {
+                            const voters = await new Promise((resVoters) => {
+                                db.all(
+                                    `SELECT v.user_id as voter_user_id,
+                                            u.id, u.username, u.name, u.avatar, u.bio, u.birthdate, u.points, u.role, u.created_at
+                                     FROM votes v
+                                     LEFT JOIN users u ON v.user_id = u.id
+                                     WHERE v.option_id = ?`,
+                                    [opt.id],
+                                    (err, rows) => {
+                                        const safeRows = (rows || []).map((row) => {
+                                            const fallbackId = Number(row?.voter_user_id) || 0;
+                                            const safeId = Number(row?.id) || fallbackId;
+                                            const safeUsername = row?.username || `user_${fallbackId || 'unknown'}`;
+                                            const safeName = row?.name || safeUsername;
+
+                                            return {
+                                                id: safeId,
+                                                username: safeUsername,
+                                                name: safeName,
+                                                avatar: row?.avatar || '',
+                                                bio: row?.bio || '',
+                                                birthdate: row?.birthdate || null,
+                                                points: Number(row?.points) || 0,
+                                                role: row?.role || 'user',
+                                                created_at: row?.created_at || null
+                                            };
+                                        });
+                                        resVoters(safeRows);
+                                    }
+                                );
+                            });
+                            return { ...opt, voters };
+                        }));
+                        resolve(optsWithVoters);
+                    } else {
+                        resolve(opts);
+                    }
+                }
+            }
+        );
+    });
+
+    // Check if user voted
+    let userVotedOptionId = null;
+    if (userId) {
+        userVotedOptionId = await new Promise((resolve) => {
+            db.get("SELECT option_id FROM votes WHERE user_id = ? AND poll_id = ?", [userId, row.poll_id], (err, voteRow) => {
+                resolve(voteRow ? voteRow.option_id : null);
+            });
+        });
+    }
+
+    // Calculate percentages
+    const formattedOptions = options.map(opt => ({
+        id: opt.id,
+        text: opt.text,
+        percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
+        voters: opt.voters // Include voters if present
+    }));
+
+    item.poll = {
+        id: row.poll_id,
+        question: row.question,
+        options: formattedOptions,
+        is_resolved: row.is_resolved,
+        correct_option_id: row.correct_option_id,
+        ends_at: row.ends_at || null,
+        user_voted_option_id: userVotedOptionId // Flag for frontend
+    };
+
+    return item;
+}
+
 app.get('/api/feed', (req, res) => {
     const user = getUserFromToken(req);
     const userId = user ? user.id : 0;
@@ -1478,113 +1584,9 @@ app.get('/api/feed', (req, res) => {
         db.all(query, params, (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
 
-            // Process rows to nest options
-            const feed = [];
-            const promises = rows.map(async (row) => {
-                const item = {
-                    id: row.id,
-                    title: row.title,
-                    description: row.description,
-                    image: row.image,
-                    category: row.category,
-                    tags: JSON.parse(row.tags || '[]'),
-                    source: row.source || '',
-                    date: row.created_at,
-                    isLiked: row.is_liked > 0,
-                    poll: null
-                };
-
-                if (row.poll_id) {
-                    // Get options for this poll
-                    const options = await new Promise((resolve, reject) => {
-                        db.all(
-                            `SELECT po.id, po.text, 
-                        (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count,
-                        (SELECT COUNT(*) FROM votes v WHERE v.poll_id = po.poll_id) as total_votes
-                        FROM poll_options po 
-                        WHERE po.poll_id = ?`,
-                            [row.poll_id],
-                            async (err, opts) => {
-                                if (err) reject(err);
-                                else {
-                                    // If admin, fetch voters for each option
-                                    if (isAdminViewer) {
-                                    const optsWithVoters = await Promise.all(opts.map(async (opt) => {
-                                        const voters = await new Promise((resVoters) => {
-                                            db.all(
-                                                `SELECT v.user_id as voter_user_id,
-                                                        u.id, u.username, u.name, u.avatar, u.bio, u.birthdate, u.points, u.role, u.created_at 
-                                                 FROM votes v 
-                                                 LEFT JOIN users u ON v.user_id = u.id 
-                                                 WHERE v.option_id = ?`,
-                                                [opt.id],
-                                                (err, rows) => {
-                                                    const safeRows = (rows || []).map((row) => {
-                                                        const fallbackId = Number(row?.voter_user_id) || 0;
-                                                        const safeId = Number(row?.id) || fallbackId;
-                                                        const safeUsername = row?.username || `user_${fallbackId || 'unknown'}`;
-                                                        const safeName = row?.name || safeUsername;
-
-                                                        return {
-                                                            id: safeId,
-                                                            username: safeUsername,
-                                                            name: safeName,
-                                                            avatar: row?.avatar || '',
-                                                            bio: row?.bio || '',
-                                                            birthdate: row?.birthdate || null,
-                                                            points: Number(row?.points) || 0,
-                                                            role: row?.role || 'user',
-                                                            created_at: row?.created_at || null
-                                                        };
-                                                    });
-                                                    resVoters(safeRows);
-                                                }
-                                            );
-                                        });
-                                            return { ...opt, voters };
-                                        }));
-                                        resolve(optsWithVoters);
-                                    } else {
-                                        resolve(opts);
-                                    }
-                                }
-                            }
-                        );
-                    });
-
-                    // Check if user voted
-                    let userVotedOptionId = null;
-                    if (userId) {
-                        const userVote = await new Promise((resolve) => {
-                            db.get("SELECT option_id FROM votes WHERE user_id = ? AND poll_id = ?", [userId, row.poll_id], (err, row) => {
-                                resolve(row ? row.option_id : null);
-                            });
-                        });
-                        userVotedOptionId = userVote;
-                    }
-
-                    // Calculate percentages
-                    const formattedOptions = options.map(opt => ({
-                        id: opt.id,
-                        text: opt.text,
-                        percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
-                        voters: opt.voters // Include voters if present
-                    }));
-
-                    item.poll = {
-                        id: row.poll_id,
-                        question: row.question,
-                        options: formattedOptions,
-                        is_resolved: row.is_resolved,
-                        correct_option_id: row.correct_option_id,
-                        ends_at: row.ends_at || null,
-                        user_voted_option_id: userVotedOptionId // Flag for frontend
-                    };
-                }
-                return item;
-            });
-
-            Promise.all(promises).then(results => res.json(results));
+            Promise.all(rows.map((row) => buildFeedItem(row, userId, isAdminViewer)))
+                .then(results => res.json(results))
+                .catch(buildErr => res.status(500).json({ error: buildErr.message }));
         });
     };
 
@@ -1599,6 +1601,48 @@ app.get('/api/feed', (req, res) => {
             return;
         }
         continueWithViewerRole(dbUser?.role === 'admin');
+    });
+});
+
+// Fetch a single news item by id (used by shared /?news=<id> links to open the post directly)
+app.get('/api/news/:id', (req, res) => {
+    const user = getUserFromToken(req);
+    const userId = user ? user.id : 0;
+
+    let newsId;
+    try {
+        newsId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    const query = `
+        SELECT n.*,
+               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
+               (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
+        FROM news n
+        LEFT JOIN polls p ON n.id = p.news_id
+        WHERE n.id = ?
+    `;
+
+    const respond = (isAdminViewer) => {
+        db.get(query, [userId || 0, newsId], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!row) return res.status(404).json({ error: 'News not found' });
+
+            buildFeedItem(row, userId, isAdminViewer)
+                .then(item => res.json(item))
+                .catch(buildErr => res.status(500).json({ error: buildErr.message }));
+        });
+    };
+
+    if (!userId) {
+        respond(false);
+        return;
+    }
+
+    db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
+        respond(!roleErr && dbUser?.role === 'admin');
     });
 });
 

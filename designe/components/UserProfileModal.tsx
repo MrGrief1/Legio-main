@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Calendar, Trophy, User, Shield, Clock } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { useScrollLock } from '../hooks/useScrollLock';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
 
@@ -23,6 +24,7 @@ interface UserProfileModalProps {
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, user }) => {
     const hasTransitionedIn = useMountTransition(isOpen, 300);
+    useScrollLock(isOpen);
     const [freshUser, setFreshUser] = useState(user);
 
     useEffect(() => {

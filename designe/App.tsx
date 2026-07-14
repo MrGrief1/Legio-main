@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Feed } from './components/Feed';
 import { RightPanel } from './components/RightPanel';
@@ -12,6 +12,11 @@ import { Statistics } from './components/Statistics';
 import { ErrorReports } from './components/ErrorReports';
 import { Information } from './components/Information';
 import { ChatModal } from './components/ChatModal';
+import { NewsModal } from './components/NewsModal';
+import { Poll } from './components/FeedComponents';
+import { NewsItem } from './types';
+import { API_URL } from './config';
+import { useScrollLock } from './hooks/useScrollLock';
 import { Menu, X, Moon, Sun } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -25,6 +30,8 @@ const AppContent: React.FC = () => {
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
+  const [deepNews, setDeepNews] = useState<NewsItem | null>(null);
+  const [deepNewsOpen, setDeepNewsOpen] = useState(false);
 
   // Toggle Theme Function
   const toggleTheme = () => {
@@ -60,14 +67,37 @@ const AppContent: React.FC = () => {
   }, []);
 
   // Lock body scroll when mobile menu is open
+  useScrollLock(mobileMenuOpen);
+
+  // Open a specific post when arriving via a shared /?news=<id> link.
+  const fetchDeepNews = useCallback((id: string) => {
+    const headers: Record<string, string> = {};
+    const token = localStorage.getItem('token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    return fetch(`${API_URL}/news/${id}`, { headers })
+      .then(res => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.id) {
+          setDeepNews(data);
+          setDeepNewsOpen(true);
+        }
+      })
+      .catch(() => { /* ignore: fall back to the normal feed */ });
+  }, []);
+
   useEffect(() => {
-    if (mobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => { document.body.style.overflow = 'unset'; }
-  }, [mobileMenuOpen]);
+    const newsId = new URLSearchParams(window.location.search).get('news');
+    if (newsId) fetchDeepNews(newsId);
+  }, [fetchDeepNews]);
+
+  const closeDeepNews = () => {
+    setDeepNewsOpen(false);
+    // Drop the ?news= param so a refresh/back doesn't reopen the post.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('news');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  };
 
   const handleCategorySelect = (catId: string) => {
     setCategory(catId);
@@ -204,6 +234,17 @@ const AppContent: React.FC = () => {
       </div>
 
       <ChatModal isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {deepNews && (
+        <NewsModal
+          item={deepNews}
+          isOpen={deepNewsOpen}
+          onClose={closeDeepNews}
+          onRefresh={() => fetchDeepNews(String(deepNews.id))}
+        >
+          {deepNews.poll && <Poll data={deepNews.poll} />}
+        </NewsModal>
+      )}
     </div>
   );
 };

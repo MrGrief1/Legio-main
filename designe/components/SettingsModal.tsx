@@ -9,6 +9,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../context/ToastContext';
 import { Language } from '../translations';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -54,14 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }, [isOpen, user]);
 
     // Lock body scroll
-    useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
-        }
-        return () => { document.body.style.overflow = 'unset'; }
-    }, [isOpen]);
+    useScrollLock(isOpen);
 
     // Close language dropdown when clicking outside
     useEffect(() => {

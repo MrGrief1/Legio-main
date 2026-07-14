@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { ReportModal } from './ReportModal';
 import { getApiUrl } from '../config';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface NewsModalProps {
   item: NewsItem;
@@ -26,14 +27,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
     setIsLiked(item.isLiked || false);
   }, [item]);
 
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => { document.body.style.overflow = 'unset'; }
-  }, [isOpen]);
+  useScrollLock(isOpen);
 
   const handleLike = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -120,7 +114,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
           </div>
 
           {/* Content Scrollable Area */}
-          <div className="flex-1 overflow-y-auto p-6 lg:p-8">
+          <div className="flex-1 overflow-y-auto overscroll-contain p-6 lg:p-8">
             <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed text-base lg:text-lg mb-4">
               {item.description}
             </p>

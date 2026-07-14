@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronRight } from 'lucide-react';
 import { LEVELS, getLevel } from '../constants';
 import { useAuth } from '../context/AuthContext';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface LevelsModalProps {
   isOpen: boolean;
@@ -13,14 +14,7 @@ export const LevelsModal: React.FC<LevelsModalProps> = ({ isOpen, onClose }) => 
   const { user } = useAuth();
   const currentLevel = user ? getLevel(user.points || 0) : LEVELS[0];
 
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => { document.body.style.overflow = 'unset'; }
-  }, [isOpen]);
+  useScrollLock(isOpen);
 
   if (!isOpen) return null;
 

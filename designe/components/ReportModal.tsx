@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { Button } from './UI';
 import { useMountTransition } from '../hooks/useMountTransition';
+import { useScrollLock } from '../hooks/useScrollLock';
 
 interface ReportModalProps {
     isOpen: boolean;
@@ -18,6 +19,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, newsI
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const hasTransitionedIn = useMountTransition(isOpen, 300);
+    useScrollLock(isOpen);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
