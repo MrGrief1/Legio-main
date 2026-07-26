@@ -89,16 +89,33 @@ const VISITOR_ID_HASH_SALT = process.env.VISITOR_ID_HASH_SALT || SECRET_KEY;
 const ALLOW_LEGACY_PLAINTEXT_PASSWORDS = toBoolean(process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS, false);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').trim();
 const uploadsDir = path.join(__dirname, 'uploads');
+// bcrypt work factor. 12 costs roughly 4x more per guess than 10 while staying well under a
+// tenth of a second per login, so it slows offline cracking of a leaked table without being
+// felt by users. Existing hashes keep verifying: the cost is embedded in each stored hash.
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS || '', 10) || 12;
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // Middleware
 if (helmet) {
-    app.use(helmet({ crossOriginResourcePolicy: false }));
+    // The CSP is set by the dedicated middleware below (one authority for the policy, so the two
+    // can't disagree). Everything else helmet ships — HSTS, nosniff, frameguard, referrer policy,
+    // cross-origin isolation — stays on.
+    app.use(helmet({
+        contentSecurityPolicy: false,
+        crossOriginResourcePolicy: false,
+        referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+        hsts: IS_PRODUCTION ? { maxAge: 31_536_000, includeSubDomains: true, preload: true } : false,
+    }));
 } else {
     // Manual Security Headers
     app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        res.setHeader('X-XSS-Protection', '1; mode=block');
+        res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+        if (IS_PRODUCTION) {
+            res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+        }
         next();
     });
 }
@@ -108,36 +125,53 @@ if (compression) {
 }
 
 // CORS Configuration
-// In production, set ALLOWED_ORIGINS="https://your-frontend.railway.app,https://your-domain.com"
-// In development, defaults to allowing all origins
+// Set ALLOWED_ORIGINS="https://legio.news,https://www.legio.news" in the Railway variables.
+// Production deliberately refuses to fall back to "allow every origin": the frontend is served by
+// this same process, so browser traffic is same-origin and needs no CORS grant at all. Anything
+// cross-origin in production is a third-party site calling the API and must be opted in by name.
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',')
-    : null; // null means allow all
+    ? process.env.ALLOWED_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean)
+    : null;
+
+if (IS_PRODUCTION && !allowedOrigins) {
+    console.warn('ALLOWED_ORIGINS is not set: cross-origin browser requests will be rejected. ' +
+        'Same-origin requests (the bundled frontend) are unaffected.');
+}
 
 app.use(cors({
     origin: (origin, callback) => {
-        // If no restriction set, allow all
-        if (!allowedOrigins) {
-            return callback(null, true);
-        }
-        // Allow requests with no origin (like mobile apps or curl)
+        // Same-origin browser requests, curl and server-to-server calls send no Origin header.
         if (!origin) {
             return callback(null, true);
         }
-        // Check if origin is in allowed list
-        if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
-            callback(null, true);
-        } else {
+
+        if (allowedOrigins) {
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+            // A literal "*" alongside credentials:true is not a valid CORS response, so it is
+            // treated as an explicit opt-out of origin checks rather than echoed back.
+            if (allowedOrigins.includes('*')) {
+                return callback(null, true);
+            }
             console.error(`CORS blocked origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
+            return callback(new Error('Not allowed by CORS'));
         }
+
+        // No allowlist configured: permissive in development only.
+        if (!IS_PRODUCTION) {
+            return callback(null, true);
+        }
+
+        console.error(`CORS blocked origin (no ALLOWED_ORIGINS configured): ${origin}`);
+        return callback(new Error('Not allowed by CORS'));
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
 
-// Content Security Policy for production
+// Content Security Policy
 app.use((req, res, next) => {
     // Allow Railway and custom origins
     const defaultOrigins = "'self' http://localhost:3000 http://localhost:3001 http://localhost:5173 https://*.railway.app";
@@ -147,22 +181,47 @@ app.use((req, res, next) => {
 
     res.setHeader('Content-Security-Policy',
         "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://aistudiocdn.com; " +
+        // No 'unsafe-inline' and no third-party CDN: every script ships from this origin as a
+        // bundled file. That is what turns an injected <script> from "executes" into "blocked",
+        // so it must not be relaxed to make an inline snippet work — move the snippet to a file.
+        "script-src 'self'; " +
+        // Inline styles stay allowed: React writes style attributes and Tailwind injects a
+        // stylesheet at runtime. Inline CSS cannot execute code, so the risk is far lower.
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' data: https://fonts.gstatic.com; " +
-        "img-src 'self' data: https: blob:; " + // Added blob: for temporary image URLs
-        `connect-src ${cspOrigins};`
+        "img-src 'self' data: https: blob:; " + // blob: for temporary image URLs
+        `connect-src ${cspOrigins}; ` +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "frame-ancestors 'none'; " +
+        "upgrade-insecure-requests"
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('X-Frame-Options', 'DENY');
     next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+// 10 MB of JSON on every endpoint was a free denial-of-service lever: no route needs it (the
+// longest field is a 5 000-character description, and files travel as multipart, not JSON).
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '256kb' }));
 
-// Serve uploads directory
-app.use('/uploads', express.static(uploadsDir));
+// Serve uploads directory. User-supplied bytes are served from the app's own origin, so lock the
+// path down: never sniff a declared type, never execute anything the file might contain, and
+// never let it be framed.
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+}, express.static(uploadsDir, {
+    // Uploaded names are server-generated and immutable, so they cache well.
+    maxAge: '7d',
+    // Don't fall through to the SPA handler for a missing file — that would answer a broken
+    // image request with index.html.
+    fallthrough: false,
+    index: false,
+    dotfiles: 'deny',
+}));
 
 // Note: Static files and SPA fallback are configured at the end of the file after all API routes
 
@@ -192,8 +251,29 @@ if (rateLimit) {
         legacyHeaders: false,
         message: { message: "Too many registration attempts. Please try again later." }
     });
+    // Changing a password or an email is the step an account takeover has to pass through, and
+    // it is also the cheapest place to brute-force a session. Cap it well below the global limit.
+    const accountUpdateLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: "Too many account update attempts. Please try again later." }
+    });
+    // Uploads cost disk, not just CPU: 5 MB a piece with no cap would let one account fill the
+    // Railway volume.
+    const uploadLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 40,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { message: "Upload limit reached. Please try again later." }
+    });
+
     app.use('/api/auth/login', loginLimiter);
     app.use('/api/auth/register', registerLimiter);
+    app.use('/api/user/security', accountUpdateLimiter);
+    app.use('/api/upload', uploadLimiter);
 } else {
     // Simple Custom Rate Limiter
     const createSimpleLimiter = ({ windowMs, max, message }) => {
@@ -240,6 +320,17 @@ const sendValidationError = (res, error) => {
         payload.errors = error.details;
     }
     return res.status(400).json(payload);
+};
+
+// Internal failures are logged in full and reported as a fixed string. Raw driver messages
+// describe tables, columns and constraints by name — that is a free schema map for an attacker,
+// and it is never actionable for the user. Both keys are kept because clients read either one.
+const sendServerError = (res, error, context = 'Request failed') => {
+    console.error(`${context}:`, error);
+    return res.status(500).json({
+        message: 'Internal server error',
+        error: 'Internal server error',
+    });
 };
 
 const createValidationError = (field, message) => {
@@ -630,11 +721,13 @@ const storage = multer.diskStorage({
 
 const fileFilter = (req, file, cb) => {
     const extension = path.extname(String(file.originalname || '')).toLowerCase();
+    // createValidationError so the rejection surfaces as a 400 with the reason, instead of being
+    // swallowed by the catch-all handler and answered with an opaque 500.
     if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.mimetype)) {
-        return cb(new Error('Only JPEG, PNG, GIF and WEBP images are allowed'));
+        return cb(createValidationError('file', 'Only JPEG, PNG, GIF and WEBP images are allowed'));
     }
     if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
-        return cb(new Error('Invalid file extension'));
+        return cb(createValidationError('file', 'Invalid file extension'));
     }
     file.originalname = path.basename(String(file.originalname || '')).replace(/[^A-Za-z0-9._-]/g, '');
     return cb(null, true);
@@ -648,26 +741,58 @@ const upload = multer({
 
 // --- Middleware ---
 
+// Sessions are bearer tokens held in localStorage, so a leaked token is a usable credential for
+// as long as it stays valid. Bounding that window is the only revocation this design has.
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_ALGORITHM = 'HS256';
+
+const signAuthToken = ({ id, username, role }) => jwt.sign(
+    { id, username, role },
+    SECRET_KEY,
+    { expiresIn: JWT_EXPIRES_IN, algorithm: JWT_ALGORITHM }
+);
+
+// Pinning the algorithm stops a token from choosing its own verification scheme, and requiring a
+// live `exp` claim retires the never-expiring tokens issued before expiry existed — those are
+// permanent credentials that no password change can revoke. Everyone signs in once more, after
+// which the frontend clears the stale token on its own (AuthContext drops it when /auth/me fails).
+const verifyAuthToken = (token) => {
+    const payload = jwt.verify(token, SECRET_KEY, { algorithms: [JWT_ALGORITHM] });
+
+    if (!payload || typeof payload.exp !== 'number') {
+        const error = new Error('Token has no expiry');
+        error.name = 'TokenExpiredError';
+        throw error;
+    }
+
+    return payload;
+};
+
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.sendStatus(401);
 
-    jwt.verify(token, SECRET_KEY, (err, user) => {
-        if (err) return res.sendStatus(403);
-        db.get("SELECT id FROM users WHERE id = ?", [user.id], (dbErr, dbUser) => {
-            if (dbErr) return res.status(500).json({ message: "Database error" });
-            if (!dbUser) {
-                return res.status(401).json({ message: "Token user no longer exists. Please login again." });
-            }
+    let user;
+    try {
+        user = verifyAuthToken(token);
+    } catch (error) {
+        // 401, not 403: the credential is missing/stale and the client should re-authenticate.
+        return res.status(401).json({ message: 'Session expired. Please login again.' });
+    }
 
-            req.user = user;
+    db.get("SELECT id FROM users WHERE id = ?", [user.id], (dbErr, dbUser) => {
+        if (dbErr) return res.status(500).json({ message: "Database error" });
+        if (!dbUser) {
+            return res.status(401).json({ message: "Token user no longer exists. Please login again." });
+        }
 
-            // Update last_seen
-            db.run("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", [user.id]);
+        req.user = user;
 
-            next();
-        });
+        // Update last_seen
+        db.run("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", [user.id]);
+
+        next();
     });
 };
 
@@ -693,7 +818,7 @@ const getUserFromToken = (req) => {
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return null;
     try {
-        const user = jwt.verify(token, SECRET_KEY);
+        const user = verifyAuthToken(token);
         // Update last_seen
         db.run("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id = ?", [user.id]);
         return user;
@@ -864,6 +989,36 @@ const validateStatisticsPeriod = (value) => {
     const normalized = sanitizeTextInput(value).toLowerCase();
     if (!STATISTICS_PERIODS.has(normalized)) {
         throw createValidationError('period', 'Period is invalid');
+    }
+
+    return normalized;
+};
+
+// Whitelisted sort keys for the admin user table. The key is mapped to a fixed SQL
+// expression at the call site — user input never reaches the ORDER BY clause.
+const ADMIN_USER_SORTS = new Set(['created_at', 'last_seen', 'points', 'username', 'name', 'role']);
+
+const validateAdminUserSort = (value) => {
+    if (value === undefined || value === null || value === '') {
+        return 'created_at';
+    }
+
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (!ADMIN_USER_SORTS.has(normalized)) {
+        throw createValidationError('sort', `sort must be one of: ${[...ADMIN_USER_SORTS].join(', ')}`);
+    }
+
+    return normalized;
+};
+
+const validateSortOrder = (value, fallback = 'desc') => {
+    if (value === undefined || value === null || value === '') {
+        return fallback;
+    }
+
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (normalized !== 'asc' && normalized !== 'desc') {
+        throw createValidationError('order', 'order must be asc or desc');
     }
 
     return normalized;
@@ -1170,7 +1325,7 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ message: "Это имя уже занято, выберите другое" });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
         const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
@@ -1193,7 +1348,7 @@ app.post('/api/auth/register', async (req, res) => {
             [insertResult.lastID, startPoints, "Начисление баллов за регистрацию"]
         );
 
-        const token = jwt.sign({ id: insertResult.lastID, username, role: userRole }, SECRET_KEY);
+        const token = signAuthToken({ id: insertResult.lastID, username, role: userRole });
         res.json({
             token, user: {
                 id: insertResult.lastID,
@@ -1233,7 +1388,7 @@ app.post('/api/auth/login', (req, res) => {
          LIMIT 1`,
         [username, username, username],
         async (err, user) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
         if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
         const isValidPassword = await verifyPassword(password, user.password);
@@ -1246,14 +1401,14 @@ app.post('/api/auth/login', (req, res) => {
 
             if (shouldRehashPassword(user.password)) {
                 try {
-                    const rehashedPassword = await bcrypt.hash(password, 10);
+                    const rehashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
                     db.run("UPDATE users SET password = ? WHERE id = ?", [rehashedPassword, user.id]);
                 } catch (rehashError) {
                     console.error('Failed to rehash legacy password:', rehashError.message);
                 }
             }
 
-            const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY);
+            const token = signAuthToken({ id: user.id, username: user.username, role: user.role });
             // If name is null (old users), fallback to username
             const name = user.name || user.username;
             res.json({
@@ -1278,7 +1433,7 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
     db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate, created_at FROM users WHERE id = ?", [req.user.id], (err, user) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
         if (!user) return res.status(401).json({ message: "User not found for token. Please login again." });
         if (user && !user.name) user.name = user.username;
         res.json(user);
@@ -1377,7 +1532,7 @@ app.post('/api/user/security', authenticateToken, async (req, res) => {
         }
 
         if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
+            const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
             updates.push("password = ?");
             values.push(hashedPassword);
         }
@@ -1419,7 +1574,7 @@ app.post('/api/visit', (req, res) => {
         "INSERT OR IGNORE INTO visitor_sessions (visitor_id, date) VALUES (?, ?)",
         [visitorId, today],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             if (this.changes === 0) {
                 return res.json({ message: "Visit already recorded" });
             }
@@ -1576,12 +1731,24 @@ app.get('/api/feed', (req, res) => {
 
     const offset = (page - 1) * limit;
 
+    // Attach exactly one poll per post. A plain `ON n.id = p.news_id` join duplicates the
+    // news row once per poll, which silently corrupts LIMIT/OFFSET paging (the same post
+    // eats two slots on one page and the tail of the page is pushed into the next one).
+    // Picking a single poll id keeps one row per post; when the feed is filtered by poll
+    // state, pick the poll that actually matches the filter.
+    const pollFilterClause = pollStatus === 'open'
+        ? ' AND is_resolved = 0'
+        : pollStatus === 'resolved'
+            ? ' AND is_resolved = 1'
+            : '';
+
     let query = `
         SELECT n.*,
                p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
                (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
         FROM news n
-        LEFT JOIN polls p ON n.id = p.news_id
+        LEFT JOIN polls p
+               ON p.id = (SELECT MIN(id) FROM polls WHERE news_id = n.id${pollFilterClause})
     `;
 
     const params = [userId || 0]; // userId parameter for is_liked subquery
@@ -1603,16 +1770,24 @@ app.get('/api/feed', (req, res) => {
         params.push(searchPattern, searchPattern);
     }
 
-    // Both poll filters imply "this post actually has a poll".
-    if (pollStatus === 'open') {
-        conditions.push(`p.id IS NOT NULL AND p.is_resolved = 0`);
-    } else if (pollStatus === 'resolved') {
-        conditions.push(`p.id IS NOT NULL AND p.is_resolved = 1`);
+    // Both poll filters imply "this post actually has a poll" — the join above already
+    // narrowed the poll to one in the requested state, so a NULL means no such poll.
+    if (pollStatus === 'open' || pollStatus === 'resolved') {
+        conditions.push(`p.id IS NOT NULL`);
     }
 
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(' AND ')}`;
     }
+
+    // "Latest news" has to mean latest. created_at is TEXT and holds two shapes: SQLite's
+    // "YYYY-MM-DD HH:MM:SS" (posts created here) and whatever the WordPress import carried
+    // over (ISO strings with a "T", sometimes empty). Sorting those as raw strings misorders
+    // same-day posts, because "T" sorts after " ". datetime() normalises both to one format;
+    // the raw value is kept only as a fallback for anything unparseable, and n.id breaks ties
+    // so paging stays stable when timestamps are identical (bulk imports share a timestamp —
+    // without a unique tiebreaker LIMIT/OFFSET can repeat or skip rows between pages).
+    const newsDateSort = `COALESCE(datetime(n.created_at), n.created_at, '0000-00-00')`;
 
     // Open polls are the ones people can still vote in, so lead with the ones closing soonest,
     // then the ones without a deadline, and push the ones already past their date to the end.
@@ -1623,15 +1798,16 @@ app.get('/api/feed', (req, res) => {
                         ELSE 2
                     END ASC,
                     p.ends_at ASC,
-                    n.created_at DESC`
-        : ` ORDER BY n.created_at DESC`;
+                    ${newsDateSort} DESC,
+                    n.id DESC`
+        : ` ORDER BY ${newsDateSort} DESC, n.id DESC`;
 
     query += ` LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const continueWithViewerRole = (showVoters) => {
         db.all(query, params, (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
 
             Promise.all(rows.map((row) => buildFeedItem(row, userId, showVoters)))
                 .then(results => res.json(results))
@@ -1665,18 +1841,20 @@ app.get('/api/news/:id', (req, res) => {
         return sendValidationError(res, error);
     }
 
+    // Pin the poll selection the same way the feed does, so a shared link and the feed
+    // card always show the same poll instead of whichever row SQLite happens to return.
     const query = `
         SELECT n.*,
                p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
                (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
         FROM news n
-        LEFT JOIN polls p ON n.id = p.news_id
+        LEFT JOIN polls p ON p.id = (SELECT MIN(id) FROM polls WHERE news_id = n.id)
         WHERE n.id = ?
     `;
 
     const respond = (showVoters) => {
         db.get(query, [userId || 0, newsId], (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             if (!row) return res.status(404).json({ error: 'News not found' });
 
             buildFeedItem(row, userId, showVoters)
@@ -1704,7 +1882,7 @@ app.get('/api/categories', (req, res) => {
          ORDER BY count DESC, category ASC`,
         [],
         (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             const categories = (rows || []).map((row) => ({
                 id: row.category,
                 name: formatCategoryLabel(row.category),
@@ -1729,7 +1907,7 @@ app.post('/api/news/:id/like', authenticateToken, (req, res) => {
 
     // Check if already liked
     db.get("SELECT * FROM likes WHERE user_id = ? AND news_id = ?", [userId, newsId], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
 
         if (row) {
             // Unlike
@@ -1819,7 +1997,7 @@ app.delete('/api/news/:id', authenticateToken, requireCreatorOrAdmin, (req, res)
         db.run("DELETE FROM likes WHERE news_id = ?", [newsId]);
 
         db.run("DELETE FROM news WHERE id = ?", [newsId], function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "News deleted" });
         });
     });
@@ -1846,7 +2024,7 @@ app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
                 if (err.message.includes('UNIQUE constraint failed')) {
                     return res.status(400).json({ message: "Already voted" });
                 }
-                return res.status(500).json({ error: err.message });
+                return sendServerError(res, err);
             }
             res.json({ message: "Vote registered" });
         }
@@ -1957,7 +2135,7 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
         });
     } catch (error) {
         console.error('Failed to resolve poll:', error);
-        res.status(500).json({ error: error.message });
+        sendServerError(res, error);
     }
 });
 
@@ -2006,20 +2184,212 @@ app.get('/api/polls/pending', authenticateToken, requireCreatorOrAdmin, async (r
         res.json(result);
     } catch (error) {
         console.error('Failed to list pending polls:', error);
-        res.status(500).json({ error: error.message });
+        sendServerError(res, error);
     }
 });
 
 // --- Admin Routes ---
 
-app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
-    db.all("SELECT id, username, role, points, level, name, avatar FROM users", [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+    let sort;
+    let order;
+
+    try {
+        sort = validateAdminUserSort(req.query.sort);
+        order = validateSortOrder(req.query.order, sort === 'username' || sort === 'name' ? 'asc' : 'desc');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    // created_at is TEXT and mixes SQLite's "YYYY-MM-DD HH:MM:SS" with whatever the
+    // WordPress import carried over, so sort on the parsed datetime and keep the raw
+    // string only as a last-resort fallback. NULLs are pushed to the end either way.
+    const sortExpressions = {
+        created_at: "COALESCE(datetime(u.created_at), u.created_at, '0000-00-00')",
+        last_seen: "COALESCE(datetime(u.last_seen), u.last_seen, '0000-00-00')",
+        points: 'u.points',
+        username: 'LOWER(u.username)',
+        name: 'LOWER(COALESCE(NULLIF(u.name, \'\'), u.username))',
+        role: 'LOWER(u.role)',
+    };
+
+    const direction = order === 'asc' ? 'ASC' : 'DESC';
+
+    try {
+        const rows = await dbAllAsync(
+            `SELECT u.id, u.username, u.role, u.points, u.level, u.name, u.avatar,
+                    u.created_at, u.last_seen,
+                    (SELECT COUNT(*) FROM votes v WHERE v.user_id = u.id) AS votes_count
+               FROM users u
+              ORDER BY ${sortExpressions[sort]} ${direction}, u.id ASC`
+        );
+
         res.json(rows);
-    });
+    } catch (error) {
+        console.error('Failed to list users:', error);
+        sendServerError(res, error);
+    }
 });
 
-app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res) => {
+// Everything the admin panel shows when a user row is opened: profile fields, activity
+// counters, prediction accuracy, leaderboard standing and the recent points ledger.
+app.get('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+    let userId;
+
+    try {
+        userId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const user = await dbGetAsync(
+            `SELECT id, username, name, avatar, bio, birthdate, role, points, level,
+                    created_at, last_seen
+               FROM users
+              WHERE id = ?`,
+            [userId]
+        );
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const month = getMonthWindow();
+        const scalar = async (sql, params = [], field = 'value') => {
+            const row = await dbGetAsync(sql, params);
+            return Number(row?.[field]) || 0;
+        };
+
+        // A vote only counts as right/wrong once its poll has a verdict; everything
+        // else is still pending and must not drag the accuracy down.
+        const [
+            votesTotal,
+            votesCorrect,
+            votesResolved,
+            likesGiven,
+            likesReceivedOnVotedNews,
+            reportsSubmitted,
+            messagesSent,
+            monthlyPoints,
+            monthlyWins,
+            allTimeRank,
+            pointsAwardsTotal,
+        ] = await Promise.all([
+            scalar('SELECT COUNT(*) AS value FROM votes WHERE user_id = ?', [userId]),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v
+                   JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id = v.option_id`,
+                [userId]
+            ),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v
+                   JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 1`,
+                [userId]
+            ),
+            scalar('SELECT COUNT(*) AS value FROM likes WHERE user_id = ?', [userId]),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM likes l
+                  WHERE l.news_id IN (SELECT p.news_id FROM votes v JOIN polls p ON p.id = v.poll_id WHERE v.user_id = ?)`,
+                [userId]
+            ),
+            scalar('SELECT COUNT(*) AS value FROM error_reports WHERE user_id = ?', [userId]),
+            scalar('SELECT COUNT(*) AS value FROM messages WHERE sender_id = ?', [userId]),
+            scalar(
+                `SELECT COALESCE(SUM(points), 0) AS value
+                   FROM points_history
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                [userId, month.startSql, month.endSql]
+            ),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM points_history
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                [userId, month.startSql, month.endSql]
+            ),
+            scalar(
+                'SELECT COUNT(*) + 1 AS value FROM users WHERE points > (SELECT points FROM users WHERE id = ?)',
+                [userId]
+            ),
+            scalar('SELECT COUNT(*) AS value FROM points_history WHERE user_id = ?', [userId]),
+        ]);
+
+        const monthlyRows = await getMonthlyLeaderRows(month);
+        const monthlyRankIndex = monthlyRows.findIndex((row) => Number(row.id) === userId);
+
+        const [lastVote, firstVote, topCategories, pointsHistory, totalUsers] = await Promise.all([
+            dbGetAsync('SELECT created_at FROM votes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [userId]),
+            dbGetAsync('SELECT created_at FROM votes WHERE user_id = ? ORDER BY created_at ASC LIMIT 1', [userId]),
+            dbAllAsync(
+                `SELECT COALESCE(NULLIF(n.category, ''), 'general') AS category, COUNT(*) AS count
+                   FROM votes v
+                   JOIN polls p ON p.id = v.poll_id
+                   JOIN news n ON n.id = p.news_id
+                  WHERE v.user_id = ?
+                  GROUP BY category
+                  ORDER BY count DESC
+                  LIMIT 5`,
+                [userId]
+            ),
+            dbAllAsync(
+                `SELECT id, points, calculation_date, comment
+                   FROM points_history
+                  WHERE user_id = ?
+                  ORDER BY calculation_date DESC, id DESC
+                  LIMIT 20`,
+                [userId]
+            ),
+            dbGetAsync('SELECT COUNT(*) AS value FROM users'),
+        ]);
+
+        res.json({
+            ...user,
+            displayName: user.name || user.username,
+            stats: {
+                votesTotal,
+                votesCorrect,
+                votesWrong: Math.max(0, votesResolved - votesCorrect),
+                votesPending: Math.max(0, votesTotal - votesResolved),
+                votesResolved,
+                accuracy: votesResolved > 0 ? Math.round((votesCorrect / votesResolved) * 100) : null,
+                likesGiven,
+                likesOnVotedNews: likesReceivedOnVotedNews,
+                reportsSubmitted,
+                messagesSent,
+                pointsAwardsTotal,
+                monthlyPoints,
+                monthlyWins,
+                allTimeRank,
+                monthlyRank: monthlyRankIndex >= 0 ? monthlyRankIndex + 1 : null,
+                totalUsers: Number(totalUsers?.value) || 0,
+                firstVoteAt: firstVote?.created_at || null,
+                lastVoteAt: lastVote?.created_at || null,
+                month: month.key,
+            },
+            topCategories: topCategories.map((row) => ({
+                id: row.category,
+                label: formatCategoryLabel(row.category),
+                count: Number(row.count) || 0,
+            })),
+            pointsHistory: pointsHistory.map((row) => ({
+                id: row.id,
+                points: Number(row.points) || 0,
+                date: row.calculation_date,
+                comment: row.comment,
+            })),
+        });
+    } catch (error) {
+        console.error('Failed to load user details:', error);
+        sendServerError(res, error);
+    }
+});
+
+app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, async (req, res) => {
     let role;
     let userId;
 
@@ -2030,10 +2400,29 @@ app.post('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res
         return sendValidationError(res, error);
     }
 
-    db.run("UPDATE users SET role = ? WHERE id = ?", [role, userId], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Role updated" });
-    });
+    try {
+        const target = await dbGetAsync('SELECT id, role FROM users WHERE id = ?', [userId]);
+        if (!target) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Demoting the only remaining admin locks everyone out of the panel permanently — there
+        // is no recovery path short of editing the database by hand.
+        if (target.role === 'admin' && role !== 'admin') {
+            const admins = await dbGetAsync("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'");
+            if ((Number(admins?.count) || 0) <= 1) {
+                return res.status(400).json({
+                    message: 'Нельзя снять роль администратора с последнего администратора. Сначала назначьте другого.',
+                });
+            }
+        }
+
+        await dbRunAsync('UPDATE users SET role = ? WHERE id = ?', [role, userId]);
+        res.json({ message: 'Role updated' });
+    } catch (error) {
+        console.error('Failed to update role:', error);
+        res.status(500).json({ message: 'Failed to update role' });
+    }
 });
 
 app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (req, res) => {
@@ -2072,6 +2461,74 @@ const toSqlUtc = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 const toDateStr = (date) => date.toISOString().slice(0, 10);
 
 const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+// ---- Monthly leaderboard ("event") helpers -----------------------------
+//
+// The monthly contest runs over a whole UTC calendar month: it opens at 00:00:00 on
+// the 1st and the winner is locked in the moment the next month starts. Points earned
+// inside the window come from points_history (written whenever a poll is resolved),
+// NOT from users.points — that column is an all-time running total and can never be
+// sliced by date.
+const getMonthWindow = (now = new Date(), monthOffset = 0) => {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset + 1, 1));
+
+    return {
+        start,
+        end,
+        // "YYYY-MM" — matches how points_history rows are grouped for display.
+        key: `${start.getUTCFullYear()}-${STAT_PAD(start.getUTCMonth() + 1)}`,
+        startSql: toSqlUtc(start),
+        endSql: toSqlUtc(end),
+    };
+};
+
+// Sum every user's points inside [startSql, endSql). Returns rows ordered by the
+// monthly total, so row 0 is the current leader of the event.
+const getMonthlyLeaderRows = async ({ startSql, endSql }, limit = null) => {
+    const params = [startSql, endSql];
+    let sql = `
+        SELECT u.id,
+               u.username,
+               u.name,
+               u.avatar,
+               u.points AS total_points,
+               u.level,
+               COALESCE(SUM(ph.points), 0) AS monthly_points,
+               COUNT(ph.id) AS monthly_wins,
+               MAX(ph.calculation_date) AS last_award_at
+        FROM points_history ph
+        JOIN users u ON u.id = ph.user_id
+        WHERE ph.calculation_date >= ? AND ph.calculation_date < ?
+        GROUP BY u.id
+        HAVING monthly_points > 0
+        ORDER BY monthly_points DESC, monthly_wins DESC, u.points DESC, u.id ASC
+    `;
+
+    if (limit) {
+        sql += ' LIMIT ?';
+        params.push(limit);
+    }
+
+    return dbAllAsync(sql, params);
+};
+
+const toMonthlyLeader = (row, index) => ({
+    id: row.id,
+    username: row.username,
+    name: row.name,
+    displayName: row.name || row.username,
+    avatar: row.avatar,
+    rank: index + 1,
+    // `points` stays the monthly score so the leaderboard can render one shape for
+    // both tabs; the all-time total travels alongside it.
+    points: Number(row.monthly_points) || 0,
+    monthlyPoints: Number(row.monthly_points) || 0,
+    totalPoints: Number(row.total_points) || 0,
+    monthlyWins: Number(row.monthly_wins) || 0,
+    level: Number(row.level) || 1,
+    lastAwardAt: row.last_award_at || null,
+});
 
 // Build the ordered, gap-free list of buckets for a period. Every bucket carries
 // the strftime key it will be matched against, a display label, and an ISO start.
@@ -2363,7 +2820,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
 
     } catch (err) {
         console.error('Statistics error:', err);
-        res.status(500).json({ error: err.message });
+        sendServerError(res, err);
     }
 });
 
@@ -2384,7 +2841,7 @@ app.post('/api/reports', authenticateToken, (req, res) => {
         "INSERT INTO error_reports (news_id, user_id, message) VALUES (?, ?, ?)",
         [newsId, userId, message],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "Report submitted successfully", id: this.lastID });
         }
     );
@@ -2418,7 +2875,7 @@ app.get('/api/admin/reports', authenticateToken, requireAdmin, (req, res) => {
     query += " ORDER BY er.created_at DESC";
 
     db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
 
         // Format the rows
         const reports = rows.map(row => ({
@@ -2449,23 +2906,97 @@ app.patch('/api/admin/reports/:id/status', authenticateToken, requireAdmin, (req
         "UPDATE error_reports SET status = ? WHERE id = ?",
         [status, reportId],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "Report status updated" });
         }
     );
 });
 
-app.get('/api/leaders', (req, res) => {
-    db.all("SELECT id, username, name, points, avatar FROM users ORDER BY points DESC", [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        // Add rank
-        const ranked = rows.map((r, i) => ({
-            ...r,
-            rank: i + 1,
-            displayName: r.name || r.username
-        }));
-        res.json(ranked);
-    });
+// All-time leaderboard. Each row also carries the points the user collected during the
+// current monthly event, so a single fetch can drive both leaderboard tabs.
+app.get('/api/leaders', async (req, res) => {
+    let limit;
+
+    try {
+        limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 500, defaultValue: 100 });
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const month = getMonthWindow();
+
+        const rows = await dbAllAsync(
+            `SELECT u.id,
+                    u.username,
+                    u.name,
+                    u.points,
+                    u.avatar,
+                    u.level,
+                    (SELECT COALESCE(SUM(ph.points), 0)
+                       FROM points_history ph
+                      WHERE ph.user_id = u.id
+                        AND ph.calculation_date >= ?
+                        AND ph.calculation_date < ?) AS monthly_points
+               FROM users u
+              ORDER BY u.points DESC, u.id ASC
+              LIMIT ?`,
+            [month.startSql, month.endSql, limit]
+        );
+
+        res.json(rows.map((row, index) => ({
+            ...row,
+            points: Number(row.points) || 0,
+            monthlyPoints: Number(row.monthly_points) || 0,
+            rank: index + 1,
+            displayName: row.name || row.username,
+        })));
+    } catch (error) {
+        console.error('Failed to load leaders:', error);
+        sendServerError(res, error);
+    }
+});
+
+// Monthly event leaderboard — a standalone table scored only on points earned this
+// calendar month, plus the timing the UI needs to count down to the next winner.
+app.get('/api/leaders/monthly', async (req, res) => {
+    let limit;
+    let monthOffset;
+
+    try {
+        limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 500, defaultValue: 100 });
+        // 0 = the running month, 1 = last month (used to show who actually won it).
+        monthOffset = parseBoundedInt(req.query.monthsAgo, 'monthsAgo', { min: 1, max: 24, defaultValue: 1 }) - 1;
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const now = new Date();
+        const month = getMonthWindow(now, -monthOffset);
+        const rows = await getMonthlyLeaderRows(month, limit);
+        const leaders = rows.map(toMonthlyLeader);
+        const isCurrentMonth = monthOffset === 0;
+
+        res.json({
+            month: month.key,
+            monthIndex: month.start.getUTCMonth(),
+            year: month.start.getUTCFullYear(),
+            isCurrentMonth,
+            periodStart: month.start.toISOString(),
+            // The instant the current winner is locked in and a fresh event begins.
+            periodEnd: month.end.toISOString(),
+            serverTime: now.toISOString(),
+            // Server-side remainder, so a wrong clock on the client can't skew the countdown.
+            msRemaining: isCurrentMonth ? Math.max(0, month.end.getTime() - now.getTime()) : 0,
+            participants: leaders.length,
+            winner: leaders[0] || null,
+            leaders,
+        });
+    } catch (error) {
+        console.error('Failed to load monthly leaders:', error);
+        sendServerError(res, error);
+    }
 });
 
 // --- Chat Routes ---
@@ -2486,7 +3017,7 @@ app.get('/api/chats', authenticateToken, (req, res) => {
     `;
 
     db.all(query, [userId, userId], async (err, chats) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
 
         const formattedChats = await Promise.all(chats.map(async (chat) => {
             // For direct chats, get the other user's info
@@ -2567,7 +3098,7 @@ app.post('/api/chats', authenticateToken, (req, res) => {
          WHERE c.type = 'direct' AND cp1.user_id = ? AND cp2.user_id = ?`,
         [currentUserId, targetUserId],
         (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
 
             if (rows.length > 0) {
                 return res.json({ id: rows[0].id, isNew: false });
@@ -2576,7 +3107,7 @@ app.post('/api/chats', authenticateToken, (req, res) => {
             // Create new chat
             db.serialize(() => {
                 db.run("INSERT INTO chats (type) VALUES ('direct')", function (err) {
-                    if (err) return res.status(500).json({ error: err.message });
+                    if (err) return sendServerError(res, err);
                     const chatId = this.lastID;
 
                     const stmt = db.prepare("INSERT INTO chat_participants (chat_id, user_id) VALUES (?, ?)");
@@ -2625,7 +3156,7 @@ app.get('/api/chats/:id/messages', authenticateToken, (req, res) => {
         // If we limit, we need frontend pagination. For now, incremental update is the big win.
 
         db.all(query, params, async (err, messages) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
 
             // Fetch attachments for each message
             const messagesWithAttachments = await Promise.all(messages.map(async (msg) => {
@@ -2672,7 +3203,7 @@ app.post('/api/chats/:id/messages', authenticateToken, upload.array('files', MAX
             if (otherRow) {
                 const otherUserId = otherRow.user_id;
                 db.get("SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?", [otherUserId, userId], (err, blocked) => {
-                    if (err) return res.status(500).json({ error: err.message });
+                    if (err) return sendServerError(res, err);
                     if (blocked) return res.status(403).json({ message: "You have been blocked by this user" });
 
                     sendMessage();
@@ -2689,7 +3220,7 @@ app.post('/api/chats/:id/messages', authenticateToken, upload.array('files', MAX
                     "INSERT INTO messages (chat_id, sender_id, content) VALUES (?, ?, ?)",
                     [chatId, userId, content || ''],
                     function (err) {
-                        if (err) return res.status(500).json({ error: err.message });
+                        if (err) return sendServerError(res, err);
                         const messageId = this.lastID;
 
                         // Insert attachments
@@ -2740,7 +3271,7 @@ app.post('/api/chats/:id/read', authenticateToken, (req, res) => {
         "UPDATE messages SET is_read = 1 WHERE chat_id = ? AND sender_id != ? AND is_read = 0",
         [chatId, userId],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "Messages marked as read", changes: this.changes });
         }
     );
@@ -2762,7 +3293,7 @@ app.delete('/api/chats/:chatId/messages/:messageId', authenticateToken, (req, re
 
     // Check if message belongs to user
     db.get("SELECT sender_id FROM messages WHERE id = ? AND chat_id = ?", [messageId, chatId], (err, msg) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendServerError(res, err);
         if (!msg) return res.status(404).json({ message: "Message not found" });
 
         if (msg.sender_id !== userId) {
@@ -2774,7 +3305,7 @@ app.delete('/api/chats/:chatId/messages/:messageId', authenticateToken, (req, re
 
         // Delete message
         db.run("DELETE FROM messages WHERE id = ?", [messageId], function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "Message deleted" });
         });
     });
@@ -2800,7 +3331,7 @@ app.post('/api/users/block', authenticateToken, (req, res) => {
         "INSERT OR IGNORE INTO blocked_users (blocker_id, blocked_id) VALUES (?, ?)",
         [blockerId, userId],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "User blocked" });
         }
     );
@@ -2822,7 +3353,7 @@ app.delete('/api/users/block/:id', authenticateToken, (req, res) => {
         "DELETE FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?",
         [blockerId, blockedId],
         function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
             res.json({ message: "User unblocked" });
         });
 });
@@ -2857,7 +3388,7 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
          LIMIT 100`,
         [req.user.id, likeNeedle, likeNeedle],
         (err, users) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) return sendServerError(res, err);
 
             const ranked = (users || [])
                 .map((u) => {
@@ -2890,7 +3421,10 @@ app.get('/api/users/search', authenticateToken, (req, res) => {
     );
 });
 
-app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
+// Public profile card. Carries the same headline stats the leaderboard ranks on — predictions,
+// accuracy, standings — but none of the moderation-only data (last_seen, reports, messages,
+// the points ledger); that stays behind /api/admin/users/:id.
+app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
     let userId;
 
     try {
@@ -2899,15 +3433,73 @@ app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
         return sendValidationError(res, error);
     }
 
-    db.get(
-        "SELECT id, username, name, avatar, bio, birthdate, points, role, created_at FROM users WHERE id = ?",
-        [userId],
-        (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (!row) return res.status(404).json({ message: "User not found" });
-            res.json(row);
+    try {
+        const user = await dbGetAsync(
+            `SELECT id, username, name, avatar, bio, birthdate, points, level, role, created_at
+               FROM users
+              WHERE id = ?`,
+            [userId]
+        );
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
-    );
+
+        const month = getMonthWindow();
+        const scalar = async (sql, params = []) => {
+            const row = await dbGetAsync(sql, params);
+            return Number(row?.value) || 0;
+        };
+
+        const [votesTotal, votesResolved, votesCorrect, monthlyPoints, allTimeRank] = await Promise.all([
+            scalar('SELECT COUNT(*) AS value FROM votes WHERE user_id = ?', [userId]),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 1`,
+                [userId]
+            ),
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id = v.option_id`,
+                [userId]
+            ),
+            scalar(
+                `SELECT COALESCE(SUM(points), 0) AS value
+                   FROM points_history
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                [userId, month.startSql, month.endSql]
+            ),
+            scalar(
+                'SELECT COUNT(*) + 1 AS value FROM users WHERE points > (SELECT points FROM users WHERE id = ?)',
+                [userId]
+            ),
+        ]);
+
+        const monthlyRows = await getMonthlyLeaderRows(month);
+        const monthlyRankIndex = monthlyRows.findIndex((row) => Number(row.id) === userId);
+
+        res.json({
+            ...user,
+            displayName: user.name || user.username,
+            stats: {
+                votesTotal,
+                votesResolved,
+                votesCorrect,
+                votesWrong: Math.max(0, votesResolved - votesCorrect),
+                votesPending: Math.max(0, votesTotal - votesResolved),
+                accuracy: votesResolved > 0 ? Math.round((votesCorrect / votesResolved) * 100) : null,
+                monthlyPoints,
+                allTimeRank,
+                monthlyRank: monthlyRankIndex >= 0 ? monthlyRankIndex + 1 : null,
+                month: month.key,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to load profile:', error);
+        sendServerError(res, error);
+    }
 });
 
 app.use((err, req, res, next) => {
@@ -2929,18 +3521,39 @@ app.use((err, req, res, next) => {
         return sendValidationError(res, err);
     }
 
+    // Errors raised by express itself carry the right status — body-parser's 413 for an oversized
+    // payload, its 400 for malformed JSON. Reporting those as 500 tells the caller "server fault,
+    // retry" when the request is what needs fixing, and retrying never helps.
+    const clientStatus = Number(err?.status || err?.statusCode);
+    if (Number.isInteger(clientStatus) && clientStatus >= 400 && clientStatus < 500) {
+        if (clientStatus === 413) {
+            return res.status(413).json({ message: 'Request body is too large.' });
+        }
+        if (err?.type === 'entity.parse.failed') {
+            return res.status(400).json({ message: 'Malformed JSON body.' });
+        }
+        return res.status(clientStatus).json({ message: 'Request rejected.' });
+    }
+
     console.error('Unhandled request error:', err);
     return res.status(500).json({ message: "Internal server error" });
 });
 
 // Serve static files from the frontend build directory
-app.use(express.static(path.join(__dirname, 'public')));
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir, { dotfiles: 'deny' }));
 
 // Serve index.html for any other requests (SPA support)
 app.get('*', (req, res) => {
-    const indexPath = path.join(__dirname, 'public', 'index.html');
-    console.log(`Serving index.html from: ${indexPath}`);
-    res.sendFile(indexPath);
+    // An unmatched /api/* path is a missing endpoint, not a page: answering it with the SPA shell
+    // hands a client HTML where it expects JSON, which surfaces as an unexplained parse error.
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ message: 'Not found' });
+    }
+
+    // No per-request logging here: this handler runs for every page load, and the path is a
+    // constant — the log line only bloats the deployment output.
+    res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 let isShuttingDown = false;
@@ -3004,7 +3617,7 @@ const ensureConfiguredAdmin = async () => {
         if (password) {
             const alreadyMatches = await verifyPassword(password, existing.password);
             if (!alreadyMatches) {
-                const hashed = await bcrypt.hash(password, 10);
+                const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
                 await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashed, existing.id]);
                 console.log('[Admin Bootstrap] Password set for configured admin:', email);
             }
@@ -3013,7 +3626,7 @@ const ensureConfiguredAdmin = async () => {
     }
 
     if (!password) return;
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const settings = await getPointsSettings();
     const startPoints = settings.start_points;
     const level = calculateLevel(startPoints);

@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { ReportModal } from './ReportModal';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { parseNewsDate } from '../utils/date';
 
 interface NewsModalProps {
   item: NewsItem;
@@ -136,7 +137,9 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
 
             {/* Meta info */}
             <div className="mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-sm text-zinc-500">
-              <span>{new Date(item.date).toLocaleDateString()}</span>
+              <span>{parseNewsDate(item.date)?.toLocaleString('ru-RU', {
+                day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+              }) || ''}</span>
               <div className="flex gap-4">
                 <button
                   onClick={handleLike}

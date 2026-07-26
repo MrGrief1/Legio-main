@@ -10,26 +10,12 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap"
     rel="stylesheet">
-  <script type="importmap">
-{
-  "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
-  }
-}
-    </script>
-  <script>
-    const originalDefine = customElements.define;
-    customElements.define = function (name, constructor, options) {
-      if (customElements.get(name)) {
-        console.warn(`Custom element ${name} has already been defined.`);
-        return;
-      }
-      originalDefine.call(customElements, name, constructor, options);
-    };
-  </script>
+  <!-- The React/lucide importmap that used to sit here pointed at a third-party CDN and was dead
+       weight: Vite bundles those packages into /assets, so nothing ever resolved through it. It
+       was also the only reason the CSP had to allow an external script origin. Removed on both
+       counts — dropping it removes a supply-chain dependency without changing what loads.
+       The custom-elements guard moved to its own file so the CSP can forbid inline scripts. -->
+  <script src="/custom-elements-guard.js"></script>
 </head>
 
 <body class="bg-gray-100">

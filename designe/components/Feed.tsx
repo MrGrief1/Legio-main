@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NewsItem } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { NewsCard } from './FeedComponents';
 import { API_URL } from '../config';
 
@@ -14,6 +15,7 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const { user } = useAuth();
+  const { t } = useLanguage();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const PAGE_SIZE = 12;
 
@@ -109,13 +111,17 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       <div className="mb-6 px-2">
         <h2 className="text-xl font-medium text-zinc-900 dark:text-white">
           {isOpenPolls ? 'Незавершённые опросы'
-            : category === 'all' ? 'Новости проекта'
+            : category === 'all' ? t.sidebar.latestNews
               : category === 'favorites' ? 'Избранное'
                 : 'Новости категории'}
         </h2>
-        {isOpenPolls && (
+        {isOpenPolls ? (
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Опросы без результата — успейте проголосовать, пока они открыты.
+          </p>
+        ) : category === 'all' && (
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Все новости по дате публикации — самые свежие сверху.
           </p>
         )}
       </div>

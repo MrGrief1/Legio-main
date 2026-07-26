@@ -15,7 +15,7 @@ export interface Translations {
     // Sidebar
     sidebar: {
         tagline: string;
-        projectNews: string;
+        latestNews: string;
         favorites: string;
         openPolls: string;
         chats: string;
@@ -127,6 +127,39 @@ export interface Translations {
         tagsPlaceholder: string;
         questionPlaceholder: string;
         optionPlaceholder: string;
+        registered: string;
+        lastSeen: string;
+        sortBy: string;
+        never: string;
+        openProfileHint: string;
+        // User details modal
+        userDetails: string;
+        loadingDetails: string;
+        detailsFailed: string;
+        overview: string;
+        activity: string;
+        pointsLedger: string;
+        votesTotal: string;
+        accuracy: string;
+        correctVotes: string;
+        wrongVotes: string;
+        pendingVotes: string;
+        likesGiven: string;
+        reportsSubmitted: string;
+        monthlyPoints: string;
+        allTimeRank: string;
+        monthlyRank: string;
+        level: string;
+        bio: string;
+        birthdate: string;
+        notSet: string;
+        firstVote: string;
+        lastVote: string;
+        favoriteCategories: string;
+        noPointsHistory: string;
+        noVotesYet: string;
+        outOf: string;
+        changeRoleLabel: string;
     };
 
     // Create-poll wizard
@@ -163,6 +196,25 @@ export interface Translations {
         title: string;
         loading: string;
         pointsLabel: string;
+        // Monthly event table
+        monthlyTitle: string;
+        monthlyTab: string;
+        allTimeTab: string;
+        monthlySubtitle: string;
+        allTimeSubtitle: string;
+        endsIn: string;
+        newWinnerIn: string;
+        eventClosed: string;
+        currentWinner: string;
+        noMonthlyLeaders: string;
+        monthlyPointsLabel: string;
+        totalPointsLabel: string;
+        winsLabel: string;
+        participants: string;
+        days: string;
+        hours: string;
+        minutes: string;
+        seconds: string;
     };
 
     // Right Panel
@@ -176,6 +228,9 @@ export interface Translations {
         topPredictors: string;
         noLeaders: string;
         loadError: string;
+        monthlyLeader: string;
+        noMonthlyLeader: string;
+        untilNewWinner: string;
     };
 
     // Statistics (будет добавлено позже если нужно)
@@ -266,7 +321,7 @@ export const translations: Record<Language, Translations> = {
         // Sidebar
         sidebar: {
             tagline: 'Сервис для проверки интуиции. Только свежие новости и интересные опросы.',
-            projectNews: 'Новости проекта',
+            latestNews: 'Последние новости',
             favorites: 'Избранное',
             openPolls: 'Незавершённые опросы',
             chats: 'Чаты',
@@ -377,6 +432,38 @@ export const translations: Record<Language, Translations> = {
             tagsPlaceholder: 'Введите тег и нажмите Enter или запятую',
             questionPlaceholder: 'Вопрос',
             optionPlaceholder: 'Вариант',
+            registered: 'Регистрация',
+            lastSeen: 'Был(а) в сети',
+            sortBy: 'Сортировка',
+            never: 'Никогда',
+            openProfileHint: 'Нажмите на пользователя, чтобы открыть полную статистику',
+            userDetails: 'Профиль пользователя',
+            loadingDetails: 'Загрузка статистики...',
+            detailsFailed: 'Не удалось загрузить статистику пользователя',
+            overview: 'Обзор',
+            activity: 'Активность',
+            pointsLedger: 'История баллов',
+            votesTotal: 'Всего прогнозов',
+            accuracy: 'Точность прогнозов',
+            correctVotes: 'Верные',
+            wrongVotes: 'Неверные',
+            pendingVotes: 'В ожидании',
+            likesGiven: 'Лайков поставлено',
+            reportsSubmitted: 'Жалоб отправлено',
+            monthlyPoints: 'Баллов за месяц',
+            allTimeRank: 'Место за всё время',
+            monthlyRank: 'Место за месяц',
+            level: 'Уровень',
+            bio: 'О себе',
+            birthdate: 'Дата рождения',
+            notSet: 'Не указана',
+            firstVote: 'Первый прогноз',
+            lastVote: 'Последний прогноз',
+            favoriteCategories: 'Любимые категории',
+            noPointsHistory: 'Баллы пока не начислялись',
+            noVotesYet: 'Прогнозов пока нет',
+            outOf: 'из',
+            changeRoleLabel: 'Изменить роль',
         },
 
         // Create-poll wizard
@@ -413,6 +500,24 @@ export const translations: Record<Language, Translations> = {
             title: 'Таблица лидеров',
             loading: 'Загрузка...',
             pointsLabel: 'баллов',
+            monthlyTitle: 'Ивент месяца',
+            monthlyTab: 'За месяц',
+            allTimeTab: 'За всё время',
+            monthlySubtitle: 'Баллы, заработанные с начала месяца. Кто наберёт больше всех — становится призёром.',
+            allTimeSubtitle: 'Общий счёт за всю историю участия.',
+            endsIn: 'До конца ивента',
+            newWinnerIn: 'Новый призёр через',
+            eventClosed: 'Ивент завершён',
+            currentWinner: 'Текущий призёр',
+            noMonthlyLeaders: 'В этом месяце ещё никто не заработал баллы',
+            monthlyPointsLabel: 'за месяц',
+            totalPointsLabel: 'всего',
+            winsLabel: 'побед',
+            participants: 'участников',
+            days: 'д',
+            hours: 'ч',
+            minutes: 'м',
+            seconds: 'с',
         },
 
         // Right Panel
@@ -426,6 +531,9 @@ export const translations: Record<Language, Translations> = {
             topPredictors: 'Лидеры прогнозов',
             noLeaders: 'Пока нет лидеров',
             loadError: 'Ошибка загрузки',
+            monthlyLeader: 'заработано за месяц',
+            noMonthlyLeader: 'Призёр определится, когда появятся первые баллы этого месяца',
+            untilNewWinner: 'до нового призёра',
         },
 
         // Statistics
@@ -514,7 +622,7 @@ export const translations: Record<Language, Translations> = {
         // Sidebar
         sidebar: {
             tagline: 'A service for testing your intuition. Only fresh news and interesting polls.',
-            projectNews: 'Project News',
+            latestNews: 'Latest news',
             favorites: 'Favorites',
             openPolls: 'Open polls',
             chats: 'Chats',
@@ -625,6 +733,38 @@ export const translations: Record<Language, Translations> = {
             tagsPlaceholder: 'Type a tag and press Enter or comma',
             questionPlaceholder: 'Question',
             optionPlaceholder: 'Option',
+            registered: 'Registered',
+            lastSeen: 'Last seen',
+            sortBy: 'Sort by',
+            never: 'Never',
+            openProfileHint: 'Click a user to open their full statistics',
+            userDetails: 'User profile',
+            loadingDetails: 'Loading statistics...',
+            detailsFailed: 'Could not load user statistics',
+            overview: 'Overview',
+            activity: 'Activity',
+            pointsLedger: 'Points history',
+            votesTotal: 'Predictions total',
+            accuracy: 'Prediction accuracy',
+            correctVotes: 'Correct',
+            wrongVotes: 'Wrong',
+            pendingVotes: 'Pending',
+            likesGiven: 'Likes given',
+            reportsSubmitted: 'Reports sent',
+            monthlyPoints: 'Points this month',
+            allTimeRank: 'All-time rank',
+            monthlyRank: 'Monthly rank',
+            level: 'Level',
+            bio: 'About',
+            birthdate: 'Birthdate',
+            notSet: 'Not set',
+            firstVote: 'First prediction',
+            lastVote: 'Last prediction',
+            favoriteCategories: 'Favorite categories',
+            noPointsHistory: 'No points awarded yet',
+            noVotesYet: 'No predictions yet',
+            outOf: 'of',
+            changeRoleLabel: 'Change role',
         },
 
         // Create-poll wizard
@@ -661,6 +801,24 @@ export const translations: Record<Language, Translations> = {
             title: 'Leaderboard',
             loading: 'Loading...',
             pointsLabel: 'points',
+            monthlyTitle: 'Monthly event',
+            monthlyTab: 'This month',
+            allTimeTab: 'All time',
+            monthlySubtitle: 'Points earned since the 1st. Whoever scores the most becomes the winner.',
+            allTimeSubtitle: 'Total score across the whole history.',
+            endsIn: 'Event ends in',
+            newWinnerIn: 'New winner in',
+            eventClosed: 'Event closed',
+            currentWinner: 'Current winner',
+            noMonthlyLeaders: 'Nobody has earned points this month yet',
+            monthlyPointsLabel: 'this month',
+            totalPointsLabel: 'total',
+            winsLabel: 'wins',
+            participants: 'participants',
+            days: 'd',
+            hours: 'h',
+            minutes: 'm',
+            seconds: 's',
         },
 
         // Right Panel
@@ -674,6 +832,9 @@ export const translations: Record<Language, Translations> = {
             topPredictors: 'Top Predictors',
             noLeaders: 'No leaders yet',
             loadError: 'Loading error',
+            monthlyLeader: 'earned this month',
+            noMonthlyLeader: 'The winner is decided once the first points of the month land',
+            untilNewWinner: 'until the new winner',
         },
 
         // Statistics

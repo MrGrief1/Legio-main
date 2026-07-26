@@ -10,12 +10,14 @@ import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { formatNewsDate } from '../utils/date';
 
 // Format a YYYY-MM-DD poll end date to DD.MM.YYYY; fall back to the raw string.
 const formatPollDate = (value: string): string => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
 };
+
 
 // How many voter chips to show inline before collapsing the rest behind a "+N" button.
 const VISIBLE_VOTERS = 3;
@@ -433,6 +435,12 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
           </div>
 
           <div className="px-6 pb-6 pt-2 lg:px-8 lg:pb-8">
+            {formatNewsDate(item.date) && (
+              <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                <Clock size={12} className="shrink-0" />
+                <span>{formatNewsDate(item.date)}</span>
+              </div>
+            )}
             <h3 className="text-xl lg:text-2xl font-bold text-zinc-900 dark:text-white mb-3 leading-tight hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
               {item.title}
             </h3>

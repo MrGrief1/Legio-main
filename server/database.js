@@ -301,7 +301,15 @@ function initDb() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(chat_id, created_at DESC)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_chat_participants_user_id ON chat_participants(user_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_points_history_user_id ON points_history(user_id)`);
+    // Monthly leaderboard sums points_history over a date window, per user.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_points_history_date ON points_history(calculation_date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_points_history_date_user ON points_history(calculation_date, user_id)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_visitor_sessions_date ON visitor_sessions(date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_users_points ON users(points DESC)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_votes_user_id ON votes(user_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_likes_user_id ON likes(user_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_polls_news_id ON polls(news_id)`);
 
     db.get('SELECT 1', (readyErr) => {
       if (readyErr) {

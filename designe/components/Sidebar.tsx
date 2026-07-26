@@ -229,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
       <div className="space-y-1.5 mb-6">
         <button onClick={onFeedClick} className={navItemClass(activeKey === 'feed')}>
           <MessageSquare size={18} className="shrink-0" />
-          <span className="truncate">{t.sidebar.projectNews}</span>
+          <span className="truncate">{t.sidebar.latestNews}</span>
         </button>
 
         <button

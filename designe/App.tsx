@@ -123,9 +123,11 @@ const AppContent: React.FC = () => {
   // shortcut and the category buttons, everything else maps straight to the view name.
   const activeNavKey = view === 'feed' ? (category === 'all' ? 'feed' : category) : view;
 
-  // Statistics takes the full width, so the right panel (and the auth card it carries) is absent —
-  // the sidebar has to own the account block in that case.
-  const rightPanelVisible = view !== 'statistics';
+  // Statistics and the admin panel are wide data views: they take the full width, so the right
+  // panel (and the auth card it carries) is absent — the sidebar has to own the account block in
+  // that case. Squeezing the admin user table into max-w-3xl clips its right-hand columns.
+  const isWideView = view === 'statistics' || view === 'admin';
+  const rightPanelVisible = !isWideView;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white font-sans selection:bg-blue-100 dark:selection:bg-zinc-700 selection:text-blue-900 dark:selection:text-white transition-colors duration-300 overflow-x-hidden">
@@ -248,7 +250,7 @@ const AppContent: React.FC = () => {
           />
         </div>
 
-        <div className={`flex-1 w-full min-w-0 ${view === 'statistics' ? '' : 'max-w-3xl'}`}>
+        <div className={`flex-1 w-full min-w-0 ${isWideView ? '' : 'max-w-3xl'}`}>
           {view === 'feed' ? <Feed category={category} search={search} /> :
             view === 'open-polls' ? <Feed category="all" search={search} pollStatus="open" /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><AdminPanel /></div> :
