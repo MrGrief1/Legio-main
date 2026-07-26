@@ -282,29 +282,42 @@ app.use('/uploads', (req, res, next) => {
 
 // Rate Limiting
 if (rateLimit) {
+    // 100 per 15 minutes was far below what one honest visitor generates. Opening the app costs
+    // several calls (session, feed, categories, leaders, monthly event), and each of those is
+    // re-read while the tab is open — so an ordinary browsing session hit the ceiling and the app
+    // locked the user out of their own site with 429s on every panel.
+    //
+    // 600 per 15 minutes (~40/min) leaves a real user far from the limit while still stopping a
+    // scraper. Preflights are excluded: a browser sends them automatically and they carry no cost.
     const limiter = rateLimit({
         windowMs: 15 * 60 * 1000,
-        max: 100,
+        max: Number.parseInt(process.env.RATE_LIMIT_MAX || '', 10) || 600,
         standardHeaders: true,
         legacyHeaders: false,
+        skip: (req) => req.method === 'OPTIONS',
         message: { message: "Too many requests. Please try again later." },
     });
     app.use('/api/', limiter);
 
+    // Only FAILED sign-ins count (skipSuccessfulRequests), so this is a brute-force guard, not a
+    // usage cap. 5 per hour punished ordinary typos with an hour-long lockout and, on a shared or
+    // mobile-NAT address, locked out everyone behind it. 10 per 15 minutes still caps an attacker
+    // at 40 guesses an hour against a password that needs upper, lower and a digit.
     const loginLimiter = rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 5,
+        windowMs: 15 * 60 * 1000,
+        max: Number.parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '', 10) || 10,
         standardHeaders: true,
         legacyHeaders: false,
         skipSuccessfulRequests: true,
-        message: { message: "Too many login attempts. Please try again later." }
+        message: { message: "Слишком много попыток входа. Попробуйте через 15 минут." }
     });
     const registerLimiter = rateLimit({
         windowMs: 60 * 60 * 1000,
-        max: 5,
+        max: 10,
         standardHeaders: true,
         legacyHeaders: false,
-        message: { message: "Too many registration attempts. Please try again later." }
+        skipSuccessfulRequests: true,
+        message: { message: "Слишком много попыток регистрации. Попробуйте позже." }
     });
     // Changing a password or an email is the step an account takeover has to pass through, and
     // it is also the cheapest place to brute-force a session. Cap it well below the global limit.
@@ -353,15 +366,17 @@ if (rateLimit) {
         };
     };
 
+    // Kept in step with the express-rate-limit values above, for the fallback path where that
+    // package isn't installed.
     const simpleLimiter = createSimpleLimiter({
         windowMs: 15 * 60 * 1000,
-        max: 100,
+        max: Number.parseInt(process.env.RATE_LIMIT_MAX || '', 10) || 600,
         message: "Too many requests. Please try again later."
     });
     const simpleAuthLimiter = createSimpleLimiter({
-        windowMs: 60 * 60 * 1000,
-        max: 5,
-        message: "Too many authentication attempts. Please try again later."
+        windowMs: 15 * 60 * 1000,
+        max: 10,
+        message: "Слишком много попыток входа. Попробуйте через 15 минут."
     });
 
     app.use('/api/', simpleLimiter);

@@ -199,7 +199,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (!hasTransitionedIn && !isOpen) return null;
 
     return createPortal(
-        <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-300 ${isOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
+        // p-0 below sm: the panel is already sized h-full/rounded-none for phones, but this
+        // wrapper's padding was insetting it on all four sides, so it never actually reached the
+        // edges. Padding returns from sm up, where the modal is a centred card again.
+        <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-0 sm:p-4 transition-all duration-300 ${isOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
             {/* Blur Overlay */}
             <div
                 className={`absolute inset-0 bg-black/60 transition-opacity duration-300 ease-out ${isOpen ? 'opacity-100' : 'opacity-0'}`}
@@ -208,7 +211,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             {/* Modal Content */}
             <div
-                className={`relative bg-white dark:bg-[#121212] w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden sm:max-h-[90vh] overflow-y-auto custom-scrollbar will-change-transform transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+                // The scale-in is only applied from sm up: scaling a full-screen sheet leaves a
+                // visible gap around it mid-animation, so on phones it just fades.
+                className={`relative bg-white dark:bg-[#121212] w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden sm:max-h-[90vh] overflow-y-auto custom-scrollbar will-change-transform transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isOpen ? 'opacity-100 sm:scale-100' : 'opacity-0 sm:scale-95'}`}
             >
 
                 {/* Header */}

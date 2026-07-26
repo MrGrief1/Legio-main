@@ -41,7 +41,6 @@ interface SidebarProps {
   onSearch?: (query: string) => void;
 }
 
-import { User } from '../types';
 
 type SidebarCategory = {
   id: string;
@@ -130,28 +129,13 @@ const SidebarAccount: React.FC = () => {
 export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, activeKey = 'feed', accountVisibility = 'auto', onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onOpenPollsClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const [leaders, setLeaders] = React.useState<User[]>([]);
   const [categories, setCategories] = React.useState<SidebarCategory[]>([]);
   const [isLevelsModalOpen, setIsLevelsModalOpen] = React.useState(false);
 
+  // The sidebar used to fetch /api/leaders here and never render the result — a wasted request on
+  // every mount, and the sidebar mounts twice (desktop column + mobile menu). The leaderboard lives
+  // in the right panel and on its own page; nothing here needs it.
   React.useEffect(() => {
-    fetch(`${API_URL}/leaders`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch');
-        return res.json();
-      })
-      .then(data => {
-        if (Array.isArray(data)) {
-          setLeaders(data);
-        } else {
-          setLeaders([]);
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        setLeaders([]);
-      });
-
     fetch(`${API_URL}/categories`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch categories');

@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { API_URL } from '../config';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 interface User {
   id: number;
@@ -34,7 +35,8 @@ const AuthContext = createContext<AuthContextType>({
 
 // How often the signed-in user's own record is re-read while the tab is open, so points and level
 // earned elsewhere (a poll being resolved, the monthly prize landing) appear without a reload.
-const USER_POLL_INTERVAL_MS = 60_000;
+// Deliberately unhurried: this is a background correction, not something the user is waiting on.
+const USER_POLL_INTERVAL_MS = 300_000;
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -75,28 +77,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser().finally(() => setIsLoading(false));
   }, [refreshUser]);
 
-  // Keep the account fresh: on an interval, and immediately when the tab regains focus (the moment
-  // the user is most likely to notice something is out of date).
-  useEffect(() => {
-    if (!user) return;
-
-    const interval = setInterval(refreshUser, USER_POLL_INTERVAL_MS);
-    const onFocus = () => refreshUser();
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshUser();
-    };
-
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-    // Depends only on whether someone is signed in — not on the user object, which this very
-    // effect replaces on every poll and would otherwise restart the interval each time.
-  }, [!!user, refreshUser]);
+  // Keep the account fresh while the tab is open. Only runs when someone is signed in — there is
+  // nothing to refresh otherwise.
+  useAutoRefresh(refreshUser, { intervalMs: USER_POLL_INTERVAL_MS, enabled: !!user });
 
   const login = (token: string, userData: User) => {
     localStorage.setItem('token', token);

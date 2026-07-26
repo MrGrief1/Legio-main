@@ -8,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { API_URL } from '../config';
 import { CountdownTimer } from './CountdownTimer';
 import { UserProfileModal } from './UserProfileModal';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 // Months in the case each language needs: Russian genitive ("Призёр января"),
 // English nominative ("January winner").
@@ -40,60 +41,33 @@ export const RightPanel: React.FC = () => {
   const [monthly, setMonthly] = useState<MonthlyResponse | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
+  // A failed request keeps whatever is already on screen. Blanking the panel on error is what made
+  // a transient failure look like "everything disappeared" — the data was fine, one fetch wasn't.
   const load = useCallback(() => {
     fetch(`${API_URL}/leaders`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch');
-        return res.json();
-      })
+      .then(res => (res.ok ? res.json() : null))
       .then(data => {
-        if (Array.isArray(data)) {
-          setLeaders(data);
-        } else {
-          console.error('Leaders data is not an array:', data);
-          setLeaders([]);
-        }
+        if (Array.isArray(data)) setLeaders(data);
       })
-      .catch(err => {
-        console.error(err);
-        setLeaders([]);
-      });
+      .catch(err => console.error(err));
 
     // The prize block is scored on the monthly event, not the all-time table: the person with the
     // biggest all-time total is usually not the one who earned the most this month.
     fetch(`${API_URL}/leaders/monthly`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch monthly leaders');
-        return res.json();
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data && typeof data === 'object') setMonthly(data);
       })
-      .then(data => setMonthly(data && typeof data === 'object' ? data : null))
-      .catch(err => {
-        console.error(err);
-        setMonthly(null);
-      });
+      .catch(err => console.error(err));
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // The prize block and the top-three list both go stale as soon as a poll is resolved elsewhere,
-  // so refresh them on an interval and whenever the tab regains focus.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') load();
-    };
-
-    const interval = setInterval(load, 60_000);
-    window.addEventListener('focus', load);
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', load);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [load]);
+  // The prize block and the top-three list go stale when a poll is resolved elsewhere. This costs
+  // two requests per run, so it is the panel that most needs the throttling the hook provides.
+  useAutoRefresh(load);
 
   const winner = monthly?.winner || null;
 

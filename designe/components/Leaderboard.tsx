@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { Avatar } from './Avatar';
 import { CountdownTimer } from './CountdownTimer';
 import { UserProfileModal } from './UserProfileModal';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 type LeaderboardTab = 'month' | 'all';
 
@@ -90,24 +91,9 @@ export const Leaderboard: React.FC = () => {
         load();
     }, [load]);
 
-    // Standings move whenever a poll is resolved elsewhere, so re-read them periodically and the
-    // moment the tab comes back into focus.
-    useEffect(() => {
-        const refresh = () => load(true);
-        const onVisible = () => {
-            if (document.visibilityState === 'visible') refresh();
-        };
-
-        const interval = setInterval(refresh, 60_000);
-        window.addEventListener('focus', refresh);
-        document.addEventListener('visibilitychange', onVisible);
-
-        return () => {
-            clearInterval(interval);
-            window.removeEventListener('focus', refresh);
-            document.removeEventListener('visibilitychange', onVisible);
-        };
-    }, [load]);
+    // Standings move whenever a poll is resolved elsewhere. `silent` so a background refresh never
+    // replaces the visible table with a spinner.
+    useAutoRefresh(() => load(true));
 
     const monthIndex = monthly?.monthIndex ?? new Date().getMonth();
     const eventHeading = language === 'ru'

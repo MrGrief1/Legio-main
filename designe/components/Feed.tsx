@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { NewsCard } from './FeedComponents';
 import { API_URL } from '../config';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 // 'open' shows only posts whose poll is still unresolved — the "Незавершённые опросы" tab.
 export type FeedPollStatus = 'all' | 'open';
@@ -13,6 +14,7 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [rateLimited, setRateLimited] = useState(false);
   const [page, setPage] = useState(1);
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -40,10 +42,20 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
 
     return fetch(url, { headers })
       .then(res => {
+        // 429 is the one failure worth naming: the feed is fine, the client is being throttled, and
+        // saying "no news in this category" for it sends the user hunting for a problem that isn't
+        // there.
+        if (res.status === 429) {
+          const error: any = new Error('rate limited');
+          error.rateLimited = true;
+          throw error;
+        }
         if (!res.ok) throw new Error('Failed to fetch');
         return res.json();
       })
       .then((data) => {
+        setRateLimited(false);
+
         if (!Array.isArray(data)) {
           console.error('Data is not an array:', data);
           if (mode === 'replace') {
@@ -73,7 +85,9 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       })
       .catch(err => {
         console.error(err);
-        if (mode === 'replace') {
+        if (err?.rateLimited) setRateLimited(true);
+        // A background refresh that fails must leave the loaded feed alone.
+        if (mode === 'replace' && !err?.rateLimited) {
           setNews([]);
           setHasMore(false);
         }
@@ -99,26 +113,15 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
         .then(() => sessionStorage.setItem('visited', 'true'))
         .catch(console.error);
     }
-  }, [category, search, pollStatus, user, fetchFeedPage]);
+    // user?.id, not `user`: the account object is replaced on every background refresh, and
+    // depending on it made this effect re-run and 'replace' the whole feed — resetting pagination
+    // and yanking a reader who had scrolled back to the top. Only a change of *who* is signed in
+    // matters here, because that changes the per-user fields (is_liked, the vote they cast).
+  }, [category, search, pollStatus, user?.id, fetchFeedPage]);
 
-  // Bring in posts published while the tab sat open. Only the first page is re-read, and the merge
-  // in fetchFeedPage keeps already-loaded pages intact, so this never disturbs scroll position.
-  useEffect(() => {
-    const refreshFirstPage = () => fetchFeedPage(1, 'merge');
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refreshFirstPage();
-    };
-
-    const interval = setInterval(refreshFirstPage, 90_000);
-    window.addEventListener('focus', refreshFirstPage);
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', refreshFirstPage);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [fetchFeedPage]);
+  // Bring in posts published while the tab sat open. Only the first page is re-read, and 'merge'
+  // keeps already-loaded pages intact, so this never disturbs scroll position.
+  useAutoRefresh(() => fetchFeedPage(1, 'merge'));
 
   useEffect(() => {
     if (!loadMoreRef.current || loading || loadingMore || !hasMore) return;
@@ -176,7 +179,14 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
              here, and both talked about "this category" even when the list was empty because a
              search matched nothing — which reads as a broken feed rather than no results. */
           <div className="text-center text-zinc-500 dark:text-zinc-400 py-14 px-4">
-            {loading ? 'Загрузка...' : search ? (
+            {loading ? 'Загрузка...' : rateLimited ? (
+              <>
+                <p className="text-base font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Слишком много запросов
+                </p>
+                <p className="text-sm">Сервер временно ограничил обращения. Подождите минуту и обновите страницу.</p>
+              </>
+            ) : search ? (
               <>
                 <p className="text-base font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   По запросу «{search}» ничего не найдено

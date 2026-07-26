@@ -50,11 +50,15 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, []);
 
+    // `isOpen && user`, not `isOpen || user`: the chat entry is currently hidden from the nav, so
+    // the modal is never opened — yet the old condition fetched the chat list for every signed-in
+    // visitor, and re-fetched it on every background account refresh (the dependency was the whole
+    // user object). That was a request per refresh for a feature nobody can reach.
     useEffect(() => {
-        if (isOpen || user) {
+        if (isOpen && user) {
             fetchChats();
         }
-    }, [isOpen, user]);
+    }, [isOpen, user?.id]);
 
     // Optimized polling with visibility check
     useEffect(() => {

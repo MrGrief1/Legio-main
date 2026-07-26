@@ -127,6 +127,15 @@ const AppContent: React.FC = () => {
     if (value === '') setAppliedSearch('');
   }, []);
 
+  // Navigating anywhere drops the query. Without this, tapping "Последние новости" left the old
+  // search applied: the section header said "latest news" while the list stayed filtered (usually
+  // to nothing), with no visible reason and no obvious way out.
+  const clearSearch = useCallback(() => {
+    setSearch('');
+    setAppliedSearch('');
+    setMobileSearchOpen(false);
+  }, []);
+
   useEffect(() => {
     if (search === appliedSearch) return;
     if (search === '') return; // already handled synchronously above
@@ -155,7 +164,17 @@ const AppContent: React.FC = () => {
     setCategory(catId);
     setView('feed');
     setMobileMenuOpen(false);
+    clearSearch();
   };
+
+  // Every nav destination resets the query, so a stale search can never survive a navigation and
+  // silently filter whatever the user lands on next.
+  const goTo = useCallback((next: typeof view, nextCategory?: string) => {
+    setView(next);
+    if (nextCategory !== undefined) setCategory(nextCategory);
+    setMobileMenuOpen(false);
+    clearSearch();
+  }, [clearSearch]);
 
   // Which sidebar entry to highlight: the feed view splits into the "all news" tab, the favorites
   // shortcut and the category buttons, everything else maps straight to the view name.
@@ -191,7 +210,7 @@ const AppContent: React.FC = () => {
 
         {/* Mobile Header */}
         <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 z-40 flex items-center justify-between px-4 transition-colors duration-300">
-          <div className="flex items-center gap-3" onClick={() => { setView('feed'); setCategory('all'); }}>            <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <div className="flex items-center gap-3" onClick={() => goTo('feed', 'all')}>            <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M36 19C36 28.5 28 36 19 36C16.5 36 14 35.5 12 34.5L4 37L6.5 29C4.5 26.5 4 23 4 19C4 10 11 3 20 3C29 3 36 10 36 19Z" stroke="currentColor" strokeWidth="3" className="text-black dark:text-white" strokeLinecap="round" strokeLinejoin="round" />
             <rect x="11" y="18" width="4" height="8" rx="1" className="fill-black dark:fill-white" />
             <rect x="18" y="11" width="4" height="15" rx="1" fill="#06b6d4" />
@@ -221,7 +240,7 @@ const AppContent: React.FC = () => {
 
         {/* Mobile search row — slides out under the header and stays visible over the results. */}
         <div
-          className={`md:hidden fixed top-16 left-0 right-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 overflow-hidden transition-all duration-300 ${mobileSearchOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'
+          className={`md:hidden fixed top-16 left-0 right-0 z-30 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 overflow-hidden transition-[max-height,opacity] duration-300 ${mobileSearchOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'
             }`}
         >
           <div className="flex items-center gap-2 px-4 py-3">
@@ -257,7 +276,7 @@ const AppContent: React.FC = () => {
           <div className="min-h-full flex flex-col p-4 pb-12">
             {/* Menu Header */}
             <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3" onClick={() => { setView('feed'); setMobileMenuOpen(false) }}>
+              <div className="flex items-center gap-3" onClick={() => goTo('feed', 'all')}>
                 <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M36 19C36 28.5 28 36 19 36C16.5 36 14 35.5 12 34.5L4 37L6.5 29C4.5 26.5 4 23 4 19C4 10 11 3 20 3C29 3 36 10 36 19Z" stroke="currentColor" strokeWidth="3" className="text-black dark:text-white" strokeLinecap="round" strokeLinejoin="round" />
                   <rect x="11" y="18" width="4" height="8" rx="1" className="fill-black dark:fill-white" />
@@ -297,16 +316,16 @@ const AppContent: React.FC = () => {
               showHeader={false}
               activeKey={activeNavKey}
               accountVisibility="never"
-              onAdminClick={() => { setView('admin'); setMobileMenuOpen(false) }}
-              onCreatePollClick={() => { setView('create'); setMobileMenuOpen(false) }}
-              onManagePollsClick={() => { setView('manage'); setMobileMenuOpen(false) }}
-              onFeedClick={() => { setView('feed'); setCategory('all'); setMobileMenuOpen(false); }}
-              onOpenPollsClick={() => { setView('open-polls'); setMobileMenuOpen(false) }}
-              onLeaderboardClick={() => { setView('leaderboard'); setMobileMenuOpen(false) }}
-              onStatisticsClick={() => { setView('statistics'); setMobileMenuOpen(false) }}
-              onErrorReportsClick={() => { setView('reports'); setMobileMenuOpen(false) }}
+              onAdminClick={() => goTo('admin')}
+              onCreatePollClick={() => goTo('create')}
+              onManagePollsClick={() => goTo('manage')}
+              onFeedClick={() => goTo('feed', 'all')}
+              onOpenPollsClick={() => goTo('open-polls')}
+              onLeaderboardClick={() => goTo('leaderboard')}
+              onStatisticsClick={() => goTo('statistics')}
+              onErrorReportsClick={() => goTo('reports')}
               onChatsClick={() => { setChatOpen(true); setMobileMenuOpen(false); }}
-              onInfoClick={() => { setView('info'); setMobileMenuOpen(false); }}
+              onInfoClick={() => goTo('info')}
               onCategorySelect={handleCategorySelect}
               onSearch={handleSearchChange}
             />
@@ -325,16 +344,16 @@ const AppContent: React.FC = () => {
             toggleTheme={toggleTheme}
             activeKey={activeNavKey}
             accountVisibility={rightPanelVisible ? 'auto' : 'always'}
-            onAdminClick={() => setView('admin')}
-            onCreatePollClick={() => setView('create')}
-            onManagePollsClick={() => setView('manage')}
-            onFeedClick={() => { setView('feed'); setCategory('all'); }}
-            onOpenPollsClick={() => setView('open-polls')}
-            onLeaderboardClick={() => setView('leaderboard')}
-            onStatisticsClick={() => setView('statistics')}
-            onErrorReportsClick={() => setView('reports')}
+            onAdminClick={() => goTo('admin')}
+            onCreatePollClick={() => goTo('create')}
+            onManagePollsClick={() => goTo('manage')}
+            onFeedClick={() => goTo('feed', 'all')}
+            onOpenPollsClick={() => goTo('open-polls')}
+            onLeaderboardClick={() => goTo('leaderboard')}
+            onStatisticsClick={() => goTo('statistics')}
+            onErrorReportsClick={() => goTo('reports')}
             onChatsClick={() => setChatOpen(true)}
-            onInfoClick={() => setView('info')}
+            onInfoClick={() => goTo('info')}
             onCategorySelect={handleCategorySelect}
             onSearch={handleSearchChange}
           />

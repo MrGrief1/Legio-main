@@ -11,3 +11,15 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* input[type="search"] renders a browser-drawn clear button (the blue "x" in Chrome). The search
+   field already has its own clear control, so the native one is a second, differently-styled
+   cross sitting next to it. Hide it and keep the one the app draws. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
