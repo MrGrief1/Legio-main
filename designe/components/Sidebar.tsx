@@ -313,7 +313,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
 
           <div className="h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-1000"
+              // transition-[width], not transition-all: only the width animates, and `all` over a
+              // full second made this bar the last thing to vanish when the mobile menu closed.
+              className="h-full bg-blue-500 rounded-full transition-[width] duration-1000"
               style={{
                 width: `${Math.min(100, Math.max(0, ((user.points || 0) - getLevel(user.points || 0).minPoints) / ((LEVELS[getLevel(user.points || 0).id]?.minPoints || (getLevel(user.points || 0).minPoints * 2)) - getLevel(user.points || 0).minPoints) * 100))}%`
               }}

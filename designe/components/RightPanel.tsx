@@ -126,9 +126,17 @@ export const RightPanel: React.FC = () => {
                 </div>
               </>
             ) : (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                {t.rightPanel.noMonthlyLeader}
-              </p>
+              <>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  {t.rightPanel.noMonthlyLeader}
+                </p>
+                {/* State the reward even with no winner yet — otherwise this block says only that
+                    nobody has scored, and never mentions what is on offer. */}
+                <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString()}</span>{' '}
+                  {t.rightPanel.prizePoints} {t.rightPanel.forFirstPlace}
+                </p>
+              </>
             )}
 
             {monthly.isCurrentMonth && (

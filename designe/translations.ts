@@ -198,6 +198,8 @@ export interface Translations {
         pointsLabel: string;
         // Monthly event table
         monthlyTitle: string;
+        // "{points}" is substituted with the prize amount reported by the server.
+        prizeRule: string;
         monthlyTab: string;
         allTimeTab: string;
         monthlySubtitle: string;
@@ -230,6 +232,7 @@ export interface Translations {
         loadError: string;
         monthlyLeader: string;
         noMonthlyLeader: string;
+        forFirstPlace: string;
         untilNewWinner: string;
     };
 
@@ -501,6 +504,7 @@ export const translations: Record<Language, Translations> = {
             loading: 'Загрузка...',
             pointsLabel: 'баллов',
             monthlyTitle: 'Ивент месяца',
+            prizeRule: 'За 1-е место — {points} баллов. Побеждает тот, кто наберёт больше всех баллов с начала месяца.',
             monthlyTab: 'За месяц',
             allTimeTab: 'За всё время',
             monthlySubtitle: 'Баллы, заработанные с начала месяца. Кто наберёт больше всех — становится призёром.',
@@ -533,6 +537,7 @@ export const translations: Record<Language, Translations> = {
             loadError: 'Ошибка загрузки',
             monthlyLeader: 'заработано за месяц',
             noMonthlyLeader: 'Призёр определится, когда появятся первые баллы этого месяца',
+            forFirstPlace: 'за 1-е место',
             untilNewWinner: 'до нового призёра',
         },
 
@@ -802,6 +807,7 @@ export const translations: Record<Language, Translations> = {
             loading: 'Loading...',
             pointsLabel: 'points',
             monthlyTitle: 'Monthly event',
+            prizeRule: '1st place gets {points} points. The winner is whoever earns the most points since the 1st.',
             monthlyTab: 'This month',
             allTimeTab: 'All time',
             monthlySubtitle: 'Points earned since the 1st. Whoever scores the most becomes the winner.',
@@ -834,6 +840,7 @@ export const translations: Record<Language, Translations> = {
             loadError: 'Loading error',
             monthlyLeader: 'earned this month',
             noMonthlyLeader: 'The winner is decided once the first points of the month land',
+            forFirstPlace: 'for 1st place',
             untilNewWinner: 'until the new winner',
         },
 

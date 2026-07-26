@@ -158,6 +158,21 @@ export const Leaderboard: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* The reward, stated up front. It belongs outside the winner block so it is
+                        visible before anyone has scored — that is exactly when someone is deciding
+                        whether the event is worth entering. */}
+                    <div className="flex items-start gap-2 mb-4 p-3 rounded-2xl bg-white/70 dark:bg-zinc-900/40 border border-yellow-200/70 dark:border-yellow-500/20">
+                        <Trophy size={16} className="text-yellow-600 dark:text-yellow-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-snug">
+                            {/* Formatted for the active language: bare toLocaleString() would put an
+                                English comma ("5,000") inside a Russian sentence. */}
+                            {t.leaderboard.prizeRule.replace(
+                                '{points}',
+                                (monthly.prizePoints || 0).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')
+                            )}
+                        </p>
+                    </div>
+
                     <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                         {/* Current winner */}
                         <div className="flex-1 min-w-0">

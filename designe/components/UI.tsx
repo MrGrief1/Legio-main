@@ -26,7 +26,12 @@ export const Button: React.FC<ButtonProps> = ({
   icon,
   ...props
 }) => {
-  const baseStyles = "flex items-center justify-center gap-2 px-6 py-3 rounded-full font-medium transition-all duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-black";
+  // Deliberately NOT `transition-all`. `visibility` is a transitionable property, so `all` makes a
+  // button delay the `visibility: hidden` it inherits when an ancestor is hidden — which is how the
+  // logout button ended up fading out ~200ms after everything else in the mobile menu, and the same
+  // in every modal (they all hide their wrapper with `invisible`). Listing the properties that
+  // actually animate keeps the hover states and removes the lag.
+  const baseStyles = "flex items-center justify-center gap-2 px-6 py-3 rounded-full font-medium transition-[color,background-color,border-color,opacity,box-shadow] duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-black";
 
   const variants = {
     primary: "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 border border-transparent",
@@ -58,7 +63,9 @@ export const Input: React.FC<InputProps> = ({ icon, className = '', ...props }) 
       </div>
     )}
     <input
-      className={`w-full bg-zinc-100 dark:bg-zinc-900 border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 focus:border-zinc-400 dark:focus:border-zinc-600 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 rounded-full py-3 ${icon ? 'pl-11' : 'pl-5'} pr-5 text-sm text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-zinc-600 focus:outline-none transition-all duration-200 ${className}`}
+      // Same reason as Button above: `transition-all` would delay the inherited visibility change
+      // and make inputs linger after their dialog closes.
+      className={`w-full bg-zinc-100 dark:bg-zinc-900 border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 focus:border-zinc-400 dark:focus:border-zinc-600 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 rounded-full py-3 ${icon ? 'pl-11' : 'pl-5'} pr-5 text-sm text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-zinc-600 focus:outline-none transition-[border-color,box-shadow,background-color] duration-200 ${className}`}
       {...props}
     />
   </div>
