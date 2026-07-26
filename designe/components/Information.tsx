@@ -168,9 +168,11 @@ export const Information: React.FC = () => {
 
     return (
         <div className="w-full max-w-4xl mx-auto">
-            {/* Header + tabs. Sticky so the reader can switch sections without scrolling
-                back to the top of a very long page. */}
-            <div className="sticky top-0 z-20 -mx-3 md:-mx-4 lg:-mx-8 px-3 md:px-4 lg:px-8 pt-1 pb-3 bg-zinc-50/90 dark:bg-black/90 backdrop-blur-xl">
+            {/* Header + tabs sit in the normal flow, with no panel behind them.
+                They used to be sticky, which required an opaque backdrop so the page didn't show
+                through while scrolling — and that backdrop read as a pale rectangle sitting on top
+                of the page background. Dropping the sticky positioning removes the need for it. */}
+            <div className="pt-1 pb-3">
                 <div className="flex items-center gap-3 mb-4 px-1">
                     <svg width="34" height="34" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
                         <path d="M36 19C36 28.5 28 36 19 36C16.5 36 14 35.5 12 34.5L4 37L6.5 29C4.5 26.5 4 23 4 19C4 10 11 3 20 3C29 3 36 10 36 19Z" stroke="currentColor" strokeWidth="2.5" className="text-black dark:text-white" strokeLinecap="round" strokeLinejoin="round" />
