@@ -271,7 +271,13 @@ const AppContent: React.FC = () => {
 
         {/* Redesigned Mobile Menu Overlay (Full Screen) */}
         <div
-          className={`fixed inset-0 z-50 bg-zinc-50 dark:bg-black overflow-y-auto transition-opacity duration-300 md:hidden ${mobileMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
+          // `visibility` is in the transition list on purpose. Transitioning opacity alone made the
+          // menu fade IN but snap OUT: `invisible` takes effect immediately, so the element vanished
+          // before the fade could play. Including visibility defers the hide to the end of the
+          // duration, which is what makes closing mirror opening. It stays in the class list (rather
+          // than being dropped for `pointer-events-none` alone) so the closed menu is genuinely
+          // hidden — not an invisible layer that still holds focusable links.
+          className={`fixed inset-0 z-50 bg-zinc-50 dark:bg-black overflow-y-auto transition-[opacity,visibility] duration-300 ease-out md:hidden ${mobileMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
             }`}
         >
           <div className="min-h-full flex flex-col p-4 pb-12">
