@@ -26,7 +26,7 @@ import { DialogProvider } from './context/DialogContext';
 const AppContent: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [view, setView] = useState<'feed' | 'admin' | 'create' | 'manage' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
+  const [view, setView] = useState<'feed' | 'open-polls' | 'admin' | 'create' | 'manage' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
@@ -69,6 +69,20 @@ const AppContent: React.FC = () => {
   // Lock body scroll when mobile menu is open
   useScrollLock(mobileMenuOpen);
 
+  // The mobile menu is CSS-hidden from md up, but its scroll lock lives in React state. Close it
+  // when the viewport grows so a resize/rotation can't leave the page frozen behind a menu that
+  // is no longer visible.
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const handleChange = () => {
+      if (mediaQuery.matches) setMobileMenuOpen(false);
+    };
+
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
   // Open a specific post when arriving via a shared /?news=<id> link.
   const fetchDeepNews = useCallback((id: string) => {
     const headers: Record<string, string> = {};
@@ -105,6 +119,14 @@ const AppContent: React.FC = () => {
     setMobileMenuOpen(false);
   };
 
+  // Which sidebar entry to highlight: the feed view splits into the "all news" tab, the favorites
+  // shortcut and the category buttons, everything else maps straight to the view name.
+  const activeNavKey = view === 'feed' ? (category === 'all' ? 'feed' : category) : view;
+
+  // Statistics takes the full width, so the right panel (and the auth card it carries) is absent —
+  // the sidebar has to own the account block in that case.
+  const rightPanelVisible = view !== 'statistics';
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white font-sans selection:bg-blue-100 dark:selection:bg-zinc-700 selection:text-blue-900 dark:selection:text-white transition-colors duration-300 overflow-x-hidden">
 
@@ -122,10 +144,10 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="relative z-10 max-w-[1440px] mx-auto flex flex-col lg:flex-row lg:justify-center pt-16 lg:pt-0">
+      <div className="relative z-10 max-w-[1440px] mx-auto flex flex-col md:flex-row md:justify-center pt-16 md:pt-0">
 
         {/* Mobile Header */}
-        <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 z-40 flex items-center justify-between px-4 transition-colors duration-300">
+        <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 z-40 flex items-center justify-between px-4 transition-colors duration-300">
           <div className="flex items-center gap-3" onClick={() => { setView('feed'); setCategory('all'); }}>            <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M36 19C36 28.5 28 36 19 36C16.5 36 14 35.5 12 34.5L4 37L6.5 29C4.5 26.5 4 23 4 19C4 10 11 3 20 3C29 3 36 10 36 19Z" stroke="currentColor" strokeWidth="3" className="text-black dark:text-white" strokeLinecap="round" strokeLinejoin="round" />
             <rect x="11" y="18" width="4" height="8" rx="1" className="fill-black dark:fill-white" />
@@ -141,7 +163,7 @@ const AppContent: React.FC = () => {
 
         {/* Redesigned Mobile Menu Overlay (Full Screen) */}
         <div
-          className={`fixed inset-0 z-50 bg-zinc-50 dark:bg-black overflow-y-auto transition-opacity duration-300 lg:hidden ${mobileMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
+          className={`fixed inset-0 z-50 bg-zinc-50 dark:bg-black overflow-y-auto transition-opacity duration-300 md:hidden ${mobileMenuOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
             }`}
         >
           <div className="min-h-full flex flex-col p-4 pb-12">
@@ -185,10 +207,13 @@ const AppContent: React.FC = () => {
               toggleTheme={toggleTheme}
               className="!pt-0 !px-0 !h-auto overflow-visible"
               showHeader={false}
+              activeKey={activeNavKey}
+              accountVisibility="never"
               onAdminClick={() => { setView('admin'); setMobileMenuOpen(false) }}
               onCreatePollClick={() => { setView('create'); setMobileMenuOpen(false) }}
               onManagePollsClick={() => { setView('manage'); setMobileMenuOpen(false) }}
               onFeedClick={() => { setView('feed'); setCategory('all'); setMobileMenuOpen(false); }}
+              onOpenPollsClick={() => { setView('open-polls'); setMobileMenuOpen(false) }}
               onLeaderboardClick={() => { setView('leaderboard'); setMobileMenuOpen(false) }}
               onStatisticsClick={() => { setView('statistics'); setMobileMenuOpen(false) }}
               onErrorReportsClick={() => { setView('reports'); setMobileMenuOpen(false) }}
@@ -200,15 +225,19 @@ const AppContent: React.FC = () => {
           </div>
         </div>
 
-        {/* Desktop Sidebar */}
-        <div className="hidden lg:block w-72 h-screen sticky top-0 overflow-visible">
+        {/* Desktop Sidebar — from md up, so narrow laptops keep the nav instead of falling back
+            to the mobile burger menu. Scrolls on its own when it doesn't fit the viewport. */}
+        <div className="hidden md:block w-60 lg:w-72 shrink-0 h-screen sticky top-0 overflow-y-auto">
           <Sidebar
             theme={theme}
             toggleTheme={toggleTheme}
+            activeKey={activeNavKey}
+            accountVisibility={rightPanelVisible ? 'auto' : 'always'}
             onAdminClick={() => setView('admin')}
             onCreatePollClick={() => setView('create')}
             onManagePollsClick={() => setView('manage')}
             onFeedClick={() => { setView('feed'); setCategory('all'); }}
+            onOpenPollsClick={() => setView('open-polls')}
             onLeaderboardClick={() => setView('leaderboard')}
             onStatisticsClick={() => setView('statistics')}
             onErrorReportsClick={() => setView('reports')}
@@ -221,16 +250,17 @@ const AppContent: React.FC = () => {
 
         <div className={`flex-1 w-full min-w-0 ${view === 'statistics' ? '' : 'max-w-3xl'}`}>
           {view === 'feed' ? <Feed category={category} search={search} /> :
-            view === 'admin' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><AdminPanel /></div> :
-              view === 'create' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><CreatePoll /></div> :
-              view === 'manage' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><ManagePolls /></div> :
+            view === 'open-polls' ? <Feed category="all" search={search} pollStatus="open" /> :
+            view === 'admin' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><AdminPanel /></div> :
+              view === 'create' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><CreatePoll /></div> :
+              view === 'manage' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><ManagePolls /></div> :
               view === 'statistics' ? <Statistics /> :
                 view === 'reports' ? <ErrorReports /> :
-                  view === 'info' ? <div className="py-4 lg:py-8 px-2 lg:px-8"><Information /></div> :
-                    <div className="py-0 lg:py-8 px-0 lg:px-8"><Leaderboard /></div>}
+                  view === 'info' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><Information /></div> :
+                    <div className="py-0 lg:py-8 px-0 md:px-4 lg:px-8"><Leaderboard /></div>}
         </div>
 
-        {view !== 'statistics' && <RightPanel />}
+        {rightPanelVisible && <RightPanel />}
       </div>
 
       <ChatModal isOpen={chatOpen} onClose={() => setChatOpen(false)} />

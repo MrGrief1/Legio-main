@@ -826,6 +826,28 @@ const validateFeedCategory = (value) => {
     return validateCategory(normalized);
 };
 
+// The feed can be narrowed to posts whose poll is still open (the "Незавершённые опросы" tab,
+// where anyone can still cast a vote) or to posts whose poll already has a verdict.
+const FEED_POLL_STATUSES = new Set(['all', 'open', 'resolved']);
+
+const validateFeedPollStatus = (value) => {
+    if (value === undefined || value === null || value === '') {
+        return 'all';
+    }
+
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (!FEED_POLL_STATUSES.has(normalized)) {
+        throw createValidationError('pollStatus', 'pollStatus must be one of: all, open, resolved');
+    }
+
+    return normalized;
+};
+
+// Who voted for what is admin-only information: creators can create and resolve polls, but they
+// must not be able to tie a vote back to a person. Everyone (creators included) still gets the
+// aggregated counts/percentages.
+const canViewVoters = (role) => role === 'admin';
+
 // Each period declares the bucket granularity and how many buckets to render.
 const STATISTICS_PERIODS = new Map([
     ['24h', { granularity: 'hour', buckets: 24 }],
@@ -1419,7 +1441,9 @@ app.post('/api/visit', (req, res) => {
 // Get Feed (News + Polls)
 // Build a single feed item (news + nested poll) in the exact shape the feed returns.
 // Shared by GET /api/feed and GET /api/news/:id so a shared link renders identically.
-async function buildFeedItem(row, userId, isAdminViewer) {
+// `showVoters` must come from canViewVoters() — voter identities never leave the server for
+// anyone else, so a non-admin client cannot reveal them by tweaking the UI.
+async function buildFeedItem(row, userId, showVoters) {
     const item = {
         id: row.id,
         title: row.title,
@@ -1447,8 +1471,8 @@ async function buildFeedItem(row, userId, isAdminViewer) {
             async (err, opts) => {
                 if (err) reject(err);
                 else {
-                    // If admin, fetch voters for each option
-                    if (isAdminViewer) {
+                    // Admins only: attach the list of people behind each option.
+                    if (showVoters) {
                         const optsWithVoters = await Promise.all(opts.map(async (opt) => {
                             const voters = await new Promise((resVoters) => {
                                 db.all(
@@ -1507,7 +1531,8 @@ async function buildFeedItem(row, userId, isAdminViewer) {
         id: opt.id,
         text: opt.text,
         percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
-        voters: opt.voters // Include voters if present
+        // Left out of the payload entirely for non-admins (JSON drops undefined keys).
+        voters: showVoters ? (opt.voters || []) : undefined
     }));
 
     item.poll = {
@@ -1530,6 +1555,7 @@ app.get('/api/feed', (req, res) => {
     let search;
     let page;
     let limit;
+    let pollStatus;
 
     try {
         category = validateFeedCategory(req.query.category);
@@ -1543,6 +1569,7 @@ app.get('/api/feed', (req, res) => {
 
         page = parseBoundedInt(req.query.page, 'page', { min: 1, max: 100000, defaultValue: 1 });
         limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 100, defaultValue: 20 });
+        pollStatus = validateFeedPollStatus(req.query.pollStatus);
     } catch (error) {
         return sendValidationError(res, error);
     }
@@ -1558,33 +1585,55 @@ app.get('/api/feed', (req, res) => {
     `;
 
     const params = [userId || 0]; // userId parameter for is_liked subquery
+    const conditions = [];
 
     if (category && category !== 'all') {
         if (category === 'favorites') {
-            query += ` WHERE n.id IN (SELECT news_id FROM likes WHERE user_id = ?)`;
+            conditions.push(`n.id IN (SELECT news_id FROM likes WHERE user_id = ?)`);
             params.push(userId);
         } else {
-            query += ` WHERE n.category = ?`;
+            conditions.push(`n.category = ?`);
             params.push(category);
         }
     }
 
     if (search) {
-        // If category filter exists, use AND, else WHERE
-        query += (category && category !== 'all') ? ` AND` : ` WHERE`;
-        query += ` (n.title LIKE ? ESCAPE '\\' OR n.description LIKE ? ESCAPE '\\')`;
+        conditions.push(`(n.title LIKE ? ESCAPE '\\' OR n.description LIKE ? ESCAPE '\\')`);
         const searchPattern = `%${escapeSqlLike(search)}%`;
         params.push(searchPattern, searchPattern);
     }
 
-    query += ` ORDER BY n.created_at DESC LIMIT ? OFFSET ?`;
+    // Both poll filters imply "this post actually has a poll".
+    if (pollStatus === 'open') {
+        conditions.push(`p.id IS NOT NULL AND p.is_resolved = 0`);
+    } else if (pollStatus === 'resolved') {
+        conditions.push(`p.id IS NOT NULL AND p.is_resolved = 1`);
+    }
+
+    if (conditions.length > 0) {
+        query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    // Open polls are the ones people can still vote in, so lead with the ones closing soonest,
+    // then the ones without a deadline, and push the ones already past their date to the end.
+    query += pollStatus === 'open'
+        ? ` ORDER BY CASE
+                        WHEN p.ends_at IS NULL THEN 1
+                        WHEN p.ends_at >= date('now') THEN 0
+                        ELSE 2
+                    END ASC,
+                    p.ends_at ASC,
+                    n.created_at DESC`
+        : ` ORDER BY n.created_at DESC`;
+
+    query += ` LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    const continueWithViewerRole = (isAdminViewer) => {
+    const continueWithViewerRole = (showVoters) => {
         db.all(query, params, (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
 
-            Promise.all(rows.map((row) => buildFeedItem(row, userId, isAdminViewer)))
+            Promise.all(rows.map((row) => buildFeedItem(row, userId, showVoters)))
                 .then(results => res.json(results))
                 .catch(buildErr => res.status(500).json({ error: buildErr.message }));
         });
@@ -1600,7 +1649,7 @@ app.get('/api/feed', (req, res) => {
             continueWithViewerRole(false);
             return;
         }
-        continueWithViewerRole(dbUser?.role === 'admin');
+        continueWithViewerRole(canViewVoters(dbUser?.role));
     });
 });
 
@@ -1625,12 +1674,12 @@ app.get('/api/news/:id', (req, res) => {
         WHERE n.id = ?
     `;
 
-    const respond = (isAdminViewer) => {
+    const respond = (showVoters) => {
         db.get(query, [userId || 0, newsId], (err, row) => {
             if (err) return res.status(500).json({ error: err.message });
             if (!row) return res.status(404).json({ error: 'News not found' });
 
-            buildFeedItem(row, userId, isAdminViewer)
+            buildFeedItem(row, userId, showVoters)
                 .then(item => res.json(item))
                 .catch(buildErr => res.status(500).json({ error: buildErr.message }));
         });
@@ -1642,7 +1691,7 @@ app.get('/api/news/:id', (req, res) => {
     }
 
     db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
-        respond(!roleErr && dbUser?.role === 'admin');
+        respond(!roleErr && canViewVoters(dbUser?.role));
     });
 });
 

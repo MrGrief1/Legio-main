@@ -16,6 +16,8 @@ export interface Translations {
     sidebar: {
         tagline: string;
         projectNews: string;
+        favorites: string;
+        openPolls: string;
         chats: string;
         leaderboard: string;
         adminPanel: string;
@@ -265,6 +267,8 @@ export const translations: Record<Language, Translations> = {
         sidebar: {
             tagline: 'Сервис для проверки интуиции. Только свежие новости и интересные опросы.',
             projectNews: 'Новости проекта',
+            favorites: 'Избранное',
+            openPolls: 'Незавершённые опросы',
             chats: 'Чаты',
             leaderboard: 'Таблица лидеров',
             adminPanel: 'Админ панель',
@@ -511,6 +515,8 @@ export const translations: Record<Language, Translations> = {
         sidebar: {
             tagline: 'A service for testing your intuition. Only fresh news and interesting polls.',
             projectNews: 'Project News',
+            favorites: 'Favorites',
+            openPolls: 'Open polls',
             chats: 'Chats',
             leaderboard: 'Leaderboard',
             adminPanel: 'Admin Panel',

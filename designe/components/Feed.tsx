@@ -4,7 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { NewsCard } from './FeedComponents';
 import { API_URL } from '../config';
 
-export const Feed: React.FC<{ category?: string; search?: string }> = ({ category = 'all', search = '' }) => {
+// 'open' shows only posts whose poll is still unresolved — the "Незавершённые опросы" tab.
+export type FeedPollStatus = 'all' | 'open';
+
+export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: FeedPollStatus }> = ({ category = 'all', search = '', pollStatus = 'all' }) => {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -22,6 +25,9 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
     let url = `${API_URL}/feed?category=${category}&page=${pageToLoad}&limit=${PAGE_SIZE}`;
     if (search) {
       url += `&search=${encodeURIComponent(search)}`;
+    }
+    if (pollStatus !== 'all') {
+      url += `&pollStatus=${pollStatus}`;
     }
 
     return fetch(url, { headers })
@@ -50,7 +56,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
         setHasMore(false);
         if (!append) setNews([]);
       });
-  }, [category, search]);
+  }, [category, search, pollStatus]);
 
   const refreshFeed = useCallback(() => {
     setPage(1);
@@ -71,7 +77,7 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
         .then(() => sessionStorage.setItem('visited', 'true'))
         .catch(console.error);
     }
-  }, [category, search, user, fetchFeedPage]);
+  }, [category, search, pollStatus, user, fetchFeedPage]);
 
   useEffect(() => {
     if (!loadMoreRef.current || loading || loadingMore || !hasMore) return;
@@ -94,14 +100,24 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
     return () => observer.disconnect();
   }, [page, hasMore, loading, loadingMore, fetchFeedPage]);
 
+  const isOpenPolls = pollStatus === 'open';
+
   return (
-    <main className="flex-1 min-w-0 py-4 lg:py-8 px-4 lg:px-8 max-w-3xl mx-auto w-full">
+    <main className="flex-1 min-w-0 py-4 lg:py-8 px-3 sm:px-4 lg:px-8 max-w-3xl mx-auto w-full">
       {/* Hero Banner Removed as requested */}
 
       <div className="mb-6 px-2">
         <h2 className="text-xl font-medium text-zinc-900 dark:text-white">
-          {category === 'all' ? 'Новости проекта' : category === 'favorites' ? 'Избранное' : 'Новости категории'}
+          {isOpenPolls ? 'Незавершённые опросы'
+            : category === 'all' ? 'Новости проекта'
+              : category === 'favorites' ? 'Избранное'
+                : 'Новости категории'}
         </h2>
+        {isOpenPolls && (
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Опросы без результата — успейте проголосовать, пока они открыты.
+          </p>
+        )}
       </div>
 
       {/* Feed Items */}
@@ -112,10 +128,10 @@ export const Feed: React.FC<{ category?: string; search?: string }> = ({ categor
           ))
         ) : (
           <div className="text-center text-zinc-500 dark:text-zinc-400 py-10">
-            {loading ? 'Загрузка...' : 'В этой категории пока нет новостей или произошла ошибка загрузки'}
+            {loading ? 'Загрузка...' : isOpenPolls ? 'Открытых опросов пока нет' : 'В этой категории пока нет новостей или произошла ошибка загрузки'}
           </div>
         )}
-        {news.length === 0 && !loading && (
+        {news.length === 0 && !loading && !isOpenPolls && (
           <div className="text-center text-zinc-500 dark:text-zinc-400 py-10">
             В этой категории пока нет новостей
           </div>

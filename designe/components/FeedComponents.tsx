@@ -157,7 +157,9 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
   };
 
   const canResolve = user && (user.role === 'admin' || user.role === 'creator') && !pollData.is_resolved;
-  const isAdmin = user && user.role === 'admin';
+  // Who voted for what is admin-only: creators can resolve polls but must not see the names
+  // behind the votes. The server also withholds `option.voters` from everyone else.
+  const canSeeVoters = !!user && user.role === 'admin';
 
   return (
     <div
@@ -248,7 +250,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
                 </div>
               </div>
 
-              {showVoters && isAdmin && option.voters && option.voters.length > 0 && (
+              {showVoters && canSeeVoters && option.voters && option.voters.length > 0 && (
                 <div className="pl-10 pr-2 py-2 flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-top-2">
                   {option.voters.slice(0, VISIBLE_VOTERS).map((voter) => (
                     <div
@@ -290,7 +292,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
       </div>
 
       <div className="flex justify-between items-center h-10">
-        {isAdmin && (
+        {canSeeVoters && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowVoters(!showVoters); }}
             className="text-xs text-zinc-400 hover:text-blue-500 transition-colors flex items-center gap-1"

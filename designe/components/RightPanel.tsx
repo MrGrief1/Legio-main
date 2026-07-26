@@ -47,7 +47,7 @@ export const RightPanel: React.FC = () => {
     : `${MONTHS_EN[monthIndex]} ${t.rightPanel.prizeWinner}`;
 
   return (
-    <aside className="hidden xl:block w-80 h-screen sticky top-0 pt-8 pb-6 pl-6 overflow-visible">
+    <aside className="hidden xl:block w-80 shrink-0 h-screen sticky top-0 pt-8 pb-6 pl-6 overflow-y-auto">
 
       {/* Auth Card */}
       <AuthCard className="mb-8" />
