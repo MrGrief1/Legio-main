@@ -10,7 +10,7 @@ process.env.NODE_ENV = 'test';
 process.env.SECRET_KEY = '0123456789abcdef0123456789abcdef';
 process.env.DATABASE_PATH = path.join(tempDir, 'database.sqlite');
 
-const { app } = require('../index');
+const { app, isOriginAllowed } = require('../index');
 const db = require('../database');
 
 let server;
@@ -187,6 +187,63 @@ test('internal failures do not leak driver messages', async () => {
     assert.equal(response.status, 400);
     const serialized = JSON.stringify(response.body);
     assert.ok(!/SQLITE|no such column|syntax error/i.test(serialized), 'no driver detail in the response');
+});
+
+test('a same-origin request carrying an Origin header is served normally', async () => {
+    // Vite marks the bundle and stylesheet with crossorigin, so the browser sends an Origin header
+    // even when fetching the app's own assets. Treating that as cross-origin and rejecting it
+    // served the frontend a JSON error body in place of its CSS/JS and blanked the site in
+    // production. Same-origin must always pass, allowlist or not.
+    const selfOrigin = baseUrl;
+
+    const response = await request('/api/leaders', {
+        headers: { Origin: selfOrigin },
+    });
+
+    assert.equal(response.status, 200, 'the app must be able to call its own API');
+    assert.equal(response.headers.get('access-control-allow-origin'), selfOrigin);
+    assert.ok(Array.isArray(response.body));
+});
+
+test('a foreign origin never causes a server error', async () => {
+    const response = await request('/api/leaders', {
+        headers: { Origin: 'https://evil.example' },
+    });
+
+    // The browser is the enforcement point: when the grant is withheld it refuses to expose the
+    // body to the calling script. Answering 500 instead — which is what a thrown CORS error did —
+    // is a self-inflicted outage for legitimate callers and buries real faults in the logs.
+    assert.notEqual(response.status, 500, 'a policy decision must never surface as a server fault');
+});
+
+test('the CORS policy allows same-origin and refuses foreign origins in production', () => {
+    // Exercised directly rather than over HTTP: the test process runs with NODE_ENV=test, so the
+    // permissive development branch would mask the production rule this locks in.
+    const selfOrigin = 'https://chat-production-677a.up.railway.app';
+    const prod = { selfOrigin, isProduction: true, allowlist: null };
+
+    assert.equal(
+        isOriginAllowed({ ...prod, origin: selfOrigin }),
+        true,
+        'the app must always be allowed to fetch its own assets and API'
+    );
+    assert.equal(isOriginAllowed({ ...prod, origin: 'https://evil.example' }), false);
+    // A lookalike host must not slip through on a prefix match.
+    assert.equal(isOriginAllowed({ ...prod, origin: `${selfOrigin}.evil.example` }), false);
+    // http:// against an https:// deployment is a different origin.
+    assert.equal(isOriginAllowed({ ...prod, origin: 'http://chat-production-677a.up.railway.app' }), false);
+
+    // With an explicit allowlist, named origins pass and everything else still does not.
+    const withList = { selfOrigin, isProduction: true, allowlist: ['https://legio.news'] };
+    assert.equal(isOriginAllowed({ ...withList, origin: 'https://legio.news' }), true);
+    assert.equal(isOriginAllowed({ ...withList, origin: 'https://evil.example' }), false);
+    assert.equal(isOriginAllowed({ ...withList, origin: selfOrigin }), true, 'same-origin outranks the allowlist');
+
+    // Development with no allowlist stays permissive, so local tooling is not blocked.
+    assert.equal(
+        isOriginAllowed({ selfOrigin, isProduction: false, allowlist: null, origin: 'http://localhost:5173' }),
+        true
+    );
 });
 
 test('an unknown /api path answers with JSON, not the SPA shell', async () => {

@@ -134,41 +134,68 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     : null;
 
 if (IS_PRODUCTION && !allowedOrigins) {
-    console.warn('ALLOWED_ORIGINS is not set: cross-origin browser requests will be rejected. ' +
-        'Same-origin requests (the bundled frontend) are unaffected.');
+    console.log('ALLOWED_ORIGINS is not set: only same-origin browser requests are permitted. ' +
+        'The bundled frontend is same-origin, so this is the expected configuration.');
 }
 
-app.use(cors({
-    origin: (origin, callback) => {
-        // Same-origin browser requests, curl and server-to-server calls send no Origin header.
-        if (!origin) {
-            return callback(null, true);
-        }
+// The app's own origin, derived per request. `trust proxy` is on, so req.protocol reflects
+// X-Forwarded-Proto and this matches the public https:// URL behind Railway's edge.
+const getSelfOrigin = (req) => {
+    const host = req.get('host');
+    return host ? `${req.protocol}://${host}` : null;
+};
 
-        if (allowedOrigins) {
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            }
-            // A literal "*" alongside credentials:true is not a valid CORS response, so it is
-            // treated as an explicit opt-out of origin checks rather than echoed back.
-            if (allowedOrigins.includes('*')) {
-                return callback(null, true);
-            }
-            console.error(`CORS blocked origin: ${origin}`);
-            return callback(new Error('Not allowed by CORS'));
-        }
+// Pure policy decision, kept free of req/env so it can be exercised directly for any combination
+// of environment and allowlist — including production, which the test process does not run under.
+const isOriginAllowed = ({ origin, selfOrigin, allowlist, isProduction }) => {
+    // Same origin as the page being served. This case MUST be allowed: Vite marks the bundle and
+    // stylesheet with crossorigin, which makes the browser send an Origin header even for
+    // same-origin asset loads. Treating those as cross-origin serves the app its own JS/CSS as an
+    // error body, and the site renders blank.
+    if (selfOrigin && origin === selfOrigin) {
+        return true;
+    }
 
-        // No allowlist configured: permissive in development only.
-        if (!IS_PRODUCTION) {
-            return callback(null, true);
-        }
+    if (allowlist) {
+        // A literal "*" alongside credentials:true is not a valid CORS response, so it is
+        // treated as an explicit opt-out of origin checks rather than echoed back.
+        return allowlist.includes(origin) || allowlist.includes('*');
+    }
 
-        console.error(`CORS blocked origin (no ALLOWED_ORIGINS configured): ${origin}`);
-        return callback(new Error('Not allowed by CORS'));
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    // No allowlist configured: permissive in development only.
+    return !isProduction;
+};
+
+app.use(cors((req, callback) => {
+    const origin = req.headers.origin;
+
+    // No Origin header at all: a plain navigation, curl, or a server-to-server call. There is
+    // nothing for CORS to decide, and no headers are needed.
+    if (!origin) {
+        return callback(null, { origin: false, credentials: true });
+    }
+
+    const allowed = isOriginAllowed({
+        origin,
+        selfOrigin: getSelfOrigin(req),
+        allowlist: allowedOrigins,
+        isProduction: IS_PRODUCTION,
+    });
+
+    if (!allowed) {
+        // Deny by *omitting* the CORS headers, never by throwing. An error here would reach the
+        // error handler and answer with a 500 — turning a policy decision into a broken response
+        // for the caller and a spurious server fault in the logs. Without the headers the browser
+        // itself refuses to expose the response, which is exactly how CORS is meant to work.
+        console.warn(`CORS: not exposing response to origin ${origin}`);
+    }
+
+    return callback(null, {
+        origin: allowed ? origin : false,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: true,
+    });
 }));
 
 // Content Security Policy
@@ -3695,4 +3722,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, isOriginAllowed };
