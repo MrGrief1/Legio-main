@@ -172,13 +172,18 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
             <NewsCard key={item.id} item={item} onRefresh={refreshFeed} />
           ))
         ) : (
-          <div className="text-center text-zinc-500 dark:text-zinc-400 py-10">
-            {loading ? 'Загрузка...' : isOpenPolls ? 'Открытых опросов пока нет' : 'В этой категории пока нет новостей или произошла ошибка загрузки'}
-          </div>
-        )}
-        {news.length === 0 && !loading && !isOpenPolls && (
-          <div className="text-center text-zinc-500 dark:text-zinc-400 py-10">
-            В этой категории пока нет новостей
+          /* One empty state, and it says which situation it is. Two stacked messages used to render
+             here, and both talked about "this category" even when the list was empty because a
+             search matched nothing — which reads as a broken feed rather than no results. */
+          <div className="text-center text-zinc-500 dark:text-zinc-400 py-14 px-4">
+            {loading ? 'Загрузка...' : search ? (
+              <>
+                <p className="text-base font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  По запросу «{search}» ничего не найдено
+                </p>
+                <p className="text-sm">Поиск идёт по заголовку, тексту и тегам. Попробуйте другое слово.</p>
+              </>
+            ) : isOpenPolls ? 'Открытых опросов пока нет' : 'В этой категории пока нет новостей'}
           </div>
         )}
         {news.length > 0 && hasMore && (

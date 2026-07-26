@@ -461,6 +461,39 @@ const parseBoundedInt = (value, field, {
 
 const escapeSqlLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
 
+// Case-fold for search. `toLowerCase()` on its own leaves "İ"-style edge cases and combining marks
+// inconsistent, so normalise first — this is the one place case folding happens, and both the
+// stored column and the query pattern must go through it or they will not agree.
+const foldForSearch = (value) => String(value ?? '').normalize('NFKC').toLowerCase();
+
+// The haystack a news item is searched by: its title, its body and its tags, folded and flattened
+// into one string. Tags are included deliberately — searching "спорт" should find a post tagged
+// Спорт even when the word appears nowhere in the text.
+//
+// See ensureSearchIndex below: a row without this value is effectively invisible to Cyrillic
+// search, because SQL has no Unicode-aware fallback to offer.
+const buildNewsSearchText = ({ title, description, tags }) => {
+    let tagList = [];
+
+    if (Array.isArray(tags)) {
+        tagList = tags;
+    } else if (typeof tags === 'string' && tags.trim()) {
+        try {
+            const parsed = JSON.parse(tags);
+            if (Array.isArray(parsed)) tagList = parsed;
+        } catch {
+            // Not JSON (legacy rows may hold a bare string) — treat the whole value as one tag.
+            tagList = [tags];
+        }
+    }
+
+    return foldForSearch([
+        title || '',
+        description || '',
+        tagList.map((tag) => String(tag ?? '')).join(' '),
+    ].join(' ')).replace(/\s+/g, ' ').trim();
+};
+
 const validateUrl = (value, field, { allowRelative = false, allowEmpty = true } = {}) => {
     if (value === undefined) {
         return undefined;
@@ -563,6 +596,61 @@ const buildUploadUrl = (req, filename) => {
 
 // Database Setup
 const db = require('./database');
+
+// Backfill search_text for rows that lack it: everything written before the column existed, and
+// anything from an import path that didn't set it.
+//
+// This is not optional housekeeping. There is no Unicode-aware fallback available in SQL — LOWER()
+// and LIKE fold ASCII only — so a row with no search_text simply cannot be found by a Cyrillic
+// query. Indexing is therefore a precondition of searching, not an optimisation, and the feed
+// awaits it rather than trusting that some startup hook ran.
+let searchIndexInFlight = null;
+
+const backfillSearchIndex = async () => {
+    const pending = await dbAllAsync(
+        `SELECT id, title, description, tags FROM news
+          WHERE search_text IS NULL OR search_text = ''`
+    );
+
+    if (pending.length === 0) return 0;
+
+    await dbRunAsync('BEGIN IMMEDIATE TRANSACTION');
+    try {
+        for (const row of pending) {
+            await dbRunAsync(
+                'UPDATE news SET search_text = ? WHERE id = ?',
+                [buildNewsSearchText(row), row.id]
+            );
+        }
+        await dbRunAsync('COMMIT');
+    } catch (error) {
+        await dbRunAsync('ROLLBACK').catch(() => {});
+        throw error;
+    }
+
+    console.log(`[Search] Indexed ${pending.length} news item(s) for case-insensitive search`);
+    return pending.length;
+};
+
+const ensureSearchIndex = async () => {
+    // Probe rather than memoise a "done" flag: caching completion forever would leave any row
+    // written later by a path that forgets search_text permanently unsearchable until a restart.
+    // This is one indexed single-row lookup, and it self-heals instead of relying on every future
+    // write site remembering.
+    const stale = await dbGetAsync(
+        `SELECT id FROM news WHERE search_text IS NULL OR search_text = '' LIMIT 1`
+    );
+    if (!stale) return 0;
+
+    // Concurrent searches share one backfill instead of each starting their own.
+    if (!searchIndexInFlight) {
+        searchIndexInFlight = backfillSearchIndex().finally(() => {
+            searchIndexInFlight = null;
+        });
+    }
+
+    return searchIndexInFlight;
+};
 let wpPasswordHasher = null;
 if (PasswordHash) {
     try {
@@ -1847,9 +1935,19 @@ app.get('/api/feed', (req, res) => {
     }
 
     if (search) {
-        conditions.push(`(n.title LIKE ? ESCAPE '\\' OR n.description LIKE ? ESCAPE '\\')`);
-        const searchPattern = `%${escapeSqlLike(search)}%`;
-        params.push(searchPattern, searchPattern);
+        // Every whitespace-separated word must appear somewhere in the item (AND, not OR), so
+        // "рубль курс" narrows the result instead of widening it.
+        //
+        // Matching runs against the pre-folded search_text column: SQLite's LIKE/LOWER only fold
+        // ASCII, so comparing Cyrillic here directly would only match when the typed case happened
+        // to equal the stored case. COALESCE keeps rows usable if the backfill has not reached them
+        // yet — they fall back to the raw title, which is better than vanishing from search.
+        const words = search.split(/\s+/).filter(Boolean).slice(0, 6);
+
+        for (const word of words) {
+            conditions.push(`COALESCE(n.search_text, LOWER(n.title)) LIKE ? ESCAPE '\\'`);
+            params.push(`%${escapeSqlLike(foldForSearch(word))}%`);
+        }
     }
 
     // Both poll filters imply "this post actually has a poll" — the join above already
@@ -1893,22 +1991,35 @@ app.get('/api/feed', (req, res) => {
 
             Promise.all(rows.map((row) => buildFeedItem(row, userId, showVoters)))
                 .then(results => res.json(results))
-                .catch(buildErr => res.status(500).json({ error: buildErr.message }));
+                .catch(buildErr => sendServerError(res, buildErr, 'Failed to build feed'));
         });
     };
 
-    if (!userId) {
-        continueWithViewerRole(false);
-        return;
-    }
-
-    db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
-        if (roleErr) {
+    const resolveViewerAndRespond = () => {
+        if (!userId) {
             continueWithViewerRole(false);
             return;
         }
-        continueWithViewerRole(canViewVoters(dbUser?.role));
-    });
+
+        db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
+            if (roleErr) {
+                continueWithViewerRole(false);
+                return;
+            }
+            continueWithViewerRole(canViewVoters(dbUser?.role));
+        });
+    };
+
+    // A search can only match rows that have been indexed, so make sure they are before querying.
+    // Memoised: this awaits real work on the first search after a deploy and is a no-op afterwards.
+    if (search) {
+        ensureSearchIndex()
+            .then(resolveViewerAndRespond)
+            .catch((error) => sendServerError(res, error, 'Failed to prepare search index'));
+        return;
+    }
+
+    resolveViewerAndRespond();
 });
 
 // Fetch a single news item by id (used by shared /?news=<id> links to open the post directly)
@@ -2021,7 +2132,7 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
         await dbRunAsync('BEGIN TRANSACTION');
 
         const newsResult = await dbRunAsync(
-            "INSERT INTO news (title, description, image, tags, category, source) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO news (title, description, image, tags, category, source, search_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 payload.title,
                 payload.description,
@@ -2029,6 +2140,8 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
                 JSON.stringify(payload.tags),
                 payload.category,
                 payload.source,
+                // Folded once here so search never has to fold at query time.
+                buildNewsSearchText(payload),
             ]
         );
 
@@ -3855,6 +3968,12 @@ const startServer = async () => {
         await ensureConfiguredAdmin();
     } catch (error) {
         console.error('[Admin Bootstrap] Failed to ensure configured admin:', error.message);
+    }
+
+    try {
+        await ensureSearchIndex();
+    } catch (error) {
+        console.error('[Search] Failed to build search index:', error.message);
     }
 
     // Catch up on any month that finished while the service was down.

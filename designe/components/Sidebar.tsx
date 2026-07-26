@@ -195,7 +195,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
             </svg>
 
             {/* Text with specific font */}
-            <h1 className="text-3xl lg:text-4xl font-serif italic font-medium tracking-tight text-black dark:text-white pt-1 truncate">Legio</h1>
+            {/* No `truncate` here: it sets overflow:hidden, and an italic serif "g" descends below
+                the line box — so the bottom of the wordmark was being clipped. The text is a fixed
+                five characters, so there is nothing to truncate anyway. `leading-normal` gives the
+                descender room; pb-1 keeps it clear of the container edge. */}
+            <h1 className="text-3xl lg:text-4xl font-serif italic font-medium tracking-tight text-black dark:text-white leading-normal pt-1 pb-1 whitespace-nowrap">Legio</h1>
           </div>
 
           {/* Theme Toggle */}

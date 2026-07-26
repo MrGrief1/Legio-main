@@ -1,5 +1,5 @@
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Feed } from './components/Feed';
 import { RightPanel } from './components/RightPanel';
@@ -17,18 +17,23 @@ import { Poll } from './components/FeedComponents';
 import { NewsItem } from './types';
 import { API_URL } from './config';
 import { useScrollLock } from './hooks/useScrollLock';
-import { Menu, X, Moon, Sun } from 'lucide-react';
+import { Menu, X, Moon, Sun, Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
-import { LanguageProvider } from './context/LanguageContext';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ToastProvider } from './context/ToastContext';
 import { DialogProvider } from './context/DialogContext';
 
 const AppContent: React.FC = () => {
+  const { t } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [view, setView] = useState<'feed' | 'open-polls' | 'admin' | 'create' | 'manage' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
   const [category, setCategory] = useState('all');
+  // `search` is what the inputs show; `appliedSearch` is what the feed actually queries. Keeping
+  // them apart is what makes the debounce below possible without the field feeling laggy.
   const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [deepNews, setDeepNews] = useState<NewsItem | null>(null);
   const [deepNewsOpen, setDeepNewsOpen] = useState(false);
@@ -113,6 +118,39 @@ const AppContent: React.FC = () => {
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
+  // Typing used to fire one feed request per keystroke: laggy, and ten characters was ten requests
+  // against a 100-per-15-minutes limit, so a few searches could lock the user out with 429s.
+  // The query now settles for 350 ms before it is sent.
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value);
+    // Clearing is applied at once — waiting to restore the full feed just feels broken.
+    if (value === '') setAppliedSearch('');
+  }, []);
+
+  useEffect(() => {
+    if (search === appliedSearch) return;
+    if (search === '') return; // already handled synchronously above
+
+    const timer = setTimeout(() => setAppliedSearch(search), 350);
+    return () => clearTimeout(timer);
+  }, [search, appliedSearch]);
+
+  // Searching from anywhere should land the user on the feed, where results are rendered — and
+  // close the burger menu, which would otherwise cover them.
+  useEffect(() => {
+    if (!appliedSearch) return;
+    setView('feed');
+    setMobileMenuOpen(false);
+  }, [appliedSearch]);
+
+  // Focus the field when the mobile search row opens, so the keyboard comes up without a second tap.
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    const timer = setTimeout(() => mobileSearchInputRef.current?.focus(), 250);
+    return () => clearTimeout(timer);
+  }, [mobileSearchOpen]);
+
   const handleCategorySelect = (catId: string) => {
     setCategory(catId);
     setView('feed');
@@ -146,7 +184,10 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      <div className="relative z-10 max-w-[1440px] mx-auto flex flex-col md:flex-row md:justify-center pt-16 md:pt-0">
+      {/* The mobile search row is fixed under the header, so the content has to make room for it —
+          otherwise it sits on top of the section heading. Matches the row's own 300ms transition. */}
+      <div className={`relative z-10 max-w-[1440px] mx-auto flex flex-col md:flex-row md:justify-center md:pt-0 transition-[padding] duration-300 ${mobileSearchOpen ? 'pt-[8.5rem]' : 'pt-16'
+        }`}>
 
         {/* Mobile Header */}
         <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 dark:bg-black/80 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 z-40 flex items-center justify-between px-4 transition-colors duration-300">
@@ -156,11 +197,56 @@ const AppContent: React.FC = () => {
             <rect x="18" y="11" width="4" height="15" rx="1" fill="#06b6d4" />
             <rect x="25" y="15" width="4" height="11" rx="1" className="fill-black dark:fill-white" />
           </svg>
-            <span className="font-serif italic text-2xl font-bold">Legio</span>
+            <span className="font-serif italic text-2xl font-bold leading-normal pb-0.5">Legio</span>
           </div>
-          <button onClick={() => setMobileMenuOpen(true)} className="p-2 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors">
-            <Menu />
-          </button>
+          <div className="flex items-center">
+            {/* Search lived only inside the burger menu, and that menu is a full-screen overlay —
+                so typing a query covered the very results it produced. On mobile it belongs in the
+                header, next to the burger. */}
+            <button
+              onClick={() => setMobileSearchOpen((open) => !open)}
+              aria-label={t.search}
+              aria-expanded={mobileSearchOpen}
+              className={`p-2 rounded-full transition-colors ${mobileSearchOpen || search
+                ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
+                : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`}
+            >
+              <Search />
+            </button>
+            <button onClick={() => setMobileMenuOpen(true)} aria-label="Menu" className="p-2 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors">
+              <Menu />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile search row — slides out under the header and stays visible over the results. */}
+        <div
+          className={`md:hidden fixed top-16 left-0 right-0 z-30 bg-white/95 dark:bg-black/95 backdrop-blur-lg border-b border-zinc-200 dark:border-white/5 overflow-hidden transition-all duration-300 ${mobileSearchOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'
+            }`}
+        >
+          <div className="flex items-center gap-2 px-4 py-3">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+              <input
+                ref={mobileSearchInputRef}
+                type="search"
+                value={search}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder={t.sidebar.searchPlaceholder}
+                enterKeyHint="search"
+                className="w-full pl-10 pr-4 py-2.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-transparent focus:border-blue-400 dark:focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-500/20 outline-none text-sm text-zinc-900 dark:text-white placeholder-zinc-400 transition-all"
+              />
+            </div>
+            {search && (
+              <button
+                onClick={() => handleSearchChange('')}
+                aria-label={t.cancel}
+                className="p-2 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Redesigned Mobile Menu Overlay (Full Screen) */}
@@ -178,7 +264,7 @@ const AppContent: React.FC = () => {
                   <rect x="18" y="11" width="4" height="15" rx="1" fill="#06b6d4" />
                   <rect x="25" y="15" width="4" height="11" rx="1" className="fill-black dark:fill-white" />
                 </svg>
-                <span className="font-serif italic text-3xl font-bold text-black dark:text-white">Legio</span>
+                <span className="font-serif italic text-3xl font-bold text-black dark:text-white leading-normal pb-0.5">Legio</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -222,7 +308,7 @@ const AppContent: React.FC = () => {
               onChatsClick={() => { setChatOpen(true); setMobileMenuOpen(false); }}
               onInfoClick={() => { setView('info'); setMobileMenuOpen(false); }}
               onCategorySelect={handleCategorySelect}
-              onSearch={setSearch}
+              onSearch={handleSearchChange}
             />
           </div>
         </div>
@@ -250,13 +336,13 @@ const AppContent: React.FC = () => {
             onChatsClick={() => setChatOpen(true)}
             onInfoClick={() => setView('info')}
             onCategorySelect={handleCategorySelect}
-            onSearch={setSearch}
+            onSearch={handleSearchChange}
           />
         </div>
 
         <div className={`flex-1 w-full min-w-0 ${isWideView ? '' : 'max-w-3xl'}`}>
-          {view === 'feed' ? <Feed category={category} search={search} /> :
-            view === 'open-polls' ? <Feed category="all" search={search} pollStatus="open" /> :
+          {view === 'feed' ? <Feed category={category} search={appliedSearch} /> :
+            view === 'open-polls' ? <Feed category="all" search={appliedSearch} pollStatus="open" /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><AdminPanel /></div> :
               view === 'create' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><CreatePoll /></div> :
               view === 'manage' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><ManagePolls /></div> :

@@ -102,6 +102,18 @@ function initDb() {
       }
     });
 
+    // Lowercased "title + description + tags", written by the application layer.
+    //
+    // Search cannot be done with LOWER() in SQL: SQLite's LOWER() and LIKE only fold case for
+    // ASCII, so "спорт" never matches a stored "Спорт" — Russian search only worked when the
+    // typed case happened to match exactly. JavaScript folds Unicode correctly, so the folding is
+    // done once at write time and the query becomes a plain LIKE against this column.
+    db.run(`ALTER TABLE news ADD COLUMN search_text TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding search_text column:', err);
+      }
+    });
+
     // Add name and avatar to users if missing
     db.run(`ALTER TABLE users ADD COLUMN name TEXT`, (err) => {
       if (err && !err.message.includes('duplicate column name')) {
@@ -310,6 +322,9 @@ function initDb() {
 
     // --- OPTIMIZATION INDEXES ---
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_created_at ON news(created_at)`);
+    // A leading-wildcard LIKE can't use an index, but this still helps the planner keep the scan
+    // on a narrow column instead of reading title+description+tags for every row.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_news_search_text ON news(search_text)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_category ON news(category)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_category_created ON news(category, created_at DESC)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_likes_news_id ON likes(news_id)`);

@@ -94,6 +94,21 @@ function stripHtml(value) {
     .trim();
 }
 
+// Mirror of buildNewsSearchText in index.js: the folded "title + body + tags" haystack the feed
+// search matches against. SQLite's LIKE/LOWER only fold ASCII, so Cyrillic has to be folded here,
+// in JS, or a search for "спорт" would never find a post tagged "Спорт".
+// Both copies must fold identically — change one and you must change the other.
+function buildSearchText(title, description, tags) {
+  const tagList = Array.isArray(tags) ? tags : [];
+
+  return [title || '', description || '', tagList.map((tag) => String(tag ?? '')).join(' ')]
+    .join(' ')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function sanitizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -567,10 +582,13 @@ async function importNewsAndPolls(db, posts, taxonomy, featuredImages, pollMetaM
     const tags = Array.isArray(tax.tags) ? tax.tags : [];
     const meta = pollMetaMap.get(postId);
 
+    const importedTitle = sanitizeText(post.post_title) || `Новость #${postId}`;
+    const importedDescription = stripHtml(post.post_content);
+
     await sqliteRun(
       db,
-      `INSERT INTO news (id, title, description, image, tags, category, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO news (id, title, description, image, tags, category, source, created_at, search_text)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          description = excluded.description,
@@ -578,16 +596,20 @@ async function importNewsAndPolls(db, posts, taxonomy, featuredImages, pollMetaM
          tags = excluded.tags,
          category = excluded.category,
          source = excluded.source,
-         created_at = excluded.created_at`,
+         created_at = excluded.created_at,
+         search_text = excluded.search_text`,
       [
         postId,
-        sanitizeText(post.post_title) || `Новость #${postId}`,
-        stripHtml(post.post_content),
+        importedTitle,
+        importedDescription,
         featuredImages.get(postId) || '',
         JSON.stringify(tags),
         sanitizeText(tax.category || 'general') || 'general',
         (meta && meta.source) || '',
         cleanDate(post.post_date),
+        // Imported posts must be searchable on the same terms as posts created in the app, so the
+        // folded haystack is written here too rather than left to the startup backfill.
+        buildSearchText(importedTitle, importedDescription, tags),
       ]
     );
 
