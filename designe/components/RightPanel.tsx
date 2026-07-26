@@ -118,7 +118,7 @@ export const RightPanel: React.FC = () => {
                 {/* The prize is the flat amount from the server. The monthly score sits underneath
                     as the reason this person is leading — it is not what they get paid. */}
                 <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString()}</span> {t.rightPanel.prizePoints}{' '}
+                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}</span> {t.rightPanel.prizePoints}{' '}
                   <span className="text-sky-500 dark:text-sky-400 font-semibold">{t.rightPanel.prizeGift}</span>
                 </div>
                 <div className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -133,7 +133,7 @@ export const RightPanel: React.FC = () => {
                 {/* State the reward even with no winner yet — otherwise this block says only that
                     nobody has scored, and never mentions what is on offer. */}
                 <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString()}</span>{' '}
+                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}</span>{' '}
                   {t.rightPanel.prizePoints} {t.rightPanel.forFirstPlace}
                 </p>
               </>

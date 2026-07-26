@@ -22,6 +22,7 @@ import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ToastProvider } from './context/ToastContext';
 import { DialogProvider } from './context/DialogContext';
+import { NotificationProvider } from './context/NotificationContext';
 
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
@@ -396,7 +397,11 @@ const App: React.FC = () => {
       <LanguageProvider>
         <ToastProvider>
           <DialogProvider>
-            <AppContent />
+            {/* Inside Auth (needs the session), Language (localised copy) and Toast (its fallback
+                presentation), so it can use all three. */}
+            <NotificationProvider>
+              <AppContent />
+            </NotificationProvider>
           </DialogProvider>
         </ToastProvider>
       </LanguageProvider>

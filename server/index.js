@@ -2674,6 +2674,9 @@ const toDateStr = (date) => date.toISOString().slice(0, 10);
 
 const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
+// Genitive: reads correctly in "ивент за июля"-style sentences written server-side.
+const MONTH_NAMES_GENITIVE_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
 // ---- Monthly leaderboard ("event") helpers -----------------------------
 //
 // The monthly contest runs over a whole UTC calendar month: it opens at 00:00:00 on
@@ -2785,6 +2788,23 @@ const settleFinishedMonths = async (now = new Date()) => {
                 `INSERT INTO points_history (user_id, points, calculation_date, comment, kind)
                  VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'prize')`,
                 [winner.id, MONTHLY_PRIZE_POINTS, `Приз призёра месяца ${month.key}`]
+            );
+
+            // Tell the winner. Settlement runs when the month turns over, which is almost never
+            // while they happen to be on the page, so this waits for them. INSERT OR IGNORE plus the
+            // unique (user, type, meta) index means a re-run can't produce a duplicate.
+            await dbRunAsync(
+                `INSERT OR IGNORE INTO notifications (user_id, type, title, body, points, meta)
+                 VALUES (?, 'monthly_prize', ?, ?, ?, ?)`,
+                [
+                    winner.id,
+                    'Вы призёр месяца!',
+                    // "в ивенте июня", not "за июня" — the genitive month name needs the noun in
+                    // front of it, otherwise the preposition demands a different case.
+                    `Вы заняли 1-е место в ивенте ${MONTH_NAMES_GENITIVE_RU[month.start.getUTCMonth()]} и получили приз.`,
+                    MONTHLY_PRIZE_POINTS,
+                    JSON.stringify({ month: month.key, monthlyPoints: Number(winner.monthly_points) || 0 }),
+                ]
             );
 
             await dbRunAsync('COMMIT');
@@ -3258,6 +3278,67 @@ app.get('/api/leaders', async (req, res) => {
     } catch (error) {
         console.error('Failed to load leaders:', error);
         sendServerError(res, error);
+    }
+});
+
+// What the signed-in user has not been told yet. Called on page load, so it settles any finished
+// month first — otherwise a winner returning right after the month turned over would be told
+// nothing until some other request happened to trigger the payout.
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        await settleFinishedMonthsThrottled();
+
+        const rows = await dbAllAsync(
+            `SELECT id, type, title, body, points, meta, created_at
+               FROM notifications
+              WHERE user_id = ? AND read_at IS NULL
+              ORDER BY created_at DESC, id DESC
+              LIMIT 20`,
+            [req.user.id]
+        );
+
+        res.json(rows.map((row) => {
+            let meta = null;
+            try {
+                meta = row.meta ? JSON.parse(row.meta) : null;
+            } catch {
+                meta = null; // A malformed meta blob must not break the whole list.
+            }
+
+            return {
+                id: row.id,
+                type: row.type,
+                title: row.title,
+                body: row.body,
+                points: Number(row.points) || 0,
+                createdAt: row.created_at,
+                meta,
+            };
+        }));
+    } catch (error) {
+        sendServerError(res, error, 'Failed to load notifications');
+    }
+});
+
+// Dismiss one notification. Scoped to the caller's own rows, so an id from someone else's account
+// simply matches nothing.
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    let notificationId;
+
+    try {
+        notificationId = parsePositiveInt(req.params.id, 'id');
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        await dbRunAsync(
+            'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND read_at IS NULL',
+            [notificationId, req.user.id]
+        );
+        res.json({ message: 'Notification marked as read' });
+    } catch (error) {
+        sendServerError(res, error, 'Failed to mark notification as read');
     }
 });
 

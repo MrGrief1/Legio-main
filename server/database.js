@@ -314,6 +314,29 @@ function initDb() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )`);
 
+    // Things the user needs to be told about but wasn't online for. The monthly prize is settled by
+    // the server whenever a month rolls over, which is almost never while the winner is looking at
+    // the page — so the news has to wait here until they come back.
+    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,              -- 'monthly_prize'
+      title TEXT NOT NULL,
+      body TEXT,
+      points INTEGER DEFAULT 0,        -- amount awarded, when the notification is about points
+      meta TEXT,                       -- JSON: e.g. the month key the prize belongs to
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
+    // Unread lookups are per user and happen on every page load, so index that path.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)`);
+    // One prize notification per user per month, enforced by the database rather than by hoping the
+    // settlement runs exactly once.
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_unique_event
+            ON notifications(user_id, type, meta)`);
+
     db.run(
       `INSERT INTO points_settings (id, start_points, wins_points, level_points)
        VALUES (1, 100, 100, 1000)
