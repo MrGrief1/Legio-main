@@ -88,7 +88,35 @@ const FORCED_ADMIN_LOGINS = parseCsvSet(process.env.FORCED_ADMIN_LOGINS);
 const VISITOR_ID_HASH_SALT = process.env.VISITOR_ID_HASH_SALT || SECRET_KEY;
 const ALLOW_LEGACY_PLAINTEXT_PASSWORDS = toBoolean(process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS, false);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').trim();
-const uploadsDir = path.join(__dirname, 'uploads');
+
+// Where uploaded avatars and chat attachments live.
+//
+// Railway mounts the persistent volume at /app/data — and ONLY there. The previous default,
+// <app>/uploads, sat in the container's ephemeral layer, so every deploy silently destroyed every
+// uploaded file while the database kept pointing at it: the row still said /uploads/123.png, the
+// file was gone, and the avatar fell back to initials. That is the "I saved my profile and it
+// reset" symptom. Uploads belong on the volume, next to the database.
+const LEGACY_UPLOADS_DIR = path.join(__dirname, 'uploads');
+const RAILWAY_VOLUME_DIR = '/app/data';
+
+const resolveUploadsDir = () => {
+    if (process.env.UPLOADS_DIR) {
+        return path.resolve(process.env.UPLOADS_DIR);
+    }
+
+    // Follow the database onto the volume: DATABASE_PATH wins, then the standard Railway mount.
+    if (process.env.DATABASE_PATH) {
+        return path.join(path.dirname(path.resolve(process.env.DATABASE_PATH)), 'uploads');
+    }
+
+    if (fs.existsSync(RAILWAY_VOLUME_DIR)) {
+        return path.join(RAILWAY_VOLUME_DIR, 'uploads');
+    }
+
+    return LEGACY_UPLOADS_DIR;
+};
+
+const uploadsDir = resolveUploadsDir();
 // bcrypt work factor. 12 costs roughly 4x more per guess than 10 while staying well under a
 // tenth of a second per login, so it slows offline cracking of a leaked table without being
 // felt by users. Existing hashes keep verifying: the cost is embedded in each stored hash.
@@ -721,6 +749,33 @@ const syncWordpressIfConfigured = async ({ fullReplace = WP_SYNC_FULL_REPLACE } 
 // Ensure uploads directory exists
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+console.log('Uploads path:', uploadsDir);
+
+// One-time carry-over: anything still in the old ephemeral location is copied onto the volume the
+// first time this build boots, so files uploaded before the path changed survive instead of
+// disappearing at the next deploy. Copy (not move) and never overwrite — this must be safe to
+// re-run, and it must not touch a file the new location already owns.
+if (uploadsDir !== LEGACY_UPLOADS_DIR && fs.existsSync(LEGACY_UPLOADS_DIR)) {
+    try {
+        const legacyFiles = fs.readdirSync(LEGACY_UPLOADS_DIR, { withFileTypes: true })
+            .filter((entry) => entry.isFile());
+        let migrated = 0;
+
+        for (const entry of legacyFiles) {
+            const target = path.join(uploadsDir, entry.name);
+            if (fs.existsSync(target)) continue;
+            fs.copyFileSync(path.join(LEGACY_UPLOADS_DIR, entry.name), target);
+            migrated += 1;
+        }
+
+        if (migrated > 0) {
+            console.log(`Migrated ${migrated} upload(s) from ${LEGACY_UPLOADS_DIR} to ${uploadsDir}`);
+        }
+    } catch (error) {
+        console.error('Failed to migrate legacy uploads:', error.message);
+    }
 }
 
 // Multer Setup
@@ -2330,13 +2385,15 @@ app.get('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
             scalar(
                 `SELECT COALESCE(SUM(points), 0) AS value
                    FROM points_history
-                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?
+                    AND COALESCE(kind, 'poll') <> 'prize'`,
                 [userId, month.startSql, month.endSql]
             ),
             scalar(
                 `SELECT COUNT(*) AS value
                    FROM points_history
-                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?
+                    AND COALESCE(kind, 'poll') <> 'prize'`,
                 [userId, month.startSql, month.endSql]
             ),
             scalar(
@@ -2510,8 +2567,15 @@ const getMonthWindow = (now = new Date(), monthOffset = 0) => {
     };
 };
 
+// The flat reward the monthly winner receives. Deliberately unrelated to how much they scored:
+// the monthly total only decides WHO wins, the prize itself is a fixed amount.
+const MONTHLY_PRIZE_POINTS = Number.parseInt(process.env.MONTHLY_PRIZE_POINTS || '', 10) || 5000;
+
 // Sum every user's points inside [startSql, endSql). Returns rows ordered by the
 // monthly total, so row 0 is the current leader of the event.
+//
+// Only 'poll' rows count. Prize rows are excluded on purpose — a 5000-point prize paid at the
+// start of a month would otherwise dominate that month's own standings and re-elect its recipient.
 const getMonthlyLeaderRows = async ({ startSql, endSql }, limit = null) => {
     const params = [startSql, endSql];
     let sql = `
@@ -2527,6 +2591,7 @@ const getMonthlyLeaderRows = async ({ startSql, endSql }, limit = null) => {
         FROM points_history ph
         JOIN users u ON u.id = ph.user_id
         WHERE ph.calculation_date >= ? AND ph.calculation_date < ?
+          AND COALESCE(ph.kind, 'poll') <> 'prize'
         GROUP BY u.id
         HAVING monthly_points > 0
         ORDER BY monthly_points DESC, monthly_wins DESC, u.points DESC, u.id ASC
@@ -2538,6 +2603,89 @@ const getMonthlyLeaderRows = async ({ startSql, endSql }, limit = null) => {
     }
 
     return dbAllAsync(sql, params);
+};
+
+// Pay out the prize for every month that has finished and has not been settled yet.
+//
+// Idempotency comes from the monthly_prizes primary key: the INSERT is attempted first, and points
+// are credited only if that INSERT actually created the row. Two concurrent callers therefore
+// cannot both award the same month, and a restart mid-way cannot double-pay.
+const settleFinishedMonths = async (now = new Date()) => {
+    const settled = [];
+
+    // Look back a year: enough to catch a deployment that was down for a while, bounded so this
+    // can never turn into an unbounded scan.
+    for (let monthsAgo = 12; monthsAgo >= 1; monthsAgo -= 1) {
+        const month = getMonthWindow(now, -monthsAgo);
+
+        const already = await dbGetAsync('SELECT month FROM monthly_prizes WHERE month = ?', [month.key]);
+        if (already) continue;
+
+        // Nothing happened that month at all — record it as settled with no winner so the month is
+        // never rescanned, and so a late-arriving points row cannot retroactively win a past month.
+        const rows = await getMonthlyLeaderRows(month, 1);
+        const winner = rows[0] || null;
+
+        const claim = await dbRunAsync(
+            `INSERT OR IGNORE INTO monthly_prizes (month, user_id, points, monthly_points)
+             VALUES (?, ?, ?, ?)`,
+            [
+                month.key,
+                winner ? winner.id : null,
+                winner ? MONTHLY_PRIZE_POINTS : 0,
+                winner ? Number(winner.monthly_points) || 0 : 0,
+            ]
+        );
+
+        // changes === 0 means another caller claimed this month first; leave it to them.
+        if (!claim || claim.changes === 0 || !winner) continue;
+
+        await dbRunAsync('BEGIN IMMEDIATE TRANSACTION');
+        try {
+            await dbRunAsync(
+                'UPDATE users SET points = points + ? WHERE id = ?',
+                [MONTHLY_PRIZE_POINTS, winner.id]
+            );
+
+            const updated = await dbGetAsync('SELECT points FROM users WHERE id = ?', [winner.id]);
+            await dbRunAsync(
+                'UPDATE users SET level = ? WHERE id = ?',
+                [calculateLevel(updated?.points || 0), winner.id]
+            );
+
+            await dbRunAsync(
+                `INSERT INTO points_history (user_id, points, calculation_date, comment, kind)
+                 VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'prize')`,
+                [winner.id, MONTHLY_PRIZE_POINTS, `Приз призёра месяца ${month.key}`]
+            );
+
+            await dbRunAsync('COMMIT');
+            settled.push({ month: month.key, userId: winner.id, points: MONTHLY_PRIZE_POINTS });
+            console.log(`[Monthly prize] ${month.key}: awarded ${MONTHLY_PRIZE_POINTS} to user ${winner.id}`);
+        } catch (error) {
+            await dbRunAsync('ROLLBACK').catch(() => {});
+            // Drop the claim so the month is retried instead of being marked paid without payment.
+            await dbRunAsync('DELETE FROM monthly_prizes WHERE month = ?', [month.key]).catch(() => {});
+            throw error;
+        }
+    }
+
+    return settled;
+};
+
+// Settling is triggered by traffic (no scheduler in this deployment), so keep it cheap: at most one
+// pass per hour, and never let a failure here break the request that happened to trigger it.
+let lastSettlementAttempt = 0;
+const settleFinishedMonthsThrottled = async () => {
+    const now = Date.now();
+    if (now - lastSettlementAttempt < 3_600_000) return;
+    lastSettlementAttempt = now;
+
+    try {
+        await settleFinishedMonths();
+    } catch (error) {
+        console.error('[Monthly prize] Settlement failed:', error.message);
+    }
 };
 
 const toMonthlyLeader = (row, index) => ({
@@ -2964,7 +3112,8 @@ app.get('/api/leaders', async (req, res) => {
                        FROM points_history ph
                       WHERE ph.user_id = u.id
                         AND ph.calculation_date >= ?
-                        AND ph.calculation_date < ?) AS monthly_points
+                        AND ph.calculation_date < ?
+                        AND COALESCE(ph.kind, 'poll') <> 'prize') AS monthly_points
                FROM users u
               ORDER BY u.points DESC, u.id ASC
               LIMIT ?`,
@@ -2999,14 +3148,27 @@ app.get('/api/leaders/monthly', async (req, res) => {
     }
 
     try {
+        // Pay out any month that closed while nothing was polling for it.
+        await settleFinishedMonthsThrottled();
+
         const now = new Date();
         const month = getMonthWindow(now, -monthOffset);
         const rows = await getMonthlyLeaderRows(month, limit);
         const leaders = rows.map(toMonthlyLeader);
         const isCurrentMonth = monthOffset === 0;
+        const settlement = await dbGetAsync(
+            'SELECT user_id, points, awarded_at FROM monthly_prizes WHERE month = ?',
+            [month.key]
+        );
 
         res.json({
             month: month.key,
+            // The prize is a flat amount, not the winner's score. The UI shows this; the scores
+            // below only establish the ranking.
+            prizePoints: MONTHLY_PRIZE_POINTS,
+            // Set once the month has closed and the prize has actually been credited.
+            awardedAt: settlement?.awarded_at || null,
+            awardedUserId: settlement?.user_id ?? null,
             monthIndex: month.start.getUTCMonth(),
             year: month.start.getUTCFullYear(),
             isCurrentMonth,
@@ -3495,7 +3657,8 @@ app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
             scalar(
                 `SELECT COALESCE(SUM(points), 0) AS value
                    FROM points_history
-                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?`,
+                  WHERE user_id = ? AND calculation_date >= ? AND calculation_date < ?
+                    AND COALESCE(kind, 'poll') <> 'prize'`,
                 [userId, month.startSql, month.endSql]
             ),
             scalar(
@@ -3692,6 +3855,17 @@ const startServer = async () => {
         await ensureConfiguredAdmin();
     } catch (error) {
         console.error('[Admin Bootstrap] Failed to ensure configured admin:', error.message);
+    }
+
+    // Catch up on any month that finished while the service was down.
+    try {
+        lastSettlementAttempt = Date.now();
+        const settled = await settleFinishedMonths();
+        if (settled.length > 0) {
+            console.log('[Monthly prize] Settled on startup:', settled);
+        }
+    } catch (error) {
+        console.error('[Monthly prize] Startup settlement failed:', error.message);
     }
 
     server = app.listen(PORT, HOST, () => {

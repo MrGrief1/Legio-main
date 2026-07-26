@@ -29,6 +29,8 @@ interface MonthlyResponse {
     isCurrentMonth: boolean;
     periodEnd: string;
     serverTime: string;
+    // The flat reward the winner receives, independent of what they scored.
+    prizePoints: number;
     winner: MonthlyWinner | null;
 }
 
@@ -75,6 +77,24 @@ export const RightPanel: React.FC = () => {
     load();
   }, [load]);
 
+  // The prize block and the top-three list both go stale as soon as a poll is resolved elsewhere,
+  // so refresh them on an interval and whenever the tab regains focus.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+
+    const interval = setInterval(load, 60_000);
+    window.addEventListener('focus', load);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', load);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [load]);
+
   const winner = monthly?.winner || null;
 
   const monthIndex = monthly?.monthIndex ?? new Date().getMonth();
@@ -83,7 +103,9 @@ export const RightPanel: React.FC = () => {
     : `${MONTHS_EN[monthIndex]} ${t.rightPanel.prizeWinner}`;
 
   return (
-    <aside className="hidden xl:block w-80 shrink-0 h-screen sticky top-0 pt-8 pb-6 pl-6 overflow-y-auto">
+    // Sized to its content and scrolling with the page — a viewport-height column with its own
+    // overflow cut off whatever sat below the fold.
+    <aside className="hidden xl:block w-80 shrink-0 pt-8 pb-6 pl-6">
 
       {/* Auth Card */}
       <AuthCard className="mb-8" />
@@ -119,9 +141,14 @@ export const RightPanel: React.FC = () => {
                   </div>
                   <Trophy size={26} className="text-sky-400 shrink-0" />
                 </button>
+                {/* The prize is the flat amount from the server. The monthly score sits underneath
+                    as the reason this person is leading — it is not what they get paid. */}
                 <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                  <span className="text-green-500 font-bold">+{winner.monthlyPoints.toLocaleString()}</span> {t.rightPanel.monthlyLeader}{' '}
+                  <span className="text-green-500 font-bold">+{(monthly.prizePoints || 0).toLocaleString()}</span> {t.rightPanel.prizePoints}{' '}
                   <span className="text-sky-500 dark:text-sky-400 font-semibold">{t.rightPanel.prizeGift}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                  {winner.monthlyPoints.toLocaleString()} {t.rightPanel.monthlyLeader}
                 </div>
               </>
             ) : (

@@ -26,6 +26,8 @@ interface MonthlyResponse {
     isCurrentMonth: boolean;
     periodEnd: string;
     serverTime: string;
+    // Flat reward for the winner, independent of their score.
+    prizePoints: number;
     participants: number;
     winner: MonthlyLeader | null;
     leaders: MonthlyLeader[];
@@ -62,27 +64,49 @@ export const Leaderboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
 
-    const load = useCallback(() => {
-        setLoading(true);
+    // `silent` keeps the table on screen during a background refresh — only the first load shows
+    // the spinner, so a poll never makes the page flash empty.
+    const load = useCallback((silent = false) => {
+        if (!silent) setLoading(true);
 
         return Promise.all([
-            fetch(getApiUrl('/api/leaders')).then(res => (res.ok ? res.json() : [])),
+            fetch(getApiUrl('/api/leaders')).then(res => (res.ok ? res.json() : null)),
             fetch(getApiUrl('/api/leaders/monthly')).then(res => (res.ok ? res.json() : null)),
         ])
             .then(([allTime, monthlyData]) => {
-                setLeaders(Array.isArray(allTime) ? allTime : []);
-                setMonthly(monthlyData && Array.isArray(monthlyData.leaders) ? monthlyData : null);
+                if (Array.isArray(allTime)) setLeaders(allTime);
+                if (monthlyData && Array.isArray(monthlyData.leaders)) setMonthly(monthlyData);
             })
             .catch(err => {
                 console.error(err);
-                setLeaders([]);
-                setMonthly(null);
+                // A failed refresh leaves the previous standings in place rather than wiping them.
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                if (!silent) setLoading(false);
+            });
     }, []);
 
     useEffect(() => {
         load();
+    }, [load]);
+
+    // Standings move whenever a poll is resolved elsewhere, so re-read them periodically and the
+    // moment the tab comes back into focus.
+    useEffect(() => {
+        const refresh = () => load(true);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') refresh();
+        };
+
+        const interval = setInterval(refresh, 60_000);
+        window.addEventListener('focus', refresh);
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', refresh);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
     }, [load]);
 
     const monthIndex = monthly?.monthIndex ?? new Date().getMonth();
@@ -175,8 +199,13 @@ export const Leaderboard: React.FC = () => {
                                         <div className="font-bold text-zinc-900 dark:text-white truncate group-hover:text-yellow-700 dark:group-hover:text-yellow-500 transition-colors">
                                             {monthly.winner.displayName}
                                         </div>
+                                        {/* The reward is the flat prize; the score below is only why
+                                            this person is in front. */}
                                         <div className="text-sm font-semibold text-yellow-700 dark:text-yellow-500 tabular-nums">
-                                            +{monthly.winner.monthlyPoints.toLocaleString()} {t.leaderboard.pointsLabel}
+                                            +{(monthly.prizePoints || 0).toLocaleString()} {t.leaderboard.pointsLabel}
+                                        </div>
+                                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+                                            {monthly.winner.monthlyPoints.toLocaleString()} {t.leaderboard.monthlyPointsLabel}
                                         </div>
                                     </div>
                                 </button>
@@ -195,8 +224,9 @@ export const Leaderboard: React.FC = () => {
                                 <CountdownTimer
                                     deadline={monthly.periodEnd}
                                     serverTime={monthly.serverTime}
-                                    // The month just rolled over — refetch so the fresh event starts from zero.
-                                    onExpire={load}
+                                    // The month just rolled over — refetch so the prize is settled
+                                    // and the fresh event starts from zero.
+                                    onExpire={() => load(true)}
                                 />
                             ) : (
                                 <p className="text-sm font-semibold text-zinc-500">{t.leaderboard.eventClosed}</p>

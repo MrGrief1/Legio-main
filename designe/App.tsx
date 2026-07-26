@@ -228,8 +228,12 @@ const AppContent: React.FC = () => {
         </div>
 
         {/* Desktop Sidebar — from md up, so narrow laptops keep the nav instead of falling back
-            to the mobile burger menu. Scrolls on its own when it doesn't fit the viewport. */}
-        <div className="hidden md:block w-60 lg:w-72 shrink-0 h-screen sticky top-0 overflow-y-auto">
+            to the mobile burger menu.
+            No h-screen/sticky/overflow-y-auto here on purpose: pinning the column to the viewport
+            height gave it a second scrollbar and clipped whatever didn't fit — including the Legio
+            logo at the top. The column now sizes to its content and scrolls with the page, so
+            everything in it is reachable. */}
+        <div className="hidden md:block w-60 lg:w-72 shrink-0">
           <Sidebar
             theme={theme}
             toggleTheme={toggleTheme}
@@ -274,7 +278,7 @@ const AppContent: React.FC = () => {
           onClose={closeDeepNews}
           onRefresh={() => fetchDeepNews(String(deepNews.id))}
         >
-          {deepNews.poll && <Poll data={deepNews.poll} />}
+          {deepNews.poll && <Poll data={deepNews.poll} onPollChange={() => fetchDeepNews(String(deepNews.id))} />}
         </NewsModal>
       )}
     </div>

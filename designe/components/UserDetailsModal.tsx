@@ -148,12 +148,16 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({
                     </button>
 
                     <div className="flex items-center gap-4 pr-12">
+                        {/* The wrapper owns the size (and it is responsive), so the avatar fills it
+                            rather than declaring its own px — an 80px avatar inside this 64px box
+                            overflowed and got cropped off-centre by overflow-hidden. */}
                         <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-full border-4 border-white/80 dark:border-white/20 overflow-hidden shadow-lg bg-white/20 shrink-0">
                             <Avatar
                                 src={shown?.avatar || ''}
                                 alt={displayName}
-                                size={80}
-                                className="w-full h-full object-cover"
+                                size={72}
+                                fill
+                                className="object-cover"
                                 fallbackText={displayName}
                             />
                         </div>

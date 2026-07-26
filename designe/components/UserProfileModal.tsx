@@ -131,7 +131,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 <div className="px-6 pb-6 -mt-12 relative">
                     <div className="flex flex-col items-center">
                         <div className="w-24 h-24 rounded-full border-4 border-white dark:border-[#121212] overflow-hidden shadow-lg bg-zinc-100 dark:bg-zinc-800">
-                            <Avatar src={displayUser.avatar} alt={displayUser.username} size={96} className="w-full h-full object-cover" fallbackText={displayName} />
+                            <Avatar src={displayUser.avatar} alt={displayUser.username} size={96} fill className="object-cover" fallbackText={displayName} />
                         </div>
 
                         <h2 className="mt-3 text-xl font-bold text-zinc-900 dark:text-white text-center">

@@ -19,7 +19,13 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const PAGE_SIZE = 12;
 
-  const fetchFeedPage = useCallback((pageToLoad: number, append: boolean) => {
+  // 'replace' — a fresh load (category/search changed).
+  // 'append'  — the next page, arriving under what is already there.
+  // 'merge'   — a background re-read of page 1: newer posts belong on top, and nothing already
+  //             loaded may be dropped or reordered, or the page would jump under the reader.
+  type FetchMode = 'replace' | 'append' | 'merge';
+
+  const fetchFeedPage = useCallback((pageToLoad: number, mode: FetchMode) => {
     const headers: any = {};
     const token = localStorage.getItem('token');
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -40,37 +46,51 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       .then((data) => {
         if (!Array.isArray(data)) {
           console.error('Data is not an array:', data);
-          setHasMore(false);
-          if (!append) setNews([]);
+          if (mode === 'replace') {
+            setNews([]);
+            setHasMore(false);
+          }
           return;
         }
 
         setNews((prev) => {
-          if (!append) return data;
+          if (mode === 'replace') return data;
+
           const existingIds = new Set(prev.map((item) => item.id));
           const onlyNew = data.filter((item) => !existingIds.has(item.id));
-          return [...prev, ...onlyNew];
+          if (onlyNew.length === 0) return prev;
+
+          // The feed is newest-first, so anything page 1 has that we don't is newer than
+          // everything on screen.
+          return mode === 'merge' ? [...onlyNew, ...prev] : [...prev, ...onlyNew];
         });
-        setHasMore(data.length === PAGE_SIZE);
+
+        // Only a real pagination read can tell us whether more pages exist; a background merge
+        // must not flip the flag and stop infinite scroll.
+        if (mode !== 'merge') {
+          setHasMore(data.length === PAGE_SIZE);
+        }
       })
       .catch(err => {
         console.error(err);
-        setHasMore(false);
-        if (!append) setNews([]);
+        if (mode === 'replace') {
+          setNews([]);
+          setHasMore(false);
+        }
       });
   }, [category, search, pollStatus]);
 
   const refreshFeed = useCallback(() => {
     setPage(1);
     setHasMore(true);
-    fetchFeedPage(1, false);
+    fetchFeedPage(1, 'replace');
   }, [fetchFeedPage]);
 
   useEffect(() => {
     setPage(1);
     setHasMore(true);
     setLoading(true);
-    fetchFeedPage(1, false).finally(() => setLoading(false));
+    fetchFeedPage(1, 'replace').finally(() => setLoading(false));
 
     // Track visit once per session
     const visited = sessionStorage.getItem('visited');
@@ -80,6 +100,25 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
         .catch(console.error);
     }
   }, [category, search, pollStatus, user, fetchFeedPage]);
+
+  // Bring in posts published while the tab sat open. Only the first page is re-read, and the merge
+  // in fetchFeedPage keeps already-loaded pages intact, so this never disturbs scroll position.
+  useEffect(() => {
+    const refreshFirstPage = () => fetchFeedPage(1, 'merge');
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshFirstPage();
+    };
+
+    const interval = setInterval(refreshFirstPage, 90_000);
+    window.addEventListener('focus', refreshFirstPage);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshFirstPage);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [fetchFeedPage]);
 
   useEffect(() => {
     if (!loadMoreRef.current || loading || loadingMore || !hasMore) return;
@@ -91,7 +130,7 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
 
         const nextPage = page + 1;
         setLoadingMore(true);
-        fetchFeedPage(nextPage, true)
+        fetchFeedPage(nextPage, 'append')
           .then(() => setPage(nextPage))
           .finally(() => setLoadingMore(false));
       },

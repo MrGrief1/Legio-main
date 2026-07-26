@@ -75,10 +75,12 @@ const VotersModal: React.FC<{
 
 interface PollProps {
   data: PollData;
-  onVoteSuccess?: () => void;
+  // Fired whenever this poll changes server-side — a vote landing or the poll being resolved — so
+  // the surrounding feed can re-read itself instead of the page being reloaded.
+  onPollChange?: () => void;
 }
 
-export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) => {
+export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => {
   const { user } = useAuth();
   const { showAlert, showConfirm } = useDialog();
   const [selectedOption, setSelectedOption] = useState<number | null>(data.user_voted_option_id || null);
@@ -123,8 +125,8 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
       });
       setPollData({ ...pollData, options: updatedOptions });
 
-      if (onVoteSuccess) {
-        setTimeout(() => onVoteSuccess(), 500);
+      if (onPollChange) {
+        setTimeout(() => onPollChange(), 500);
       }
 
     } catch (error) {
@@ -151,7 +153,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onVoteSuccess }) =>
 
       if (res.ok) {
         showAlert("Опрос завершен!");
-        window.location.reload();
+        onPollChange?.();
       }
     } catch (e) {
       console.error(e);
@@ -369,7 +371,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
         }
       });
       if (res.ok) {
-        window.location.reload();
+        onRefresh?.();
       }
     } catch (error) {
       console.error(error);
@@ -467,7 +469,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
                 onMouseDown={e => e.stopPropagation()}
                 onPointerDown={e => e.stopPropagation()}
               >
-                <Poll data={item.poll} onVoteSuccess={onRefresh} />
+                <Poll data={item.poll} onPollChange={onRefresh} />
               </div>
             )}
 
@@ -537,7 +539,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
       </div >
 
       <NewsModal item={item} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onRefresh={onRefresh}>
-        {item.poll && <Poll data={item.poll} onVoteSuccess={onRefresh} />}
+        {item.poll && <Poll data={item.poll} onPollChange={onRefresh} />}
       </NewsModal>
 
       <ReportModal

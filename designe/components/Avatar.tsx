@@ -3,9 +3,14 @@ import React, { useState, useEffect } from 'react';
 interface AvatarProps {
     src?: string | null;
     alt?: string;
-    size?: number; // size in px (width/height)
+    size?: number; // size in px (width/height); ignored when `fill` is set
     className?: string;
     fallbackText?: string; // e.g. "Иван Петров" — initials are derived from it
+    // Stretch to the parent instead of using `size`. Use this whenever the avatar sits in a box
+    // that already has its own dimensions (especially a responsive one like `w-16 lg:w-20`):
+    // hard-coding px there makes the avatar larger than its container, and `overflow-hidden` then
+    // crops it off-centre so it looks shifted.
+    fill?: boolean;
 }
 
 // Telegram-style palette. Solid, pleasant backgrounds that read well with white
@@ -55,7 +60,8 @@ export const Avatar: React.FC<AvatarProps> = ({
     alt = "User",
     size = 40,
     className = "",
-    fallbackText
+    fallbackText,
+    fill = false
 }) => {
     const [hasError, setHasError] = useState(false);
     const [imageSrc, setImageSrc] = useState<string | null>(isRealImage(src) ? src! : null);
@@ -69,6 +75,13 @@ export const Avatar: React.FC<AvatarProps> = ({
         setHasError(true);
     };
 
+    // In fill mode the parent owns the dimensions, so no px are written at all — otherwise the
+    // minWidth/minHeight floor would keep forcing the old size and defeat the point.
+    // flexShrink: 0 stops a flex row from squashing the circle into an oval.
+    const sizeStyle: React.CSSProperties = fill
+        ? { width: '100%', height: '100%', flexShrink: 0 }
+        : { width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 };
+
     if (!imageSrc || hasError) {
         const label = (fallbackText && fallbackText.trim()) || (alt && alt !== 'User' ? alt : '');
         const initials = initialsForName(label);
@@ -76,8 +89,12 @@ export const Avatar: React.FC<AvatarProps> = ({
         return (
             <div
                 className={`rounded-full flex items-center justify-center text-white font-semibold overflow-hidden select-none ${className}`}
-                style={{ width: size, height: size, minWidth: size, minHeight: size, backgroundColor: bg }}
+                style={{ ...sizeStyle, backgroundColor: bg }}
             >
+                {/* The box is sized by the parent in fill mode, but the initials still need a
+                    concrete font size — so `size` keeps serving as the typography hint. Callers
+                    pass the box's nominal size, and a small mismatch only shifts the glyph weight,
+                    never the layout. */}
                 <span style={{ fontSize: size * 0.4, lineHeight: 1 }}>{initials}</span>
             </div>
         );
@@ -88,7 +105,7 @@ export const Avatar: React.FC<AvatarProps> = ({
             src={imageSrc}
             alt={alt}
             className={`rounded-full object-cover ${className}`}
-            style={{ width: size, height: size, minWidth: size, minHeight: size }}
+            style={sizeStyle}
             onError={handleError}
             loading="lazy"
         />

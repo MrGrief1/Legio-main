@@ -282,6 +282,26 @@ function initDb() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )`);
 
+    // Distinguishes a poll win from the flat monthly prize. The monthly leaderboard sums only
+    // 'poll' rows: crediting the prize as ordinary points would put 5000 into the winner's *next*
+    // month total and hand them the following month's prize for free, forever.
+    db.run(`ALTER TABLE points_history ADD COLUMN kind TEXT DEFAULT 'poll'`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding kind column to points_history:', err);
+      }
+    });
+
+    // One row per settled month — the idempotency guard for the monthly prize. The PRIMARY KEY is
+    // what makes "award once" true even if two requests settle the same month at the same time.
+    db.run(`CREATE TABLE IF NOT EXISTS monthly_prizes (
+      month TEXT PRIMARY KEY,          -- 'YYYY-MM' of the month that was won
+      user_id INTEGER,                 -- NULL when nobody scored that month
+      points INTEGER NOT NULL DEFAULT 0,
+      monthly_points INTEGER NOT NULL DEFAULT 0, -- the score that won it, for the record
+      awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
     db.run(
       `INSERT INTO points_settings (id, start_points, wins_points, level_points)
        VALUES (1, 100, 100, 1000)

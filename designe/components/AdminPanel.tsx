@@ -141,7 +141,10 @@ export const AdminPanel: React.FC = () => {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                                <SortHeader column="name" label={t.admin.user} className="pl-2" />
+                                {/* Position in the current ordering — not the user id, so it stays
+                                    1..N whichever column the table is sorted by. */}
+                                <th className="pb-3 pl-2 pr-1 w-10 text-zinc-500 dark:text-zinc-400 font-medium text-sm uppercase tracking-wider">#</th>
+                                <SortHeader column="name" label={t.admin.user} />
                                 <SortHeader column="created_at" label={t.admin.registered} />
                                 <SortHeader column="last_seen" label={t.admin.lastSeen} className="hidden lg:table-cell" />
                                 <SortHeader column="points" label={t.points} />
@@ -151,16 +154,19 @@ export const AdminPanel: React.FC = () => {
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan={6} className="text-center py-8 text-zinc-500">{t.admin.loadingUsers}</td></tr>
+                                <tr><td colSpan={7} className="text-center py-8 text-zinc-500">{t.admin.loadingUsers}</td></tr>
                             ) : filteredUsers.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center py-8 text-zinc-500">{t.admin.noUsers}</td></tr>
-                            ) : filteredUsers.map(u => (
+                                <tr><td colSpan={7} className="text-center py-8 text-zinc-500">{t.admin.noUsers}</td></tr>
+                            ) : filteredUsers.map((u, index) => (
                                 <tr
                                     key={u.id}
                                     onClick={() => setSelectedUserId(u.id)}
                                     className="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/30 transition-colors cursor-pointer"
                                 >
-                                    <td className="py-3 pl-2">
+                                    <td className="py-3 pl-2 pr-1 text-sm font-mono tabular-nums text-zinc-400 dark:text-zinc-500">
+                                        {index + 1}
+                                    </td>
+                                    <td className="py-3">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <Avatar
                                                 src={u.avatar || ''}

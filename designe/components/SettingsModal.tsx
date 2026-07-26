@@ -17,7 +17,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-    const { user, login } = useAuth();
+    const { user, login, refreshUser } = useAuth();
     const { language, setLanguage, t } = useLanguage();
     const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState<'profile' | 'security'>('profile');
@@ -40,19 +40,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Sync state with user data when modal opens or user updates
+    // Read through a ref so the sync effect below can seed itself from the current user without
+    // taking `user` as a dependency.
+    const userRef = useRef(user);
+    userRef.current = user;
+
+    // Seed the form from the account — ON OPEN ONLY.
+    //
+    // This deliberately does not depend on `user`. The account is re-read on a timer and whenever
+    // the window regains focus, which replaces the `user` object; if that re-ran this effect, every
+    // refresh would overwrite the fields with the saved values and discard whatever was being typed.
+    // Switching windows to copy a bio and coming back would wipe it — the "I filled it in and it
+    // reset" failure. The form owns its state from the moment it opens until it is saved or closed.
     useEffect(() => {
-        if (isOpen && user) {
-            setNewName(user.name || user.username || '');
-            setBio(user.bio || '');
-            setBirthdate(user.birthdate || '');
-            setAvatarPreview(user.avatar || '');
-            setNewEmail(user.username || '');
-            // Reset password fields
-            setNewPassword('');
-            setConfirmPassword('');
-        }
-    }, [isOpen, user]);
+        if (!isOpen) return;
+
+        const current = userRef.current;
+        if (!current) return;
+
+        setNewName(current.name || current.username || '');
+        setBio(current.bio || '');
+        setBirthdate(current.birthdate || '');
+        setAvatarPreview(current.avatar || '');
+        setNewEmail(current.username || '');
+        setAvatarFile(null);
+        // Never carry a password across openings.
+        setNewPassword('');
+        setConfirmPassword('');
+    }, [isOpen]);
 
     // Lock body scroll
     useScrollLock(isOpen);
@@ -118,10 +133,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             if (res.ok) {
                 const data = await res.json();
-                // Update context
-                login(localStorage.getItem('token') || '', data.user);
+                // Push the saved record straight into context, then re-read it from the server so
+                // anything the server derived (level, points) is current too. No page reload: the
+                // old `window.location.reload()` threw away in-flight state and made a successful
+                // save look like the form had been wiped.
+                if (data.user) {
+                    login(localStorage.getItem('token') || '', data.user);
+                }
+                await refreshUser();
+                setAvatarFile(null);
                 showToast(t.settings.profileUpdated, 'success');
-                setTimeout(() => window.location.reload(), 1000);
+                onClose();
             } else {
                 const data = await res.json();
                 showToast(data.message || t.settings.updateFailed, 'error');
@@ -157,8 +179,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             if (res.ok) {
                 showToast(t.settings.securityUpdated, 'success');
-                // Logout or just close? Better to logout if email/password changed
-                window.location.reload();
+                // The session survives an email/password change — the token identifies the user by
+                // id, not by login — so refresh the record in place instead of reloading.
+                setNewPassword('');
+                setConfirmPassword('');
+                await refreshUser();
+                onClose();
             } else {
                 const data = await res.json();
                 showToast(data.message || t.settings.updateFailed, 'error');
@@ -231,7 +257,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             <div className="flex flex-col items-center gap-4">
                                 <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                                     <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-zinc-100 dark:ring-zinc-800">
-                                        <Avatar src={avatarPreview} alt="Avatar" size={96} className="w-full h-full object-cover" fallbackText={user?.name || user?.username} />
+                                        <Avatar src={avatarPreview} alt="Avatar" size={96} fill className="object-cover" fallbackText={user?.name || user?.username} />
                                     </div>
                                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
                                         <Camera className="text-white" size={24} />
