@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Button } from './UI';
 import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X } from 'lucide-react';
 import { PollData, PollOption, NewsItem, User } from '../types';
@@ -350,7 +350,11 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
   );
 });
 
-export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = React.memo(({ item, onRefresh }) => {
+export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) => void }> = React.memo(({ item, onRefresh }) => {
+  // Лента перечитывает по этому сигналу одну карточку, а не весь список, поэтому ей нужен id.
+  // Колбэк собирается здесь и один раз: если отдавать вниз новую стрелку на каждый рендер,
+  // React.memo на Poll перестанет работать.
+  const notifyChanged = useCallback(() => onRefresh?.(Number(item.id)), [onRefresh, item.id]);
   const [isLiked, setIsLiked] = useState(item.isLiked || false);
   const [likeLoading, setLikeLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -371,7 +375,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
         }
       });
       if (res.ok) {
-        onRefresh?.();
+        notifyChanged();
       }
     } catch (error) {
       console.error(error);
@@ -469,7 +473,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
                 onMouseDown={e => e.stopPropagation()}
                 onPointerDown={e => e.stopPropagation()}
               >
-                <Poll data={item.poll} onPollChange={onRefresh} />
+                <Poll data={item.poll} onPollChange={notifyChanged} />
               </div>
             )}
 
@@ -538,8 +542,8 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: () => void }> = Re
         </div >
       </div >
 
-      <NewsModal item={item} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onRefresh={onRefresh}>
-        {item.poll && <Poll data={item.poll} onPollChange={onRefresh} />}
+      <NewsModal item={item} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onRefresh={notifyChanged}>
+        {item.poll && <Poll data={item.poll} onPollChange={notifyChanged} />}
       </NewsModal>
 
       <ReportModal

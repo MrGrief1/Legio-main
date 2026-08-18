@@ -94,11 +94,42 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       });
   }, [category, search, pollStatus]);
 
-  const refreshFeed = useCallback(() => {
-    setPage(1);
-    setHasMore(true);
-    fetchFeedPage(1, 'replace');
-  }, [fetchFeedPage]);
+  // Голос, разбор опроса или удаление меняют ровно одну карточку. Раньше на это перечитывалась
+  // вся лента с первой страницы: список схлопывался с сотни карточек до двенадцати, и читателя,
+  // проголосовавшего где-то внизу «Незавершённых опросов», выбрасывало наверх — каждый раз в одно
+  // и то же место. Здесь перечитывается только сама новость и подменяется на своём месте, поэтому
+  // ни подгруженные страницы, ни позиция прокрутки не теряются.
+  const refreshItem = useCallback((newsId: number) => {
+    const headers: any = {};
+    const token = localStorage.getItem('token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${API_URL}/news/${newsId}`, { headers })
+      .then((res) => {
+        // Новость удалили — карточке в ленте больше не место.
+        if (res.status === 404) {
+          setNews((prev) => prev.filter((item) => item.id !== newsId));
+          return null;
+        }
+        if (!res.ok) throw new Error('Failed to refresh news item');
+        return res.json();
+      })
+      .then((updated: NewsItem | null) => {
+        if (!updated) return;
+
+        setNews((prev) => {
+          // Вкладка «Незавершённые опросы» показывает только неразобранные: как только у опроса
+          // появился правильный ответ, карточка перестаёт подходить под фильтр.
+          if (pollStatus === 'open' && Number(updated.poll?.is_resolved || 0) === 1) {
+            return prev.filter((item) => item.id !== newsId);
+          }
+          return prev.map((item) => (item.id === newsId ? updated : item));
+        });
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }, [pollStatus]);
 
   useEffect(() => {
     setPage(1);
@@ -172,7 +203,7 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       <div className="space-y-8 pb-20">
         {Array.isArray(news) && news.length > 0 ? (
           news.map((item) => (
-            <NewsCard key={item.id} item={item} onRefresh={refreshFeed} />
+            <NewsCard key={item.id} item={item} onRefresh={refreshItem} />
           ))
         ) : (
           /* One empty state, and it says which situation it is. Two stacked messages used to render
