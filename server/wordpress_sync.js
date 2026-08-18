@@ -911,4 +911,13 @@ module.exports = {
   isWordpressSyncConfigured,
   syncWordpressToSQLite,
   toBoolean,
+  // Догрузка новостей (import_wp_delta.js) читает те же поля старого сайта, что и полный
+  // перенос, и должна раскладывать их ровно так же — иначе у постов, приехавших разными
+  // путями, разойдутся категории, теги и поисковый индекс.
+  buildSearchText,
+  cleanDate,
+  mapCategoryToNewProject,
+  parsePollMeta,
+  sanitizeText,
+  stripHtml,
 };

@@ -198,6 +198,21 @@ function initDb() {
     // ASCII, so "спорт" never matches a stored "Спорт" — Russian search only worked when the
     // typed case happened to match exactly. JavaScript folds Unicode correctly, so the folding is
     // done once at write time and the query becomes a plain LIKE against this column.
+    // Идентификатор поста в WordPress. У первого переноса id новости совпадал с id поста, но
+    // приложение с тех пор создаёт свои новости через AUTOINCREMENT в том же диапазоне — и уже
+    // занимает номера, под которыми на старом сайте лежат другие посты. Отдельная колонка
+    // развязывает эти два пространства номеров: догрузка новостей опознаёт уже перенесённое
+    // по wp_post_id, а не по совпадению id, и не может ни задвоить пост, ни затереть чужой.
+    db.run(`ALTER TABLE news ADD COLUMN wp_post_id INTEGER`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding wp_post_id column to news:', err);
+      }
+    });
+    // Частичный индекс: у новостей, созданных в приложении, wp_post_id остаётся NULL, и таких
+    // строк много — под UNIQUE они бы конфликтовали в любой СУБД, где NULL не считается уникальным.
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_news_wp_post_id
+            ON news(wp_post_id) WHERE wp_post_id IS NOT NULL`);
+
     db.run(`ALTER TABLE news ADD COLUMN search_text TEXT`, (err) => {
       if (err && !err.message.includes('duplicate column name')) {
         console.error('Error adding search_text column:', err);
