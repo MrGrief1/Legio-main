@@ -1,5 +1,13 @@
 # Почта (Resend) и переезд домена legio.news
 
+> **Статус на 18 августа 2026.** Шаги 2 и 3 (домен в Resend + DNS в Timeweb) выполнены:
+> `legio.news` подтверждён в аккаунте Resend `maksurazov1502`, регион us-east-1, статус **Verified**.
+> В Timeweb добавлены `TXT @ resend-domain-verification=…`, `TXT resend._domainkey` (DKIM),
+> `TXT send v=spf1 include:amazonses.com ~all`, `MX send → feedback-smtp.us-east-1.amazonses.com (10)`.
+> A-запись, MX и SPF корня не тронуты — старый сайт и почта на нём работают.
+> **Осталось:** создать API-ключ в Resend и задать `RESEND_API_KEY` + `RESEND_FROM` в Railway (§4),
+> затем проверка (§5) и переезд домена (§6).
+
 Порядок здесь важен: **сначала почта, потом домен**. Записи, которые нужны Resend (TXT, DKIM и MX
 на поддомене `send`), не трогают A/CNAME, по которым сейчас открывается старый сайт, — их можно
 добавить прямо сегодня, и старый сайт продолжит работать. Переключение самого домена на новый

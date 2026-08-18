@@ -24,49 +24,138 @@ const escapeHtml = (value) => String(value ?? '')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-// Тёмный «стеклянный» шаблон под дизайн сайта. Вёрстка на таблицах и inline-стилях —
-// почтовые клиенты (особенно Outlook и Gmail) вырезают <style> и не поддерживают flex/grid.
-const renderCodeEmail = ({ title, description, code, ttlMinutes, footerNote }) => `<!DOCTYPE html>
+// Шаблон письма.
+//
+// Вёрстка на таблицах и inline-стилях — не архаизм, а требование: Gmail, Outlook и Mail.ru
+// вырезают <style> и не поддерживают flex/grid, поэтому всё, что должно выжить гарантированно,
+// написано атрибутами и style="" прямо на элементах.
+//
+// Оформление повторяет сайт: серифный курсивный логотип (Playfair Display с откатом на Georgia —
+// веб-шрифты в почте почти нигде не грузятся), Inter в тексте, белая карточка со скруглением на
+// светло-сером поле. Тёмная тема — через prefers-color-scheme: там, где она поддерживается,
+// правила с !important перебивают inline-стили; где нет — остаётся светлый вариант.
+
+const EMAIL_STYLES = `
+  @media (prefers-color-scheme: dark) {
+    .lg-page   { background-color: #09090b !important; }
+    .lg-card   { background-color: #121212 !important; border-color: #27272a !important; }
+    .lg-rule   { border-color: #27272a !important; }
+    .lg-title,
+    .lg-brand  { color: #fafafa !important; }
+    .lg-text   { color: #d4d4d8 !important; }
+    .lg-muted  { color: #71717a !important; }
+    .lg-panel  { background-color: #1a1a1d !important; border-color: #3f3f46 !important; }
+    .lg-code   { color: #ffffff !important; }
+    .lg-accent { color: #60a5fa !important; }
+  }
+  @media (max-width: 480px) {
+    .lg-pad    { padding-left: 24px !important; padding-right: 24px !important; }
+    .lg-code   { font-size: 30px !important; letter-spacing: 8px !important; }
+  }
+`;
+
+const renderCodeEmail = ({ eyebrow, title, description, code, ttlMinutes, footerNote }) => `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <title>Legio</title>
+  <style>${EMAIL_STYLES}</style>
 </head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background-color:#09090b;color:#ffffff;">
-  <div style="width:100%;background-color:#09090b;padding:40px 12px;">
-    <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:480px;margin:0 auto;background-color:#121212;border:1px solid #27272a;border-radius:28px;overflow:hidden;">
-      <tr>
-        <td style="padding:36px 36px 16px;text-align:center;">
-          <div style="width:52px;height:52px;margin:0 auto 18px;border-radius:16px;background:linear-gradient(135deg,#ffffff 0%,#a1a1aa 100%);display:inline-block;line-height:52px;color:#09090b;font-weight:700;font-size:22px;">L</div>
-          <div style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">Legio</div>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding:0 36px 36px;">
-          <h1 style="margin:0 0 10px;color:#ffffff;font-size:18px;font-weight:600;text-align:center;">${escapeHtml(title)}</h1>
-          <p style="margin:0 0 26px;color:#a1a1aa;font-size:14px;line-height:1.55;text-align:center;">${escapeHtml(description)}</p>
+<body class="lg-page" style="margin:0;padding:0;width:100%;background-color:#f4f4f5;">
 
-          <div style="background-color:#1c1c1f;border:1px solid #303034;border-radius:18px;padding:22px;text-align:center;margin-bottom:22px;">
-            <span style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:32px;font-weight:700;color:#ffffff;letter-spacing:8px;">${escapeHtml(code)}</span>
-          </div>
-
-          <p style="margin:0 0 14px;color:#71717a;font-size:12px;line-height:1.5;text-align:center;">Код действует ${escapeHtml(ttlMinutes)} мин. Никому его не сообщайте — сотрудники Legio никогда не спрашивают код.</p>
-          <p style="margin:0;color:#52525b;font-size:12px;line-height:1.5;text-align:center;">${escapeHtml(footerNote || 'Если вы этого не запрашивали, просто проигнорируйте письмо.')}</p>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding:18px;text-align:center;border-top:1px solid #1f1f22;background-color:#0d0d0f;">
-          <p style="margin:0;color:#52525b;font-size:11px;">© ${new Date().getFullYear()} Legio · legio.news</p>
-        </td>
-      </tr>
-    </table>
+  <!-- Строка предпросмотра в списке писем: сам код видно ещё до открытия. -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0;">
+    ${escapeHtml(code)} — код подтверждения Legio, действует ${escapeHtml(ttlMinutes)} мин.
   </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="lg-page" style="background-color:#f4f4f5;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" class="lg-card" style="width:100%;max-width:520px;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:24px;">
+
+          <!-- Шапка -->
+          <tr>
+            <td class="lg-pad" style="padding:36px 40px 0;">
+              <div class="lg-brand" style="font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-style:italic;font-size:30px;font-weight:500;letter-spacing:-0.5px;color:#18181b;line-height:1.1;">Legio</div>
+              <div class="lg-muted" style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#a1a1aa;padding-top:6px;">Проверь свою интуицию</div>
+            </td>
+          </tr>
+          <tr>
+            <td class="lg-pad" style="padding:24px 40px 0;">
+              <div class="lg-rule" style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;">&nbsp;</div>
+            </td>
+          </tr>
+
+          <!-- Заголовок и пояснение -->
+          <tr>
+            <td class="lg-pad" style="padding:28px 40px 0;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+              <div class="lg-accent" style="font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:#2563eb;">${escapeHtml(eyebrow)}</div>
+              <h1 class="lg-title" style="margin:10px 0 0;font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-size:26px;font-weight:600;line-height:1.25;color:#18181b;">${escapeHtml(title)}</h1>
+              <p class="lg-text" style="margin:12px 0 0;font-size:15px;line-height:1.6;color:#52525b;">${escapeHtml(description)}</p>
+            </td>
+          </tr>
+
+          <!-- Код -->
+          <tr>
+            <td class="lg-pad" style="padding:24px 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="lg-panel" style="background-color:#fafafa;border:1px dashed #d4d4d8;border-radius:16px;">
+                <tr>
+                  <td align="center" style="padding:22px 12px 16px;">
+                    <div class="lg-code" style="font-family:'SF Mono',ui-monospace,Menlo,Consolas,'Courier New',monospace;font-size:36px;font-weight:700;letter-spacing:12px;text-indent:12px;color:#18181b;line-height:1.1;">${escapeHtml(code)}</div>
+                    <div class="lg-muted" style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#a1a1aa;padding-top:10px;">действует ${escapeHtml(ttlMinutes)} мин</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Предупреждение -->
+          <tr>
+            <td class="lg-pad" style="padding:22px 40px 0;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+              <p class="lg-muted" style="margin:0;font-size:13px;line-height:1.6;color:#71717a;">${escapeHtml(footerNote || 'Если вы этого не запрашивали, просто проигнорируйте письмо.')}</p>
+              <p class="lg-muted" style="margin:8px 0 0;font-size:13px;line-height:1.6;color:#a1a1aa;">Никому не сообщайте этот код — сотрудники Legio никогда его не спрашивают.</p>
+            </td>
+          </tr>
+
+          <!-- Подвал -->
+          <tr>
+            <td class="lg-pad" style="padding:28px 40px 32px;">
+              <div class="lg-rule" style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;">&nbsp;</div>
+              <div class="lg-muted" style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#a1a1aa;padding-top:16px;">
+                <a href="https://legio.news" style="color:#a1a1aa;text-decoration:none;">legio.news</a>
+                &nbsp;·&nbsp; © ${new Date().getFullYear()} Legio
+              </div>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 
-const renderCodeText = ({ title, description, code, ttlMinutes }) =>
-    `${title}\n\n${description}\n\nКод: ${code}\nДействует ${ttlMinutes} мин.\n\nЕсли вы этого не запрашивали, проигнорируйте письмо.\n\nLegio · legio.news`;
+const renderCodeText = ({ eyebrow, title, description, code, ttlMinutes, footerNote }) =>
+    [
+        'LEGIO',
+        '',
+        `${eyebrow} — ${title}`,
+        '',
+        description,
+        '',
+        `Код: ${code}`,
+        `Действует ${ttlMinutes} мин.`,
+        '',
+        footerNote || 'Если вы этого не запрашивали, просто проигнорируйте письмо.',
+        'Никому не сообщайте этот код — сотрудники Legio никогда его не спрашивают.',
+        '',
+        'legio.news',
+    ].join('\n');
 
 /**
  * Низкоуровневая отправка. Не бросает: вызывающему важно отличить «письмо ушло» от «не ушло»,
@@ -115,52 +204,64 @@ const sendRawEmail = async ({ to, subject, html, text }) => {
 
 // Тексты писем по назначению кода. Ключи совпадают с purpose в таблице auth_codes,
 // поэтому обработчику маршрута достаточно передать purpose.
+//
+// `eyebrow` — короткая надпись над заголовком: она же делает письма различимыми в списке входящих,
+// когда их приходит несколько подряд.
 const CODE_TEMPLATES = {
     register: {
-        subject: 'Подтверждение регистрации — Legio',
+        subject: 'Код подтверждения регистрации — Legio',
+        eyebrow: 'Регистрация',
         title: 'Добро пожаловать в Legio',
-        description: 'Чтобы завершить регистрацию, введите этот код на сайте.',
+        description: 'Остался один шаг: введите код на сайте, и аккаунт будет создан.',
     },
     login: {
         subject: 'Код для входа — Legio',
-        title: 'Подтверждение входа',
-        description: 'Кто-то входит в ваш аккаунт. Введите код, чтобы завершить вход.',
+        eyebrow: 'Вход в аккаунт',
+        title: 'Подтвердите вход',
+        description: 'Кто-то входит в ваш аккаунт с паролем. Введите код, чтобы завершить вход.',
         footerNote: 'Если это были не вы — не вводите код и смените пароль.',
     },
     password_reset: {
         subject: 'Восстановление пароля — Legio',
-        title: 'Восстановление пароля',
-        description: 'Введите этот код, чтобы задать новый пароль.',
+        eyebrow: 'Восстановление пароля',
+        title: 'Задайте новый пароль',
+        description: 'Введите этот код на сайте, чтобы придумать новый пароль.',
     },
     password_change: {
         subject: 'Подтверждение смены пароля — Legio',
-        title: 'Смена пароля',
-        description: 'Введите этот код, чтобы подтвердить смену пароля.',
+        eyebrow: 'Смена пароля',
+        title: 'Подтвердите смену пароля',
+        description: 'Введите код, чтобы сохранить новый пароль.',
         footerNote: 'Если это были не вы — срочно смените пароль и проверьте почту на взлом.',
     },
     email_change_current: {
-        subject: 'Смена почты — подтверждение текущего адреса',
-        title: 'Смена почты',
-        description: 'Подтвердите, что этот адрес ваш, чтобы начать смену почты.',
+        subject: 'Смена почты: подтверждение текущего адреса — Legio',
+        eyebrow: 'Смена почты · шаг 1',
+        title: 'Подтвердите текущий адрес',
+        description: 'Прежде чем менять почту, подтвердите, что этот адрес по-прежнему ваш.',
     },
     email_change_new: {
-        subject: 'Смена почты — подтверждение нового адреса',
-        title: 'Новый адрес почты',
-        description: 'Введите этот код, чтобы привязать этот адрес к аккаунту Legio.',
+        subject: 'Смена почты: подтверждение нового адреса — Legio',
+        eyebrow: 'Смена почты · шаг 2',
+        title: 'Подтвердите новый адрес',
+        description: 'Введите код, чтобы этот адрес стал основным для вашего аккаунта.',
     },
     email_bind: {
         subject: 'Привязка почты — Legio',
-        title: 'Привязка почты',
-        description: 'Введите этот код, чтобы привязать этот адрес к вашему аккаунту.',
+        eyebrow: 'Привязка почты',
+        title: 'Подтвердите адрес',
+        description: 'Введите код, чтобы привязать этот адрес к аккаунту: он понадобится для восстановления пароля.',
     },
     mfa_enable: {
         subject: 'Включение входа по коду — Legio',
-        title: 'Двухфакторная защита',
-        description: 'Введите код, чтобы включить подтверждение входа по почте.',
+        eyebrow: 'Двухфакторная защита',
+        title: 'Включить вход по коду',
+        description: 'После включения при каждом входе мы будем присылать одноразовый код на эту почту.',
     },
     mfa_disable: {
         subject: 'Отключение входа по коду — Legio',
-        title: 'Отключение двухфакторной защиты',
+        eyebrow: 'Двухфакторная защита',
+        title: 'Отключить вход по коду',
         description: 'Введите код, чтобы отключить подтверждение входа по почте.',
         footerNote: 'Если это были не вы — не вводите код и смените пароль.',
     },
@@ -177,6 +278,7 @@ const CODE_TEMPLATES = {
 const sendCodeEmail = async (to, purpose, code, ttlMinutes) => {
     const template = CODE_TEMPLATES[purpose] || {
         subject: 'Код подтверждения — Legio',
+        eyebrow: 'Подтверждение',
         title: 'Код подтверждения',
         description: 'Введите этот код, чтобы продолжить.',
     };
