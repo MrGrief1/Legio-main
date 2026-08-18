@@ -57,6 +57,96 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
+// Колонки, где лежат даты. Список нужен потому, что чинить приходится не только ленту:
+// на тех же строках держатся месячный лидерборд (points_history.calculation_date) и
+// статистика регистраций (users.created_at).
+const LEGACY_DATE_COLUMNS = [
+  ['news', 'created_at'],
+  ['users', 'created_at'],
+  ['users', 'last_seen'],
+  ['polls', 'ends_at'],
+  ['votes', 'created_at'],
+  ['likes', 'created_at'],
+  ['error_reports', 'created_at'],
+  ['points_history', 'calculation_date'],
+  ['messages', 'created_at'],
+  ['notifications', 'created_at'],
+];
+
+// "YYYY-MM-DD HH:MM:SS" в UTC — тот же формат, что пишет CURRENT_TIMESTAMP, поэтому
+// импортированные и созданные в приложении строки после этого сравнимы между собой.
+// Мусор вроде литерала "Invalid Date" превращается в NULL: пустое значение честнее
+// даты, которой не было.
+function toSqliteDate(value) {
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// Даты из старого переноса хранились как строки Date.prototype.toString(). SQLite такой
+// формат не разбирает: datetime() отдаёт NULL, и ORDER BY молча съезжает на сравнение
+// сырого текста — то есть на название дня недели ("Wed" > "Tue" > "Thu"). Из-за этого в
+// «последних новостях» сверху висела среда сентября 2025 года, хотя в базе лежали посты
+// по июль 2026. Приводим такие значения к формату SQLite один раз, на старте.
+function normalizeLegacyDates() {
+  const pending = [];
+
+  for (const [table, column] of LEGACY_DATE_COLUMNS) {
+    let rows;
+    try {
+      rows = db.prepare(
+        `SELECT rowid AS rid, ${column} AS value
+           FROM ${table}
+          WHERE ${column} IS NOT NULL
+            AND TRIM(${column}) <> ''
+            AND datetime(${column}) IS NULL`
+      ).all();
+    } catch (err) {
+      // На старых базах таблицы или колонки может не быть — это не повод ронять старт.
+      continue;
+    }
+
+    if (rows.length > 0) {
+      pending.push({ table, column, rows });
+    }
+  }
+
+  if (pending.length === 0) return;
+
+  // Миграция переписывает данные, а не схему, поэтому перед ней снимается копия базы.
+  // VACUUM INTO делает согласованный снимок независимо от режима журналирования —
+  // в отличие от копирования файла мимо SQLite.
+  const backupPath = path.join(
+    dbDir,
+    `pre-date-normalization-${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite`
+  );
+
+  try {
+    db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+    console.log('Date normalization: backup written to', backupPath);
+  } catch (backupErr) {
+    console.error('Date normalization aborted: backup failed:', backupErr.message);
+    return;
+  }
+
+  const fixed = [];
+  db.exec('BEGIN');
+  try {
+    for (const { table, column, rows } of pending) {
+      const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+      for (const row of rows) {
+        update.run(toSqliteDate(row.value), row.rid);
+      }
+      fixed.push(`${table}.${column}=${rows.length}`);
+    }
+    db.exec('COMMIT');
+    console.log('Date normalization: rewrote', fixed.join(' '));
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error('Date normalization failed, rolled back:', err.message);
+  }
+}
+
 function initDb() {
   db.serialize(() => {
     // Users table
@@ -395,6 +485,11 @@ function initDb() {
        VALUES (1, 100, 100, 1000)
        ON CONFLICT(id) DO NOTHING`
     );
+
+    // Переносы из WordPress записали даты как `new Date(...).toString()` —
+    // "Wed Sep 24 2025 23:33:44 GMT+0000 (Coordinated Universal Time)". Чинится один раз,
+    // до создания индексов и до того, как приложение начнёт отвечать на запросы.
+    normalizeLegacyDates();
 
     // --- OPTIMIZATION INDEXES ---
     db.run(`CREATE INDEX IF NOT EXISTS idx_news_created_at ON news(created_at)`);
