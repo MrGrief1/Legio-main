@@ -4597,6 +4597,77 @@ app.use((err, req, res, next) => {
     return res.status(500).json({ message: "Internal server error" });
 });
 
+// --- Медиа со старого WordPress ---
+//
+// Картинки новостей записаны в базе абсолютными адресами вида
+// `https://legio.news/wp-content/uploads/...` — так их сохранил перенос из WordPress. Пока домен
+// вёл на старый сервер, они открывались сами собой; после переезда на Railway этот путь стал
+// отдавать index.html (SPA-заглушка ниже ловит всё подряд), и вместо фотографий читатель видит
+// битые рамки.
+//
+// Здесь запросы к /wp-content/uploads/ проксируются на старый сервер по его IP. Обращение идёт с
+// SNI и заголовком Host `legio.news`, поэтому сертификат старого сервера проходит проверку штатно
+// — отключать её не требуется.
+//
+// ЭТО ВРЕМЕННЫЙ МОСТ. Он держит ленту живой ровно до тех пор, пока старый хостинг оплачен. Пока
+// файлы не перенесены к нам, выключать старый сервер нельзя. Убрать этот блок нужно вместе с
+// переписыванием адресов в базе на локальные.
+const LEGACY_MEDIA_PROXY_ENABLED = toBoolean(process.env.LEGACY_MEDIA_PROXY, true);
+const LEGACY_MEDIA_ORIGIN_IP = String(process.env.LEGACY_MEDIA_ORIGIN_IP || '92.63.176.152').trim();
+const LEGACY_MEDIA_ORIGIN_HOST = String(process.env.LEGACY_MEDIA_ORIGIN_HOST || 'legio.news').trim();
+
+const LEGACY_MEDIA_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.ico']);
+
+if (LEGACY_MEDIA_PROXY_ENABLED) {
+    const https = require('https');
+
+    app.get('/wp-content/uploads/*', (req, res) => {
+        // Проксируется только то, что и правда картинка: путь без переходов вверх и с известным
+        // расширением. Иначе маршрут превратился бы в открытый прокси к чужому серверу.
+        const requestedPath = req.path;
+        if (requestedPath.includes('..')) {
+            return res.status(400).end();
+        }
+        if (!LEGACY_MEDIA_EXTENSIONS.has(path.extname(requestedPath).toLowerCase())) {
+            return res.status(404).end();
+        }
+
+        const upstream = https.request({
+            host: LEGACY_MEDIA_ORIGIN_IP,
+            servername: LEGACY_MEDIA_ORIGIN_HOST,
+            path: encodeURI(requestedPath),
+            method: 'GET',
+            headers: { Host: LEGACY_MEDIA_ORIGIN_HOST },
+            timeout: 10000,
+        }, (upstreamRes) => {
+            if (upstreamRes.statusCode !== 200) {
+                upstreamRes.resume();
+                return res.status(404).end();
+            }
+
+            if (upstreamRes.headers['content-type']) {
+                res.setHeader('Content-Type', upstreamRes.headers['content-type']);
+            }
+            if (upstreamRes.headers['content-length']) {
+                res.setHeader('Content-Length', upstreamRes.headers['content-length']);
+            }
+            // Картинки новостей неизменны: кэш на сутки снимает нагрузку со старого сервера,
+            // который этот мост и должен пережить.
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+
+            upstreamRes.pipe(res);
+        });
+
+        upstream.on('timeout', () => upstream.destroy());
+        upstream.on('error', (error) => {
+            console.error('Legacy media proxy error:', requestedPath, error.message);
+            if (!res.headersSent) res.status(404).end();
+        });
+
+        upstream.end();
+    });
+}
+
 // Serve static files from the frontend build directory
 const publicDir = path.join(__dirname, 'public');
 app.use(express.static(publicDir, { dotfiles: 'deny' }));
