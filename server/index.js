@@ -7,6 +7,11 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// Модулем целиком, а не деструктуризацией: отправка резолвится в момент вызова, и тест может
+// подменить mailer.sendCodeEmail, не поднимая настоящий Resend.
+const mailer = require('./mailer');
+const { createEmailAuthService, AuthCodeError, maskEmail } = require('./emailAuth');
+
 require('dotenv').config();
 
 const normalizeLogin = (value) => String(value || '').trim().toLowerCase();
@@ -338,10 +343,40 @@ if (rateLimit) {
         message: { message: "Upload limit reached. Please try again later." }
     });
 
+    // Каждый маршрут, отправляющий письмо, — это ещё и способ израсходовать чужую квоту Resend и
+    // завалить чужой ящик. Общий лимит на них строже пользовательского, но выше, чем у входа:
+    // ошибиться в коде и запросить новый — нормальный сценарий.
+    //
+    // Считаются только запросы, которые действительно отправляют письмо: ввод кода
+    // (`/verify`, `/verify-current`, `/confirm`) пропускается. Иначе один и тот же счётчик тратился
+    // бы и на ошибки при вводе, а лимит на IP — общий для всех, кто сидит за одним адресом
+    // (мобильный оператор, офис), и там это блокировало бы посторонних людей.
+    const emailCodeLimiter = rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: Number.parseInt(process.env.EMAIL_CODE_RATE_LIMIT_MAX || '', 10) || 30,
+        standardHeaders: true,
+        legacyHeaders: false,
+        skip: (req) => req.method === 'OPTIONS' || /^\/(verify|confirm)/.test(req.path),
+        message: { message: "Слишком много запросов кода. Попробуйте позже." }
+    });
+
     app.use('/api/auth/login', loginLimiter);
     app.use('/api/auth/register', registerLimiter);
-    app.use('/api/user/security', accountUpdateLimiter);
+    // Именно на смену пароля, а не на весь /api/user/security: там же лежит GET /status, который
+    // читается при каждом открытии вкладки «Безопасность». Под общим лимитом в 10/час обычный
+    // пользователь блокировал бы сам себя, просто заходя в настройки.
+    app.use('/api/user/security/password', accountUpdateLimiter);
     app.use('/api/upload', uploadLimiter);
+
+    // Отдельно от лимитов выше: loginLimiter и registerLimiter не считают успешные запросы
+    // (skipSuccessfulRequests), а успешный запрос как раз и отправляет письмо. Без этого лимита
+    // рассылку можно было бы гнать бесконечно, ни разу не «ошибившись».
+    app.use('/api/auth/register', emailCodeLimiter);
+    app.use('/api/auth/login/resend', emailCodeLimiter);
+    app.use('/api/auth/forgot-password', emailCodeLimiter);
+    app.use('/api/user/email', emailCodeLimiter);
+    app.use('/api/user/security/password/request', emailCodeLimiter);
+    app.use('/api/user/security/mfa', emailCodeLimiter);
 } else {
     // Simple Custom Rate Limiter
     const createSimpleLimiter = ({ windowMs, max, message }) => {
@@ -697,6 +732,65 @@ const dbAllAsync = (sql, params = []) => new Promise((resolve, reject) => {
         resolve(rows || []);
     });
 });
+
+// --- Почта: коды подтверждения ---
+
+// Без ключа Resend сервис не отключается, а печатает коды в лог — иначе локальную разработку
+// нельзя вести без боевого ключа. В production такого не происходит: там ключ обязателен, и его
+// отсутствие видно в логе стартовым предупреждением ниже.
+const ALLOW_UNSENT_CODES = process.env.NODE_ENV !== 'production' || process.env.ALLOW_UNSENT_CODES === 'true';
+
+const emailAuth = createEmailAuthService({
+    dbRunAsync,
+    dbGetAsync,
+    sendCodeEmail: (...args) => mailer.sendCodeEmail(...args),
+    allowUnsentCodes: ALLOW_UNSENT_CODES,
+});
+
+if (!mailer.isMailerConfigured()) {
+    console.warn(
+        'RESEND_API_KEY не задан. Письма с кодами отправляться не будут' +
+        (ALLOW_UNSENT_CODES ? ' — коды печатаются в лог (режим разработки).' : '.')
+    );
+}
+
+// Чистим погашенные и просроченные коды раз в сутки, чтобы таблица не росла бесконечно.
+setInterval(() => {
+    emailAuth.purgeExpiredCodes().catch((err) => console.error('Failed to purge auth codes:', err.message));
+}, 24 * 60 * 60 * 1000).unref?.();
+
+// Ответ на ошибку кода. Коды AuthCodeError машиночитаемы — фронтенд по ним различает
+// «неверный код», «истёк», «слишком часто» и показывает разные подсказки.
+const sendAuthCodeError = (res, error, context = 'Auth code operation failed') => {
+    if (!(error instanceof AuthCodeError)) {
+        return sendServerError(res, error, context);
+    }
+
+    const status = error.code === 'CODE_COOLDOWN'
+        ? 429
+        : error.code === 'MAIL_SEND_FAILED'
+            ? 503
+            : 400;
+
+    return res.status(status).json({
+        message: error.message,
+        code: error.code,
+        retryInSec: error.retryInSec,
+        attemptsLeft: error.attemptsLeft,
+    });
+};
+
+const looksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+// Адрес, на который аккаунту можно писать. У аккаунтов, перенесённых из WordPress, `username` —
+// это ник, а не почта, поэтому «логин вместо адреса» здесь допустим только когда он и правда
+// похож на адрес: попытка отправить письмо на ник молча провалилась бы на стороне Resend.
+const getContactEmail = (user) => {
+    const explicit = String(user?.email || '').trim().toLowerCase();
+    if (explicit) return explicit;
+    const login = String(user?.username || '').trim().toLowerCase();
+    return looksLikeEmail(login) ? login : null;
+};
 
 const PHPASS_ITOA64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
@@ -1392,36 +1486,6 @@ const validateProfileUpdatePayload = (body = {}) => {
     return { avatar, name, bio, birthdate };
 };
 
-const validateSecurityUpdatePayload = (body = {}) => {
-    const errors = [];
-    let username;
-    let password;
-
-    try {
-        if (body.username !== undefined) {
-            username = validateUsername(body.username);
-        }
-    } catch (error) {
-        errors.push(...(error.details || []));
-    }
-
-    try {
-        if (body.password !== undefined && body.password !== '') {
-            password = validatePassword(body.password);
-        }
-    } catch (error) {
-        errors.push(...(error.details || []));
-    }
-
-    if (body.username === undefined && (body.password === undefined || body.password === '')) {
-        errors.push({ field: 'body', message: 'At least one field must be provided' });
-    }
-
-    throwIfValidationErrors(errors);
-
-    return { username, password };
-};
-
 const validateNewsPayload = (body = {}) => ({
     title: (() => {
         const title = sanitizeTextInput(body.title);
@@ -1481,7 +1545,60 @@ const validateRolePayload = (body = {}) => {
 };
 
 // --- Auth Routes ---
+//
+// Регистрация и вход проходят через одноразовые коды на почту (server/emailAuth.js).
+//
+// Два решения, которые стоит держать в голове при правках:
+//
+//  1. Регистрация НИЧЕГО не пишет в `users`, пока код не подтверждён. Данные будущего аккаунта
+//     живут в payload кода. Иначе неподтверждённые заявки занимали бы уникальные `name` и
+//     всплывали бы в рейтинге и админке — а заодно позволяли бы занять чужой email навсегда.
+//  2. Второй фактор при входе — доброволен (`users.mfa_email_enabled`). Сделать его обязательным
+//     нельзя: у аккаунтов, перенесённых из WordPress, в `username` лежит ник, а не адрес, и
+//     отправлять им код физически некуда, пока они не привяжут почту.
 
+const REGISTER_CODE_TTL_MINUTES = 15;
+const LOGIN_CODE_TTL_MINUTES = 10;
+const ACTION_CODE_TTL_MINUTES = 10;
+
+// Единая форма пользователя в ответах авторизации — чтобы фронтенд получал одинаковый объект
+// после регистрации, входа и подтверждения кода.
+const toPublicUser = (user) => ({
+    id: user.id,
+    username: user.username,
+    email: getContactEmail(user),
+    emailVerified: Number(user.email_verified ?? 1) === 1,
+    mfaEmailEnabled: Number(user.mfa_email_enabled || 0) === 1,
+    role: user.role,
+    points: user.points,
+    level: user.level || calculateLevel(user.points || 0),
+    avatar: user.avatar,
+    // У аккаунтов со старого сайта `name` может отсутствовать — показываем логин.
+    name: user.name || user.username,
+    bio: user.bio,
+    birthdate: user.birthdate,
+    created_at: user.created_at,
+});
+
+const buildSessionResponse = (user) => ({
+    token: signAuthToken({ id: user.id, username: user.username, role: user.role }),
+    user: toPublicUser(user),
+});
+
+// Логин ищется по трём полям: `username` (у новых аккаунтов это email), отдельная колонка `email`
+// (её привязывают аккаунты со старого сайта) и отображаемое `name`. ORDER BY отдаёт приоритет
+// точному совпадению с логином, иначе чужой ник, совпавший с логином, мог бы перехватить вход.
+const findUserForLogin = (login) => dbGetAsync(
+    `SELECT * FROM users
+     WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) OR LOWER(name) = LOWER(?)
+     ORDER BY CASE WHEN LOWER(username) = LOWER(?) THEN 0
+                   WHEN LOWER(email) = LOWER(?) THEN 1
+                   ELSE 2 END
+     LIMIT 1`,
+    [login, login, login, login, login]
+);
+
+// Шаг 1: проверяем данные, занятость email/имени и отправляем код. Аккаунт пока не создаётся.
 app.post('/api/auth/register', async (req, res) => {
     let username;
     let name;
@@ -1495,8 +1612,8 @@ app.post('/api/auth/register', async (req, res) => {
 
     try {
         const existingUser = await dbGetAsync(
-            "SELECT id FROM users WHERE LOWER(username) = LOWER(?)",
-            [username]
+            "SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)",
+            [username, username]
         );
         if (existingUser) {
             return res.status(400).json({ message: "Пользователь с таким email уже существует" });
@@ -1510,7 +1627,65 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ message: "Это имя уже занято, выберите другое" });
         }
 
+        // Пароль хешируется здесь и хранится в payload кода: открытый пароль не должен лежать
+        // в базе даже 15 минут, а повторно спрашивать его на шаге ввода кода незачем.
         const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+        const challenge = await emailAuth.issueCode({
+            email: username,
+            purpose: 'register',
+            payload: { username, name, hashedPassword },
+            ttlMinutes: REGISTER_CODE_TTL_MINUTES,
+        });
+
+        res.json({
+            requiresVerification: true,
+            email: username,
+            maskedEmail: challenge.maskedEmail,
+            expiresAt: challenge.expiresAt,
+            message: 'Мы отправили код подтверждения на вашу почту',
+        });
+    } catch (error) {
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to send registration code');
+        }
+        sendServerError(res, error, 'Failed to register user');
+    }
+});
+
+// Шаг 2: код верен — только теперь создаётся аккаунт и выдаётся токен.
+app.post('/api/auth/register/verify', async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').trim();
+
+    if (!email) {
+        return res.status(400).json({ message: 'Email обязателен' });
+    }
+
+    try {
+        const verified = await emailAuth.verifyCode({ email, purpose: 'register', code });
+        const payload = verified.payload || {};
+
+        const { username, name, hashedPassword } = payload;
+        if (!username || !name || !hashedPassword) {
+            return res.status(400).json({ message: 'Заявка на регистрацию устарела. Зарегистрируйтесь заново.' });
+        }
+
+        // Проверки повторяются: между отправкой кода и его вводом email или имя мог занять
+        // кто-то другой, и уникальный индекс упал бы уже на INSERT.
+        const existingUser = await dbGetAsync(
+            "SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)",
+            [username, username]
+        );
+        if (existingUser) {
+            return res.status(400).json({ message: "Пользователь с таким email уже существует" });
+        }
+
+        const existingName = await dbGetAsync("SELECT id FROM users WHERE LOWER(name) = LOWER(?)", [name]);
+        if (existingName) {
+            return res.status(400).json({ message: "Это имя уже занято, выберите другое" });
+        }
+
         const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
@@ -1524,8 +1699,9 @@ app.post('/api/auth/register', async (req, res) => {
         const level = calculateLevel(startPoints);
 
         const insertResult = await dbRunAsync(
-            "INSERT INTO users (username, password, role, points, level, avatar, name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [username, hashedPassword, userRole, startPoints, level, avatarUrl, name]
+            `INSERT INTO users (username, email, email_verified, password, role, points, level, avatar, name)
+             VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+            [username, username, hashedPassword, userRole, startPoints, level, avatarUrl, name]
         );
 
         await dbRunAsync(
@@ -1533,30 +1709,50 @@ app.post('/api/auth/register', async (req, res) => {
             [insertResult.lastID, startPoints, "Начисление баллов за регистрацию"]
         );
 
-        const token = signAuthToken({ id: insertResult.lastID, username, role: userRole });
-        res.json({
-            token, user: {
-                id: insertResult.lastID,
-                username,
-                role: userRole,
-                points: startPoints,
-                level,
-                avatar: avatarUrl,
-                name,
-                bio: null,
-                birthdate: null
-            }
-        });
+        const user = await dbGetAsync("SELECT * FROM users WHERE id = ?", [insertResult.lastID]);
+        res.json(buildSessionResponse(user));
     } catch (error) {
-        if (error && error.message && error.message.includes('UNIQUE constraint failed')) {
-            return res.status(400).json({ message: "Email or Nickname already exists" });
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to verify registration code');
         }
-        console.error('Failed to register user:', error);
-        res.status(500).json({ message: "Failed to register user" });
+        if (error && error.message && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ message: "Email или имя уже заняты" });
+        }
+        sendServerError(res, error, 'Failed to complete registration');
     }
 });
 
-app.post('/api/auth/login', (req, res) => {
+// Повторная отправка кода регистрации. Работает только там, где заявка уже есть, — так маршрут
+// нельзя использовать, чтобы слать письма на произвольные адреса.
+app.post('/api/auth/register/resend', async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+        return res.status(400).json({ message: 'Email обязателен' });
+    }
+
+    try {
+        const pending = await emailAuth.peekActiveCode({ email, purpose: 'register' });
+        if (!pending) {
+            return res.status(400).json({
+                message: 'Заявка на регистрацию не найдена или устарела. Зарегистрируйтесь заново.',
+                code: 'CODE_NOT_FOUND',
+            });
+        }
+
+        const challenge = await emailAuth.issueCode({
+            email,
+            purpose: 'register',
+            payload: pending.payload,
+            ttlMinutes: REGISTER_CODE_TTL_MINUTES,
+        });
+
+        res.json({ sent: true, maskedEmail: challenge.maskedEmail, expiresAt: challenge.expiresAt });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to resend registration code');
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
     let username;
     let password;
 
@@ -1566,63 +1762,212 @@ app.post('/api/auth/login', (req, res) => {
         return sendValidationError(res, error);
     }
 
-    db.get(
-        `SELECT * FROM users
-         WHERE LOWER(username) = LOWER(?) OR LOWER(name) = LOWER(?)
-         ORDER BY CASE WHEN LOWER(username) = LOWER(?) THEN 0 ELSE 1 END
-         LIMIT 1`,
-        [username, username, username],
-        async (err, user) => {
-        if (err) return sendServerError(res, err);
+    try {
+        const user = await findUserForLogin(username);
         if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
         const isValidPassword = await verifyPassword(password, user.password);
-
-        if (isValidPassword) {
-            if (isForcedAdminLogin(user.username) && user.role !== 'admin') {
-                await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
-                user.role = 'admin';
-            }
-
-            if (shouldRehashPassword(user.password)) {
-                try {
-                    const rehashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
-                    db.run("UPDATE users SET password = ? WHERE id = ?", [rehashedPassword, user.id]);
-                } catch (rehashError) {
-                    console.error('Failed to rehash legacy password:', rehashError.message);
-                }
-            }
-
-            const token = signAuthToken({ id: user.id, username: user.username, role: user.role });
-            // If name is null (old users), fallback to username
-            const name = user.name || user.username;
-            res.json({
-                token, user: {
-                    id: user.id,
-                    username: user.username,
-                    role: user.role,
-                    points: user.points,
-                    level: user.level || calculateLevel(user.points || 0),
-                    avatar: user.avatar,
-                    name,
-                    bio: user.bio,
-                    birthdate: user.birthdate,
-                    created_at: user.created_at
-                }
-            });
-        } else {
-            res.status(400).json({ message: "Invalid credentials" });
+        if (!isValidPassword) {
+            return res.status(400).json({ message: "Invalid credentials" });
         }
-    });
+
+        if (isForcedAdminLogin(user.username) && user.role !== 'admin') {
+            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+            user.role = 'admin';
+        }
+
+        if (shouldRehashPassword(user.password)) {
+            try {
+                const rehashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+                await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [rehashedPassword, user.id]);
+            } catch (rehashError) {
+                console.error('Failed to rehash legacy password:', rehashError.message);
+            }
+        }
+
+        const contactEmail = getContactEmail(user);
+        const mfaEnabled = Number(user.mfa_email_enabled || 0) === 1;
+
+        // Пароль уже проверен, но токен выдаётся только после кода. Если письмо не ушло — вход
+        // не завершается: иначе включённый второй фактор молча превращался бы в отключённый.
+        if (mfaEnabled && contactEmail) {
+            const challenge = await emailAuth.issueCode({
+                userId: user.id,
+                email: contactEmail,
+                purpose: 'login',
+                ttlMinutes: LOGIN_CODE_TTL_MINUTES,
+            });
+
+            return res.json({
+                requires2fa: true,
+                challengeId: challenge.challengeId,
+                maskedEmail: challenge.maskedEmail,
+                expiresAt: challenge.expiresAt,
+            });
+        }
+
+        res.json(buildSessionResponse(user));
+    } catch (error) {
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to send login code');
+        }
+        sendServerError(res, error, 'Failed to login');
+    }
 });
 
+app.post('/api/auth/login/verify', async (req, res) => {
+    const challengeId = String(req.body?.challengeId || '').trim();
+    const code = String(req.body?.code || '').trim();
+
+    if (!challengeId) {
+        return res.status(400).json({ message: 'Сессия входа не найдена. Войдите заново.' });
+    }
+
+    try {
+        const verified = await emailAuth.verifyCode({ challengeId, code });
+        if (verified.purpose !== 'login' || !verified.userId) {
+            return res.status(400).json({ message: 'Сессия входа не найдена. Войдите заново.' });
+        }
+
+        const user = await dbGetAsync("SELECT * FROM users WHERE id = ?", [verified.userId]);
+        if (!user) return res.status(400).json({ message: 'Пользователь не найден' });
+
+        res.json(buildSessionResponse(user));
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to verify login code');
+    }
+});
+
+app.post('/api/auth/login/resend', async (req, res) => {
+    const challengeId = String(req.body?.challengeId || '').trim();
+    if (!challengeId) {
+        return res.status(400).json({ message: 'Сессия входа не найдена. Войдите заново.' });
+    }
+
+    try {
+        const pending = await emailAuth.peekActiveCode({ challengeId });
+        if (!pending || pending.purpose !== 'login') {
+            return res.status(400).json({
+                message: 'Сессия входа устарела. Войдите заново.',
+                code: 'CODE_NOT_FOUND',
+            });
+        }
+
+        const challenge = await emailAuth.issueCode({
+            userId: pending.userId,
+            email: pending.email,
+            purpose: 'login',
+            ttlMinutes: LOGIN_CODE_TTL_MINUTES,
+        });
+
+        res.json({
+            sent: true,
+            challengeId: challenge.challengeId,
+            maskedEmail: challenge.maskedEmail,
+            expiresAt: challenge.expiresAt,
+        });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to resend login code');
+    }
+});
+
+// --- Восстановление пароля ---
+
+// Ответ одинаков независимо от того, есть ли такой аккаунт: иначе маршрут превращается в
+// проверку «зарегистрирован ли этот адрес».
+app.post('/api/auth/forgot-password', async (req, res) => {
+    let email;
+    try {
+        email = validateEmail(req.body?.email).toLowerCase();
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    const genericResponse = {
+        sent: true,
+        message: 'Если такой аккаунт существует, мы отправили на него код восстановления',
+    };
+
+    try {
+        const user = await dbGetAsync(
+            "SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)",
+            [email, email]
+        );
+
+        const contactEmail = user ? getContactEmail(user) : null;
+        if (!user || !contactEmail || contactEmail !== email) {
+            return res.json(genericResponse);
+        }
+
+        await emailAuth.issueCode({
+            userId: user.id,
+            email: contactEmail,
+            purpose: 'password_reset',
+            ttlMinutes: ACTION_CODE_TTL_MINUTES,
+        });
+
+        res.json(genericResponse);
+    } catch (error) {
+        // Пауза между отправками — единственное, о чём честно говорим: она видна и без ответа
+        // сервера (пользователь только что нажал кнопку), а молчание здесь путало бы.
+        if (error instanceof AuthCodeError && error.code === 'CODE_COOLDOWN') {
+            return sendAuthCodeError(res, error, 'Password reset cooldown');
+        }
+        if (error instanceof AuthCodeError) {
+            console.error('Failed to send password reset code:', error.message);
+            return res.json(genericResponse);
+        }
+        sendServerError(res, error, 'Failed to start password reset');
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    let email;
+    let password;
+
+    try {
+        email = validateEmail(req.body?.email).toLowerCase();
+        password = validatePassword(req.body?.password ?? req.body?.newPassword);
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const verified = await emailAuth.verifyCode({
+            email,
+            purpose: 'password_reset',
+            code: req.body?.code,
+        });
+
+        const user = await dbGetAsync("SELECT * FROM users WHERE id = ?", [verified.userId]);
+        if (!user) return res.status(400).json({ message: 'Пользователь не найден' });
+
+        const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, user.id]);
+
+        const updated = await dbGetAsync("SELECT * FROM users WHERE id = ?", [user.id]);
+        // Сразу выдаём сессию: пользователь только что доказал контроль над почтой и знает новый
+        // пароль — заставлять его вводить всё заново незачем.
+        res.json({ ...buildSessionResponse(updated), message: 'Пароль обновлён' });
+    } catch (error) {
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to reset password');
+        }
+        sendServerError(res, error, 'Failed to reset password');
+    }
+});
 app.get('/api/auth/me', authenticateToken, (req, res) => {
-    db.get("SELECT id, username, role, points, level, avatar, name, bio, birthdate, created_at FROM users WHERE id = ?", [req.user.id], (err, user) => {
-        if (err) return sendServerError(res, err);
-        if (!user) return res.status(401).json({ message: "User not found for token. Please login again." });
-        if (user && !user.name) user.name = user.username;
-        res.json(user);
-    });
+    db.get(
+        `SELECT id, username, email, email_verified, mfa_email_enabled, role, points, level,
+                avatar, name, bio, birthdate, created_at
+         FROM users WHERE id = ?`,
+        [req.user.id],
+        (err, user) => {
+            if (err) return sendServerError(res, err);
+            if (!user) return res.status(401).json({ message: "User not found for token. Please login again." });
+            res.json(toPublicUser(user));
+        }
+    );
 });
 
 app.post('/api/user/update', authenticateToken, async (req, res) => {
@@ -1689,55 +2034,369 @@ app.post('/api/user/update', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/api/user/security', authenticateToken, async (req, res) => {
-    let username;
-    let password;
+// --- Безопасность аккаунта: пароль, почта, вход по коду ---
+//
+// Смена пароля и смена почты — это ровно те две операции, через которые проходит угон аккаунта,
+// поэтому одного действующего токена для них недостаточно: нужен ещё код с почты. Исключение
+// одно и вынужденное — аккаунты со старого сайта, у которых почты пока нет: им код слать некуда,
+// и до привязки адреса подтверждением служит текущий пароль. Как только почта привязана, оба
+// сценария требуют кода.
 
+// Промежуточный токен между шагами смены почты. Отдельный короткоживущий JWT, а не флаг в сессии:
+// сервер не хранит состояние между запросами, а `stage` в токене не даёт использовать обычный
+// токен доступа вместо пройденного первого шага.
+const EMAIL_STAGE_TOKEN_TTL = '15m';
+
+const signEmailStageToken = (userId) => jwt.sign(
+    { id: userId, stage: 'current_email_verified' },
+    SECRET_KEY,
+    { expiresIn: EMAIL_STAGE_TOKEN_TTL, algorithm: JWT_ALGORITHM }
+);
+
+const verifyEmailStageToken = (token, userId) => {
+    const payload = jwt.verify(String(token || ''), SECRET_KEY, { algorithms: [JWT_ALGORITHM] });
+    if (payload?.id !== userId || payload?.stage !== 'current_email_verified') {
+        throw new Error('Invalid stage token');
+    }
+    return payload;
+};
+
+const getCurrentUser = (req) => dbGetAsync("SELECT * FROM users WHERE id = ?", [req.user.id]);
+
+// Текущее состояние защиты аккаунта — фронтенд по нему решает, какой сценарий показывать:
+// привязку почты или её смену, и доступен ли переключатель входа по коду.
+app.get('/api/user/security/status', authenticateToken, async (req, res) => {
     try {
-        ({ username, password } = validateSecurityUpdatePayload(req.body));
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const email = getContactEmail(user);
+        res.json({
+            email,
+            maskedEmail: email ? maskEmail(email) : null,
+            hasEmail: Boolean(email),
+            emailVerified: Number(user.email_verified ?? 1) === 1,
+            mfaEmailEnabled: Number(user.mfa_email_enabled || 0) === 1,
+            // Логин остаётся прежним, если это ник со старого сайта: привязка почты его не меняет.
+            username: user.username,
+            loginIsEmail: looksLikeEmail(user.username),
+        });
+    } catch (error) {
+        sendServerError(res, error, 'Failed to read security status');
+    }
+});
+
+// --- Смена пароля ---
+
+app.post('/api/user/security/password/request', authenticateToken, async (req, res) => {
+    try {
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        // Текущий пароль проверяется ДО отправки письма: иначе чужой токен позволял бы заваливать
+        // владельца аккаунта письмами о смене пароля.
+        const currentPassword = String(req.body?.currentPassword || '');
+        if (!currentPassword || !(await verifyPassword(currentPassword, user.password))) {
+            return res.status(400).json({ message: 'Текущий пароль указан неверно', code: 'CURRENT_PASSWORD_INVALID' });
+        }
+
+        const email = getContactEmail(user);
+        if (!email) {
+            // Почты нет — подтверждать нечем. Клиент по этому коду переходит к смене пароля
+            // без письма (см. /password/confirm).
+            return res.json({ codeRequired: false, message: 'К аккаунту не привязана почта' });
+        }
+
+        const challenge = await emailAuth.issueCode({
+            userId: user.id,
+            email,
+            purpose: 'password_change',
+            ttlMinutes: ACTION_CODE_TTL_MINUTES,
+        });
+
+        res.json({
+            codeRequired: true,
+            maskedEmail: challenge.maskedEmail,
+            expiresAt: challenge.expiresAt,
+        });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to request password change code');
+    }
+});
+
+app.post('/api/user/security/password/confirm', authenticateToken, async (req, res) => {
+    let newPassword;
+    try {
+        newPassword = validatePassword(req.body?.newPassword ?? req.body?.password);
     } catch (error) {
         return sendValidationError(res, error);
     }
 
-    const updates = [];
-    const values = [];
+    try {
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const currentPassword = String(req.body?.currentPassword || '');
+        if (!currentPassword || !(await verifyPassword(currentPassword, user.password))) {
+            return res.status(400).json({ message: 'Текущий пароль указан неверно', code: 'CURRENT_PASSWORD_INVALID' });
+        }
+
+        const email = getContactEmail(user);
+        if (email) {
+            await emailAuth.verifyCode({
+                userId: user.id,
+                purpose: 'password_change',
+                code: req.body?.code,
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+        await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, user.id]);
+
+        res.json({ message: 'Пароль обновлён' });
+    } catch (error) {
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to change password');
+        }
+        sendServerError(res, error, 'Failed to change password');
+    }
+});
+
+// --- Смена и привязка почты ---
+//
+// Шаг 1 (только если почта уже привязана): код на ТЕКУЩИЙ адрес — доказывает, что аккаунт меняет
+// его владелец, а не тот, кто увёл сессию. Шаг 2: код на НОВЫЙ адрес — доказывает, что новый
+// адрес существует и принадлежит тому же человеку.
+
+app.post('/api/user/email/request-current', authenticateToken, async (req, res) => {
+    try {
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const email = getContactEmail(user);
+        if (!email) {
+            return res.status(400).json({
+                message: 'К аккаунту не привязана почта — привяжите её вместо смены',
+                code: 'NO_EMAIL',
+            });
+        }
+
+        const challenge = await emailAuth.issueCode({
+            userId: user.id,
+            email,
+            purpose: 'email_change_current',
+            ttlMinutes: ACTION_CODE_TTL_MINUTES,
+        });
+
+        res.json({ sent: true, maskedEmail: challenge.maskedEmail, expiresAt: challenge.expiresAt });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to request current email code');
+    }
+});
+
+app.post('/api/user/email/verify-current', authenticateToken, async (req, res) => {
+    try {
+        await emailAuth.verifyCode({
+            userId: req.user.id,
+            purpose: 'email_change_current',
+            code: req.body?.code,
+        });
+
+        res.json({ verified: true, stageToken: signEmailStageToken(req.user.id) });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to verify current email code');
+    }
+});
+
+app.post('/api/user/email/request-new', authenticateToken, async (req, res) => {
+    let newEmail;
+    try {
+        newEmail = validateEmail(req.body?.email).toLowerCase();
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
 
     try {
-        if (username !== undefined) {
-            const existing = await dbGetAsync(
-                "SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?",
-                [username, req.user.id]
-            );
-            if (existing) {
-                return res.status(400).json({ message: "Username/Email already exists" });
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const currentEmail = getContactEmail(user);
+
+        if (currentEmail) {
+            // Почта есть — первый шаг обязателен.
+            try {
+                verifyEmailStageToken(req.body?.stageToken, req.user.id);
+            } catch {
+                return res.status(403).json({
+                    message: 'Сначала подтвердите текущий адрес',
+                    code: 'STAGE_TOKEN_REQUIRED',
+                });
             }
 
-            updates.push("username = ?");
-            values.push(username);
+            if (currentEmail === newEmail) {
+                return res.status(400).json({ message: 'Это уже ваш текущий адрес' });
+            }
+        } else {
+            // Почты нет — это привязка. Вместо кода на старый адрес подтверждаем паролем.
+            const currentPassword = String(req.body?.currentPassword || '');
+            if (!currentPassword || !(await verifyPassword(currentPassword, user.password))) {
+                return res.status(400).json({
+                    message: 'Введите текущий пароль, чтобы привязать почту',
+                    code: 'CURRENT_PASSWORD_INVALID',
+                });
+            }
         }
 
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
-            updates.push("password = ?");
-            values.push(hashedPassword);
+        const taken = await dbGetAsync(
+            "SELECT id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND id != ?",
+            [newEmail, newEmail, req.user.id]
+        );
+        if (taken) {
+            return res.status(400).json({ message: 'Этот адрес уже используется другим аккаунтом' });
         }
 
-        if (updates.length === 0) {
-            return res.json({ message: "No changes" });
-        }
+        // Новый адрес едет в payload кода, а не в отдельной колонке: до подтверждения он не
+        // должен появляться в профиле ни в каком виде.
+        const challenge = await emailAuth.issueCode({
+            userId: user.id,
+            email: newEmail,
+            purpose: currentEmail ? 'email_change_new' : 'email_bind',
+            payload: { newEmail },
+            ttlMinutes: ACTION_CODE_TTL_MINUTES,
+        });
 
-        values.push(req.user.id);
-        const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-        await dbRunAsync(sql, values);
-
-        if (username && isForcedAdminLogin(username)) {
-            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [req.user.id]);
-        }
-
-        res.json({ message: "Security settings updated. Please re-login." });
+        res.json({ sent: true, maskedEmail: challenge.maskedEmail, expiresAt: challenge.expiresAt });
     } catch (error) {
-        console.error('Failed to update security settings:', error);
-        res.status(500).json({ message: "Failed to update security settings" });
+        sendAuthCodeError(res, error, 'Failed to request new email code');
+    }
+});
+
+app.post('/api/user/email/confirm', authenticateToken, async (req, res) => {
+    try {
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const currentEmail = getContactEmail(user);
+        const purpose = currentEmail ? 'email_change_new' : 'email_bind';
+
+        if (currentEmail) {
+            try {
+                verifyEmailStageToken(req.body?.stageToken, req.user.id);
+            } catch {
+                return res.status(403).json({
+                    message: 'Сначала подтвердите текущий адрес',
+                    code: 'STAGE_TOKEN_REQUIRED',
+                });
+            }
+        }
+
+        const verified = await emailAuth.verifyCode({
+            userId: user.id,
+            purpose,
+            code: req.body?.code,
+        });
+
+        const newEmail = String(verified.payload?.newEmail || verified.email || '').toLowerCase();
+        if (!newEmail) {
+            return res.status(400).json({ message: 'Заявка на смену почты устарела. Начните заново.' });
+        }
+
+        const taken = await dbGetAsync(
+            "SELECT id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND id != ?",
+            [newEmail, newEmail, req.user.id]
+        );
+        if (taken) {
+            return res.status(400).json({ message: 'Этот адрес уже используется другим аккаунтом' });
+        }
+
+        // Логин меняется вместе с адресом только у тех, кто и входит по адресу: у аккаунтов со
+        // старого сайта логин — это ник, и подменять его привязкой почты нельзя, иначе человек
+        // в следующий раз не сможет войти привычным способом.
+        const shouldUpdateUsername = looksLikeEmail(user.username);
+
+        await dbRunAsync(
+            shouldUpdateUsername
+                ? "UPDATE users SET email = ?, email_verified = 1, username = ? WHERE id = ?"
+                : "UPDATE users SET email = ?, email_verified = 1 WHERE id = ?",
+            shouldUpdateUsername ? [newEmail, newEmail, user.id] : [newEmail, user.id]
+        );
+
+        if (shouldUpdateUsername && isForcedAdminLogin(newEmail)) {
+            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+        }
+
+        const updated = await dbGetAsync("SELECT * FROM users WHERE id = ?", [user.id]);
+        // Новый токен: старый несёт прежний `username`, а он мог только что смениться.
+        res.json({
+            message: 'Почта обновлена',
+            ...buildSessionResponse(updated),
+        });
+    } catch (error) {
+        if (error instanceof AuthCodeError) {
+            return sendAuthCodeError(res, error, 'Failed to confirm email change');
+        }
+        sendServerError(res, error, 'Failed to confirm email change');
+    }
+});
+
+// --- Вход по коду на почту (двухфакторная защита) ---
+
+app.post('/api/user/security/mfa/request', authenticateToken, async (req, res) => {
+    const enable = req.body?.enable !== false;
+
+    try {
+        const user = await getCurrentUser(req);
+        if (!user) return res.status(401).json({ message: 'User not found' });
+
+        const email = getContactEmail(user);
+        if (!email) {
+            return res.status(400).json({
+                message: 'Сначала привяжите почту к аккаунту',
+                code: 'NO_EMAIL',
+            });
+        }
+
+        const alreadyEnabled = Number(user.mfa_email_enabled || 0) === 1;
+        if (enable === alreadyEnabled) {
+            return res.status(400).json({
+                message: enable ? 'Вход по коду уже включён' : 'Вход по коду уже отключён',
+            });
+        }
+
+        const challenge = await emailAuth.issueCode({
+            userId: user.id,
+            email,
+            purpose: enable ? 'mfa_enable' : 'mfa_disable',
+            ttlMinutes: ACTION_CODE_TTL_MINUTES,
+        });
+
+        res.json({ sent: true, maskedEmail: challenge.maskedEmail, expiresAt: challenge.expiresAt });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to request MFA code');
+    }
+});
+
+app.post('/api/user/security/mfa/confirm', authenticateToken, async (req, res) => {
+    const enable = req.body?.enable !== false;
+
+    try {
+        await emailAuth.verifyCode({
+            userId: req.user.id,
+            purpose: enable ? 'mfa_enable' : 'mfa_disable',
+            code: req.body?.code,
+        });
+
+        await dbRunAsync(
+            "UPDATE users SET mfa_email_enabled = ? WHERE id = ?",
+            [enable ? 1 : 0, req.user.id]
+        );
+
+        res.json({
+            mfaEmailEnabled: enable,
+            message: enable ? 'Вход по коду включён' : 'Вход по коду отключён',
+        });
+    } catch (error) {
+        sendAuthCodeError(res, error, 'Failed to confirm MFA change');
     }
 });
 

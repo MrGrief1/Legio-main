@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getApiUrl } from '../config';
 import { createPortal } from 'react-dom';
-import { X, Upload, Lock, User as UserIcon, Mail, Camera, Loader2, ChevronDown, FileText, Calendar } from 'lucide-react';
+import { X, Upload, Lock, User as UserIcon, Camera, Loader2, ChevronDown, FileText, Calendar } from 'lucide-react';
 import { Button, Input } from './UI';
 import { Avatar } from './Avatar';
+import { SecuritySettings } from './SecuritySettings';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../context/ToastContext';
@@ -33,11 +34,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const [isLangOpen, setIsLangOpen] = useState(false);
     const langDropdownRef = useRef<HTMLDivElement>(null);
 
-    // Security State
-    const [newEmail, setNewEmail] = useState(user?.username || '');
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Read through a ref so the sync effect below can seed itself from the current user without
@@ -62,11 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         setBio(current.bio || '');
         setBirthdate(current.birthdate || '');
         setAvatarPreview(current.avatar || '');
-        setNewEmail(current.username || '');
         setAvatarFile(null);
-        // Never carry a password across openings.
-        setNewPassword('');
-        setConfirmPassword('');
     }, [isOpen]);
 
     // Lock body scroll
@@ -151,46 +143,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         } catch (e) {
             console.error(e);
             showToast('An error occurred', 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleUpdateSecurity = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (newPassword && newPassword !== confirmPassword) {
-            showToast(t.settings.passwordMismatch, 'error');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const res = await fetch(getApiUrl('/api/user/security'), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    username: newEmail !== user.username ? newEmail : undefined,
-                    password: newPassword || undefined
-                })
-            });
-
-            if (res.ok) {
-                showToast(t.settings.securityUpdated, 'success');
-                // The session survives an email/password change — the token identifies the user by
-                // id, not by login — so refresh the record in place instead of reloading.
-                setNewPassword('');
-                setConfirmPassword('');
-                await refreshUser();
-                onClose();
-            } else {
-                const data = await res.json();
-                showToast(data.message || t.settings.updateFailed, 'error');
-            }
-        } catch (e) {
-            console.error(e);
         } finally {
             setLoading(false);
         }
@@ -366,44 +318,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             </Button>
                         </form>
                     ) : (
-                        <form onSubmit={handleUpdateSecurity} className="space-y-6">
-                            <div>
-                                <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">{t.settings.emailUsername}</label>
-                                <Input
-                                    value={newEmail}
-                                    onChange={e => setNewEmail(e.target.value)}
-                                    placeholder={t.settings.emailPlaceholder}
-                                    className="!bg-zinc-100 dark:!bg-zinc-900"
-                                    icon={<Mail size={16} />}
-                                />
-                            </div>
-
-                            <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                                <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">{t.settings.newPassword}</label>
-                                <div className="mb-3">
-                                    <Input
-                                        type="password"
-                                        value={newPassword}
-                                        onChange={e => setNewPassword(e.target.value)}
-                                        placeholder={t.settings.passwordPlaceholder}
-                                        className="!bg-zinc-100 dark:!bg-zinc-900"
-                                        icon={<Lock size={16} />}
-                                    />
-                                </div>
-                                <Input
-                                    type="password"
-                                    value={confirmPassword}
-                                    onChange={e => setConfirmPassword(e.target.value)}
-                                    placeholder={t.settings.confirmPasswordPlaceholder}
-                                    className="!bg-zinc-100 dark:!bg-zinc-900"
-                                    icon={<Lock size={16} />}
-                                />
-                            </div>
-
-                            <Button type="submit" disabled={loading} fullWidth className="!mt-8">
-                                {loading ? <Loader2 className="animate-spin" /> : t.settings.updateCredentials}
-                            </Button>
-                        </form>
+                        <SecuritySettings />
                     )}
                 </div>
 

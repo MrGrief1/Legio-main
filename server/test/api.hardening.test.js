@@ -10,8 +10,19 @@ process.env.NODE_ENV = 'test';
 process.env.SECRET_KEY = '0123456789abcdef0123456789abcdef';
 process.env.DATABASE_PATH = path.join(tempDir, 'database.sqlite');
 
+const mailer = require('../mailer');
+
+// Перехват писем до загрузки приложения — см. api.security.test.js.
+const sentCodes = [];
+mailer.sendCodeEmail = async (to, purpose, code) => {
+    sentCodes.push({ to, purpose, code });
+    return { ok: true };
+};
+
 const { app, isOriginAllowed } = require('../index');
 const db = require('../database');
+
+const lastCodeFor = (purpose) => [...sentCodes].reverse().find((entry) => entry.purpose === purpose)?.code;
 
 let server;
 let baseUrl;
@@ -118,9 +129,19 @@ test('a freshly signed token carries an expiry and is accepted', async () => {
 });
 
 test('login issues a token that expires', async () => {
-    const registered = await request('/api/auth/register', {
+    const requested = await request('/api/auth/register', {
         method: 'POST',
         json: { name: 'Expiry Probe', email: 'expiry@example.com', password: 'StrongPass1' },
+    });
+
+    // Регистрация сама по себе токена не выдаёт — сначала код с почты.
+    assert.equal(requested.status, 200);
+    assert.equal(requested.body.requiresVerification, true);
+    assert.equal(requested.body.token, undefined);
+
+    const registered = await request('/api/auth/register/verify', {
+        method: 'POST',
+        json: { email: 'expiry@example.com', code: lastCodeFor('register') },
     });
 
     assert.equal(registered.status, 200);

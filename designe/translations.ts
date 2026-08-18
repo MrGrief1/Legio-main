@@ -55,6 +55,22 @@ export interface Translations {
         registerButton: string;
         logout: string;
         role: string;
+        // Подтверждение по коду с почты
+        verifyEmailTitle: string;
+        verifyLoginTitle: string;
+        codeSentTo: string;
+        codePlaceholder: string;
+        verifyButton: string;
+        resendCode: string;
+        resendIn: string;
+        back: string;
+        forgotPassword: string;
+        resetTitle: string;
+        resetHint: string;
+        sendCode: string;
+        newPassword: string;
+        resetButton: string;
+        resetSent: string;
     };
 
     // Settings Modal
@@ -78,6 +94,35 @@ export interface Translations {
         emailPlaceholder: string;
         passwordPlaceholder: string;
         confirmPasswordPlaceholder: string;
+        // Безопасность: почта, пароль, вход по коду
+        emailSection: string;
+        currentEmail: string;
+        noEmail: string;
+        noEmailHint: string;
+        bindEmail: string;
+        changeEmail: string;
+        passwordSection: string;
+        currentPassword: string;
+        currentPasswordPlaceholder: string;
+        changePassword: string;
+        twoFactorSection: string;
+        twoFactorHint: string;
+        twoFactorOn: string;
+        twoFactorOff: string;
+        enable: string;
+        disable: string;
+        codeSentTo: string;
+        codePlaceholder: string;
+        confirmCode: string;
+        cancel: string;
+        resendCode: string;
+        passwordChanged: string;
+        emailChanged: string;
+        twoFactorEnabled: string;
+        twoFactorDisabled: string;
+        stepCurrentEmail: string;
+        stepNewEmail: string;
+        newEmailPlaceholder: string;
     };
 
     // Feed
@@ -363,6 +408,21 @@ export const translations: Record<Language, Translations> = {
             registerButton: 'Создать аккаунт',
             logout: 'Выйти',
             role: 'Роль',
+            verifyEmailTitle: 'Подтвердите почту',
+            verifyLoginTitle: 'Подтверждение входа',
+            codeSentTo: 'Код отправлен на',
+            codePlaceholder: 'Код из письма',
+            verifyButton: 'Подтвердить',
+            resendCode: 'Отправить код ещё раз',
+            resendIn: 'Отправить повторно можно через',
+            back: 'Назад',
+            forgotPassword: 'Забыли пароль?',
+            resetTitle: 'Восстановление пароля',
+            resetHint: 'Укажите почту — пришлём код для смены пароля.',
+            sendCode: 'Отправить код',
+            newPassword: 'Новый пароль',
+            resetButton: 'Сменить пароль',
+            resetSent: 'Если такой аккаунт существует, код отправлен',
         },
 
         // Settings Modal
@@ -386,6 +446,34 @@ export const translations: Record<Language, Translations> = {
             emailPlaceholder: 'Введите новый email',
             passwordPlaceholder: 'Введите новый пароль',
             confirmPasswordPlaceholder: 'Подтвердите новый пароль',
+            emailSection: 'Почта',
+            currentEmail: 'Текущая почта',
+            noEmail: 'Почта не привязана',
+            noEmailHint: 'Привяжите почту, чтобы восстанавливать пароль и включить вход по коду.',
+            bindEmail: 'Привязать почту',
+            changeEmail: 'Сменить почту',
+            passwordSection: 'Пароль',
+            currentPassword: 'Текущий пароль',
+            currentPasswordPlaceholder: 'Введите текущий пароль',
+            changePassword: 'Сменить пароль',
+            twoFactorSection: 'Вход по коду с почты',
+            twoFactorHint: 'При входе мы будем присылать одноразовый код на вашу почту.',
+            twoFactorOn: 'Включён',
+            twoFactorOff: 'Отключён',
+            enable: 'Включить',
+            disable: 'Отключить',
+            codeSentTo: 'Код отправлен на',
+            codePlaceholder: 'Код из письма',
+            confirmCode: 'Подтвердить',
+            cancel: 'Отмена',
+            resendCode: 'Отправить ещё раз',
+            passwordChanged: 'Пароль обновлён',
+            emailChanged: 'Почта обновлена',
+            twoFactorEnabled: 'Вход по коду включён',
+            twoFactorDisabled: 'Вход по коду отключён',
+            stepCurrentEmail: 'Шаг 1: подтвердите текущую почту',
+            stepNewEmail: 'Шаг 2: подтвердите новую почту',
+            newEmailPlaceholder: 'Новый адрес почты',
         },
 
         // Feed
@@ -666,6 +754,21 @@ export const translations: Record<Language, Translations> = {
             registerButton: 'Create Account',
             logout: 'Logout',
             role: 'Role',
+            verifyEmailTitle: 'Confirm your email',
+            verifyLoginTitle: 'Confirm sign-in',
+            codeSentTo: 'Code sent to',
+            codePlaceholder: 'Code from email',
+            verifyButton: 'Confirm',
+            resendCode: 'Send the code again',
+            resendIn: 'You can resend in',
+            back: 'Back',
+            forgotPassword: 'Forgot password?',
+            resetTitle: 'Password recovery',
+            resetHint: 'Enter your email — we will send a code to reset the password.',
+            sendCode: 'Send code',
+            newPassword: 'New password',
+            resetButton: 'Change password',
+            resetSent: 'If the account exists, the code has been sent',
         },
 
         // Settings Modal
@@ -689,6 +792,34 @@ export const translations: Record<Language, Translations> = {
             emailPlaceholder: 'Enter new email',
             passwordPlaceholder: 'Enter new password',
             confirmPasswordPlaceholder: 'Confirm new password',
+            emailSection: 'Email',
+            currentEmail: 'Current email',
+            noEmail: 'No email linked',
+            noEmailHint: 'Link an email to recover your password and enable sign-in codes.',
+            bindEmail: 'Link email',
+            changeEmail: 'Change email',
+            passwordSection: 'Password',
+            currentPassword: 'Current password',
+            currentPasswordPlaceholder: 'Enter your current password',
+            changePassword: 'Change password',
+            twoFactorSection: 'Sign-in code by email',
+            twoFactorHint: 'We will email a one-time code every time you sign in.',
+            twoFactorOn: 'Enabled',
+            twoFactorOff: 'Disabled',
+            enable: 'Enable',
+            disable: 'Disable',
+            codeSentTo: 'Code sent to',
+            codePlaceholder: 'Code from email',
+            confirmCode: 'Confirm',
+            cancel: 'Cancel',
+            resendCode: 'Send again',
+            passwordChanged: 'Password updated',
+            emailChanged: 'Email updated',
+            twoFactorEnabled: 'Sign-in code enabled',
+            twoFactorDisabled: 'Sign-in code disabled',
+            stepCurrentEmail: 'Step 1: confirm your current email',
+            stepNewEmail: 'Step 2: confirm the new email',
+            newEmailPlaceholder: 'New email address',
         },
 
         // Feed

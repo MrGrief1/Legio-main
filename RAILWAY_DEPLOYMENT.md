@@ -12,6 +12,13 @@ SECRET_KEY=your-random-secret-key-here
 ALLOWED_ORIGINS=            # Leave empty to allow all origins (or set your frontend URL)
 CSP_CONNECT_ORIGINS=        # Leave empty for permissive mode
 
+# Transactional email (verification codes for sign-up, sign-in 2FA, password and email changes).
+# Without RESEND_API_KEY no codes are delivered and those flows fail with 503.
+# Full setup — including the legio.news DNS records — is in EMAIL_AND_DOMAIN_SETUP.md
+RESEND_API_KEY=re_...
+RESEND_FROM=Legio <noreply@legio.news>   # the domain must be Verified in Resend
+EMAIL_CODE_RATE_LIMIT_MAX=20             # optional: code requests per IP per hour
+
 # Optional: sync data from old WordPress DB (legio.news)
 WP_DB_HOST=
 WP_DB_PORT=3306

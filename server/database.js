@@ -259,6 +259,59 @@ function initDb() {
       if (err) console.error('Error creating unique index on name:', err.message);
     });
 
+    // --- Почта и двухфакторная защита ---
+    //
+    // `username` исторически служит и логином, и адресом почты, но у аккаунтов, перенесённых из
+    // WordPress, там лежит user_login — обычный ник (см. wordpress_sync.js). Поэтому адрес живёт в
+    // отдельной колонке `email`: у части старых аккаунтов её просто нечем заполнить, и код должен
+    // уметь это различать, а не гадать по виду логина.
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {
+      // Уже существует — не ошибка.
+
+      // Заполняем только там, где логин и правда похож на адрес. WHERE email IS NULL делает
+      // операцию идемпотентной: она выполняется при каждом старте и не затирает привязанную почту.
+      db.run(
+        `UPDATE users SET email = LOWER(username)
+         WHERE email IS NULL AND username LIKE '%_@_%._%'`,
+        (updateErr) => {
+          if (updateErr) console.error('Error backfilling users.email:', updateErr.message);
+        }
+      );
+    });
+
+    // DEFAULT 1 — намеренно: колонка добавляется к уже существующим строкам, и все они получают
+    // «подтверждён». Иначе живые аккаунты со старого сайта разом стали бы неподтверждёнными и
+    // потеряли доступ. Регистрация пишет 0 явным значением.
+    db.run(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1`, () => { });
+
+    // Вход по коду на почту — включается самим пользователем в настройках.
+    db.run(`ALTER TABLE users ADD COLUMN mfa_email_enabled INTEGER DEFAULT 0`, () => { });
+
+    // Одноразовые коды подтверждения для всех сценариев (purpose): регистрация, вход, смена
+    // пароля и почты. Хранится только SHA-256 кода — дамп базы не должен давать готовый код.
+    //
+    // `challenge_id` нужен там, где пользователь ещё не аутентифицирован (второй фактор при
+    // входе): клиент оперирует непредсказуемым идентификатором вместо user_id, поэтому по ответу
+    // нельзя перебирать чужие аккаунты.
+    db.run(`CREATE TABLE IF NOT EXISTS auth_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      challenge_id TEXT UNIQUE,
+      user_id INTEGER,
+      email TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      payload TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      expires_at DATETIME NOT NULL,
+      consumed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, (err) => {
+      if (err) console.error('Error creating auth_codes table:', err.message);
+    });
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_auth_codes_lookup ON auth_codes(user_id, purpose, consumed_at)`, () => { });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_auth_codes_expiry ON auth_codes(expires_at)`, () => { });
+
     // Visits table
     db.run(`CREATE TABLE IF NOT EXISTS visits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

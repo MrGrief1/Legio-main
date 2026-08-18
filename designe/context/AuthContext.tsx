@@ -5,6 +5,11 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 interface User {
   id: number;
   username: string;
+  // Адрес для писем. У аккаунтов, перенесённых со старого сайта, логин — это ник, поэтому почты
+  // может не быть вовсе, пока её не привяжут в настройках.
+  email?: string | null;
+  emailVerified?: boolean;
+  mfaEmailEnabled?: boolean;
   role: 'admin' | 'creator' | 'user';
   points: number;
   avatar: string;

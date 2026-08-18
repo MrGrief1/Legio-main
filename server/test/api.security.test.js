@@ -10,8 +10,39 @@ process.env.SECRET_KEY = '0123456789abcdef0123456789abcdef';
 process.env.DATABASE_PATH = path.join(tempDir, 'database.sqlite');
 process.env.ALLOW_BOOTSTRAP_ADMIN = 'true';
 
+const mailer = require('../mailer');
+
+// Письма перехватываются до загрузки приложения: index.js вызывает mailer.sendCodeEmail в момент
+// отправки, поэтому подмена метода на модуле работает и Resend в тестах не участвует.
+const sentCodes = [];
+mailer.sendCodeEmail = async (to, purpose, code) => {
+    sentCodes.push({ to, purpose, code });
+    return { ok: true };
+};
+
 const { app } = require('../index');
 const db = require('../database');
+
+const lastCodeFor = (purpose) => [...sentCodes].reverse().find((entry) => entry.purpose === purpose)?.code;
+
+// Регистрация теперь двухшаговая: заявка + код с почты. Возвращает готовую сессию.
+const registerVerifiedUser = async ({ name, email, password }) => {
+    const requested = await requestJson('/api/auth/register', {
+        method: 'POST',
+        json: { name, email, password },
+    });
+
+    assert.equal(requested.status, 200);
+    assert.equal(requested.body.requiresVerification, true);
+
+    const verified = await requestJson('/api/auth/register/verify', {
+        method: 'POST',
+        json: { email, code: lastCodeFor('register') },
+    });
+
+    assert.equal(verified.status, 200);
+    return verified.body;
+};
 
 let server;
 let baseUrl;
@@ -104,22 +135,18 @@ test('rejects weak passwords during registration', async () => {
 });
 
 test('sanitizes stored news content before it reaches the feed', async () => {
-    const registerResponse = await requestJson('/api/auth/register', {
-        method: 'POST',
-        json: {
-            name: 'Admin User',
-            email: 'admin@example.com',
-            password: 'StrongPass1',
-        },
+    const session = await registerVerifiedUser({
+        name: 'Admin User',
+        email: 'admin@example.com',
+        password: 'StrongPass1',
     });
 
-    assert.equal(registerResponse.status, 200);
-    assert.ok(registerResponse.body.token);
+    assert.ok(session.token);
 
     const createNewsResponse = await requestJson('/api/news', {
         method: 'POST',
         headers: {
-            Authorization: `Bearer ${registerResponse.body.token}`,
+            Authorization: `Bearer ${session.token}`,
         },
         json: {
             title: 'Безопасная тестовая новость',
@@ -163,4 +190,188 @@ test('deduplicates daily visit metrics for the same visitor fingerprint', async 
     const today = new Date().toISOString().split('T')[0];
     const row = await dbGet('SELECT count FROM visits WHERE date = ?', [today]);
     assert.equal(row.count, 1);
+});
+
+// --- Коды подтверждения на почту ---
+//
+// Проверяется не то, что письмо «ушло» (отправка подменена), а то, что без кода действие не
+// проходит: именно это отличает новую схему от прежней, где хватало одного токена сессии.
+
+test('вход со включённым вторым фактором не выдаёт токен без кода', async () => {
+    const email = 'mfa.user@example.com';
+    const password = 'StrongPass1';
+    const session = await registerVerifiedUser({ name: 'MFA User', email, password });
+
+    const requested = await requestJson('/api/user/security/mfa/request', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { enable: true },
+    });
+    assert.equal(requested.status, 200);
+
+    const confirmed = await requestJson('/api/user/security/mfa/confirm', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { enable: true, code: lastCodeFor('mfa_enable') },
+    });
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.body.mfaEmailEnabled, true);
+
+    const login = await requestJson('/api/auth/login', {
+        method: 'POST',
+        json: { username: email, password },
+    });
+
+    assert.equal(login.status, 200);
+    assert.equal(login.body.requires2fa, true);
+    assert.equal(login.body.token, undefined, 'пароль подтверждён, но токен выдаётся только после кода');
+    assert.ok(login.body.challengeId);
+
+    const wrongCode = await requestJson('/api/auth/login/verify', {
+        method: 'POST',
+        json: { challengeId: login.body.challengeId, code: '000000' },
+    });
+    assert.equal(wrongCode.status, 400);
+    assert.equal(wrongCode.body.token, undefined);
+
+    const verified = await requestJson('/api/auth/login/verify', {
+        method: 'POST',
+        json: { challengeId: login.body.challengeId, code: lastCodeFor('login') },
+    });
+    assert.equal(verified.status, 200);
+    assert.ok(verified.body.token);
+
+    // Код одноразовый: повтор того же запроса не должен выдать вторую сессию.
+    const replay = await requestJson('/api/auth/login/verify', {
+        method: 'POST',
+        json: { challengeId: login.body.challengeId, code: lastCodeFor('login') },
+    });
+    assert.equal(replay.status, 400);
+});
+
+test('смена пароля требует и текущий пароль, и код с почты', async () => {
+    const email = 'pwd.user@example.com';
+    const session = await registerVerifiedUser({
+        name: 'Password User',
+        email,
+        password: 'StrongPass1',
+    });
+
+    const wrongCurrent = await requestJson('/api/user/security/password/request', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { currentPassword: 'WrongPass1' },
+    });
+    assert.equal(wrongCurrent.status, 400);
+    assert.equal(wrongCurrent.body.code, 'CURRENT_PASSWORD_INVALID');
+
+    const requested = await requestJson('/api/user/security/password/request', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { currentPassword: 'StrongPass1' },
+    });
+    assert.equal(requested.status, 200);
+    assert.equal(requested.body.codeRequired, true);
+
+    const withoutCode = await requestJson('/api/user/security/password/confirm', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { currentPassword: 'StrongPass1', newPassword: 'NewStrongPass1' },
+    });
+    assert.equal(withoutCode.status, 400);
+
+    const confirmed = await requestJson('/api/user/security/password/confirm', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: {
+            currentPassword: 'StrongPass1',
+            newPassword: 'NewStrongPass1',
+            code: lastCodeFor('password_change'),
+        },
+    });
+    assert.equal(confirmed.status, 200);
+
+    const oldPassword = await requestJson('/api/auth/login', {
+        method: 'POST',
+        json: { username: email, password: 'StrongPass1' },
+    });
+    assert.equal(oldPassword.status, 400);
+
+    const newPassword = await requestJson('/api/auth/login', {
+        method: 'POST',
+        json: { username: email, password: 'NewStrongPass1' },
+    });
+    assert.equal(newPassword.status, 200);
+    assert.ok(newPassword.body.token);
+});
+
+test('смена почты проходит только через оба адреса', async () => {
+    const email = 'move.me@example.com';
+    const session = await registerVerifiedUser({
+        name: 'Moving User',
+        email,
+        password: 'StrongPass1',
+    });
+
+    // Без подтверждения текущего адреса второй шаг закрыт — иначе украденной сессии хватило бы,
+    // чтобы увести аккаунт на чужую почту.
+    const withoutStage = await requestJson('/api/user/email/request-new', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { email: 'moved@example.com' },
+    });
+    assert.equal(withoutStage.status, 403);
+    assert.equal(withoutStage.body.code, 'STAGE_TOKEN_REQUIRED');
+
+    await requestJson('/api/user/email/request-current', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: {},
+    });
+
+    const stage = await requestJson('/api/user/email/verify-current', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { code: lastCodeFor('email_change_current') },
+    });
+    assert.equal(stage.status, 200);
+    assert.ok(stage.body.stageToken);
+
+    const requestedNew = await requestJson('/api/user/email/request-new', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { email: 'moved@example.com', stageToken: stage.body.stageToken },
+    });
+    assert.equal(requestedNew.status, 200);
+
+    const confirmed = await requestJson('/api/user/email/confirm', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+        json: { code: lastCodeFor('email_change_new'), stageToken: stage.body.stageToken },
+    });
+    assert.equal(confirmed.status, 200);
+    assert.equal(confirmed.body.user.email, 'moved@example.com');
+
+    // Логин у таких аккаунтов — сам адрес, поэтому он тоже переезжает.
+    const loginWithNew = await requestJson('/api/auth/login', {
+        method: 'POST',
+        json: { username: 'moved@example.com', password: 'StrongPass1' },
+    });
+    assert.equal(loginWithNew.status, 200);
+});
+
+test('восстановление пароля не раскрывает, есть ли такой аккаунт', async () => {
+    const known = await requestJson('/api/auth/forgot-password', {
+        method: 'POST',
+        json: { email: 'admin@example.com' },
+    });
+
+    const unknown = await requestJson('/api/auth/forgot-password', {
+        method: 'POST',
+        json: { email: 'nobody-here@example.com' },
+    });
+
+    assert.equal(known.status, 200);
+    assert.equal(unknown.status, 200);
+    assert.deepEqual(known.body, unknown.body);
 });
