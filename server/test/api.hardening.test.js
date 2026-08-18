@@ -251,8 +251,13 @@ test('the CORS policy allows same-origin and refuses foreign origins in producti
     assert.equal(isOriginAllowed({ ...prod, origin: 'https://evil.example' }), false);
     // A lookalike host must not slip through on a prefix match.
     assert.equal(isOriginAllowed({ ...prod, origin: `${selfOrigin}.evil.example` }), false);
-    // http:// against an https:// deployment is a different origin.
-    assert.equal(isOriginAllowed({ ...prod, origin: 'http://chat-production-677a.up.railway.app' }), false);
+    // http:// на том же хосте пропускаем намеренно: вкладка, открытая по http, шлёт запросы
+    // всё равно по TLS (CSP поднимает схему), но Origin остаётся с http — без этой ветки
+    // на таком домене отваливались вход, регистрация и голосование.
+    assert.equal(isOriginAllowed({ ...prod, origin: 'http://chat-production-677a.up.railway.app' }), true);
+    // Послабление касается ровно того же хоста, а не любого http-источника.
+    assert.equal(isOriginAllowed({ ...prod, origin: 'http://evil.example' }), false);
+    assert.equal(isOriginAllowed({ ...prod, origin: 'http://chat-production-677a.up.railway.app.evil.example' }), false);
 
     // With an explicit allowlist, named origins pass and everything else still does not.
     const withList = { selfOrigin, isProduction: true, allowlist: ['https://legio.news'] };

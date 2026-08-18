@@ -189,6 +189,17 @@ const isOriginAllowed = ({ origin, selfOrigin, allowlist, isProduction }) => {
         return true;
     }
 
+    // Тот же хост, но страница осталась на http. Так выглядит вкладка, открытая по
+    // http://legio.news: сам запрос уходит по TLS — его поднимает наш же CSP с
+    // upgrade-insecure-requests, — а заголовок Origin хранит схему страницы. GET-ы при этом
+    // живут (браузер не шлёт для них Origin), а любой POST — вход, регистрация, голос —
+    // упирается в отказ CORS. Схема запроса здесь всё равно https, так что доверия это
+    // не добавляет: страницу на голом http у себя же можно получить только активным MITM,
+    // а он и так читает токен из localStorage.
+    if (selfOrigin && selfOrigin.startsWith('https://') && origin === `http://${selfOrigin.slice('https://'.length)}`) {
+        return true;
+    }
+
     if (allowlist) {
         // A literal "*" alongside credentials:true is not a valid CORS response, so it is
         // treated as an explicit opt-out of origin checks rather than echoed back.
