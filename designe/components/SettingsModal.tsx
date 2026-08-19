@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getApiUrl } from '../config';
 import { createPortal } from 'react-dom';
-import { X, Upload, Lock, User as UserIcon, Camera, Loader2, ChevronDown, FileText, Calendar } from 'lucide-react';
+import { X, Lock, User as UserIcon, Camera, Loader2, FileText, Globe, Palette } from 'lucide-react';
 import { Button, Input } from './UI';
 import { Avatar } from './Avatar';
+import { DatePicker } from './DatePicker';
+import { Select } from './Select';
+import { ThemeSelector } from './ThemeSelector';
 import { SecuritySettings } from './SecuritySettings';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -31,8 +34,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const [birthdate, setBirthdate] = useState(user?.birthdate || '');
     const [avatarFile, setAvatarFile] = useState<File | null>(null);
     const [avatarPreview, setAvatarPreview] = useState(user?.avatar || '');
-    const [isLangOpen, setIsLangOpen] = useState(false);
-    const langDropdownRef = useRef<HTMLDivElement>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,18 +64,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
     // Lock body scroll
     useScrollLock(isOpen);
-
-    // Close language dropdown when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
-                setIsLangOpen(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
 
     if (!user) return null;
 
@@ -242,12 +231,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">О себе (Bio)</label>
+                                    <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">{t.settings.bio}</label>
                                     <div className="relative">
                                         <textarea
                                             value={bio}
                                             onChange={e => setBio(e.target.value)}
-                                            placeholder="Расскажите о себе..."
+                                            placeholder={t.settings.bioPlaceholder}
                                             rows={3}
                                             className="w-full bg-zinc-100 dark:bg-zinc-900 border border-transparent focus:border-zinc-400 dark:focus:border-zinc-600 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 rounded-2xl py-3 px-5 text-sm text-zinc-900 dark:text-white focus:outline-none transition-all resize-none"
                                         />
@@ -256,60 +245,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">День рождения</label>
-                                    <Input
-                                        type="date"
+                                    <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">{t.settings.birthdate}</label>
+                                    <DatePicker
                                         value={birthdate}
-                                        onChange={e => setBirthdate(e.target.value)}
-                                        className="!bg-zinc-100 dark:!bg-zinc-900"
-                                        icon={<Calendar size={16} className="!text-zinc-500 dark:!text-zinc-400" />}
+                                        onChange={setBirthdate}
+                                        placeholder={t.settings.birthdatePlaceholder}
+                                        ariaLabel={t.settings.birthdate}
                                     />
+                                </div>
+                            </div>
+
+                            {/* Настройки приложения. Отделены от полей профиля: они не про аккаунт,
+                                применяются сразу и кнопки «Сохранить» не ждут. */}
+                            <div className="pt-6 border-t border-zinc-100 dark:border-zinc-800 space-y-4">
+                                <div>
+                                    <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 ml-1 mb-2">
+                                        <Palette size={13} /> {t.settings.theme}
+                                    </label>
+                                    <ThemeSelector />
+                                    <p className="text-[11px] text-zinc-400 dark:text-zinc-600 mt-2 ml-1">{t.settings.themeHint}</p>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-zinc-500 ml-1 mb-1.5 block">{t.settings.language}</label>
-                                    <div className="relative" ref={langDropdownRef}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsLangOpen(!isLangOpen)}
-                                            className="w-full flex items-center justify-between bg-zinc-100 dark:bg-zinc-900 border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 focus:border-zinc-400 dark:focus:border-zinc-600 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 rounded-3xl py-3 px-5 text-sm text-zinc-900 dark:text-white focus:outline-none transition-all duration-200"
-                                        >
-                                            <span>{language === 'ru' ? 'Русский' : 'English'}</span>
-                                            <ChevronDown
-                                                size={16}
-                                                className={`transition-transform duration-200 ${isLangOpen ? 'rotate-180' : ''}`}
-                                            />
-                                        </button>
-
-                                        {isLangOpen && (
-                                            <div className="absolute top-full mt-2 left-0 right-0 flex flex-col gap-1 bg-zinc-800 dark:bg-zinc-900 p-2 rounded-3xl border border-zinc-700 dark:border-zinc-800 z-10 animate-in fade-in slide-in-from-top-2 duration-200 shadow-xl">
-                                                {[
-                                                    { value: 'ru', label: 'Русский' },
-                                                    { value: 'en', label: 'English' }
-                                                ].map((lang) => (
-                                                    <button
-                                                        key={lang.value}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setLanguage(lang.value as Language);
-                                                            setIsLangOpen(false);
-                                                        }}
-                                                        className={`px-3 py-2 text-sm font-medium rounded-2xl transition-all text-left flex items-center justify-between ${language === lang.value
-                                                            ? 'bg-blue-500 text-white'
-                                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-700'
-                                                            }`}
-                                                    >
-                                                        <span>{lang.label}</span>
-                                                        {language === lang.value && (
-                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                        )}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                                    <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 ml-1 mb-2">
+                                        <Globe size={13} /> {t.settings.language}
+                                    </label>
+                                    <Select<Language>
+                                        value={language}
+                                        onChange={setLanguage}
+                                        ariaLabel={t.settings.language}
+                                        options={[
+                                            { value: 'ru', label: 'Русский' },
+                                            { value: 'en', label: 'English' },
+                                        ]}
+                                    />
                                 </div>
                             </div>
 

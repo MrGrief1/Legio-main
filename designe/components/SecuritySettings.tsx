@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Mail, Lock, ShieldCheck, KeyRound } from 'lucide-react';
 import { Button, Input } from './UI';
 import { useAuth } from '../context/AuthContext';
@@ -53,12 +53,35 @@ const authFetch = async (path: string, options: RequestInit = {}) => {
 const postJson = (path: string, body: unknown = {}) =>
     authFetch(path, { method: 'POST', body: JSON.stringify(body) });
 
+// Аккаунт в контексте уже содержит всё, что нужно для первого кадра вкладки: /auth/me отдаёт и
+// почту, и признак второго фактора. Поэтому вкладка рисуется сразу, а запрос за статусом только
+// уточняет её.
+//
+// Это и есть лечение «мигания»: раньше вкладка начиналась с крутящегося колеса на пустом месте и
+// подменялась содержимым, когда приходил ответ — при мгновенном ответе это выглядело как рывок.
+const seedFromAccount = (user: ReturnType<typeof useAuth>['user']): SecurityStatus | null => {
+    if (!user) return null;
+
+    const email = user.email || null;
+    return {
+        email,
+        // Маска приходит в ответах на конкретные действия; здесь она не отображается.
+        maskedEmail: null,
+        hasEmail: Boolean(email),
+        emailVerified: user.emailVerified !== false,
+        mfaEmailEnabled: Boolean(user.mfaEmailEnabled),
+        username: user.username,
+        loginIsEmail: user.username.includes('@'),
+    };
+};
+
 export const SecuritySettings: React.FC = () => {
     const { t } = useLanguage();
-    const { login, refreshUser } = useAuth();
+    const { user, login, refreshUser } = useAuth();
     const { showToast } = useToast();
 
-    const [status, setStatus] = useState<SecurityStatus | null>(null);
+    // Ответ сервера, когда он приходит, вытесняет слепок из контекста.
+    const [remoteStatus, setRemoteStatus] = useState<SecurityStatus | null>(null);
     const [flow, setFlow] = useState<Flow>(null);
     const [flowStep, setFlowStep] = useState<FlowStep>('form');
     const [loading, setLoading] = useState(false);
@@ -74,10 +97,13 @@ export const SecuritySettings: React.FC = () => {
     const [maskedTarget, setMaskedTarget] = useState('');
     const [mfaEnabling, setMfaEnabling] = useState(true);
 
+    const status = useMemo(() => remoteStatus ?? seedFromAccount(user), [remoteStatus, user]);
+
     const loadStatus = useCallback(async () => {
         try {
-            setStatus(await authFetch('/api/user/security/status'));
+            setRemoteStatus(await authFetch('/api/user/security/status'));
         } catch (e) {
+            // Показанный слепок остаётся на экране: сеть подвела, а не данные исчезли.
             console.error(e);
         }
     }, []);
@@ -222,13 +248,9 @@ export const SecuritySettings: React.FC = () => {
         resetFlow();
     });
 
-    if (!status) {
-        return (
-            <div className="flex justify-center py-10">
-                <Loader2 className="animate-spin text-zinc-400" />
-            </div>
-        );
-    }
+    // Недостижимо для вошедшего пользователя (модалка настроек без него не открывается), но
+    // TypeScript должен видеть, что ниже `status` уже не null.
+    if (!status) return null;
 
     const sectionClass = "border border-zinc-200 dark:border-zinc-800 rounded-3xl p-5";
     const labelClass = "text-xs font-medium text-zinc-500 ml-1 mb-1.5 block";

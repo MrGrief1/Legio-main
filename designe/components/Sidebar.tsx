@@ -5,7 +5,7 @@ import { LevelsModal } from './LevelsModal';
 import { SettingsModal } from './SettingsModal';
 import { AuthModal } from './AuthModal';
 import { Avatar } from './Avatar';
-import { MessageSquare, Info, Search, Moon, Sun, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, PlusCircle, ListChecks, Vote, Settings, LogOut, LogIn } from 'lucide-react';
+import { MessageSquare, Info, Search, Shield, Trophy, BarChart3, AlertCircle, MessageCircle, Heart, PlusCircle, ListChecks, Vote, Settings, LogOut, LogIn } from 'lucide-react';
 import { Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -21,8 +21,6 @@ export type SidebarNavKey = string;
 export type SidebarAccountVisibility = 'auto' | 'always' | 'never';
 
 interface SidebarProps {
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
   className?: string;
   showHeader?: boolean;
   activeKey?: SidebarNavKey;
@@ -126,7 +124,7 @@ const SidebarAccount: React.FC = () => {
   );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className = '', showHeader = true, activeKey = 'feed', accountVisibility = 'auto', onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onOpenPollsClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ className = '', showHeader = true, activeKey = 'feed', accountVisibility = 'auto', onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onOpenPollsClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [categories, setCategories] = React.useState<SidebarCategory[]>([]);
@@ -185,15 +183,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ theme, toggleTheme, className 
                 descender room; pb-1 keeps it clear of the container edge. */}
             <h1 className="text-3xl lg:text-4xl font-serif italic font-medium tracking-tight text-black dark:text-white leading-normal pt-1 pb-1 whitespace-nowrap">Legio</h1>
           </div>
-
-          {/* Theme Toggle */}
-          <button
-            onClick={toggleTheme}
-            className="shrink-0 p-2 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-          </button>
         </div>
       )}
 

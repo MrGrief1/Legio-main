@@ -51,6 +51,24 @@ export const Button: React.FC<ButtonProps> = ({
   );
 };
 
+// Оболочка для полей, которые не являются <input>: кнопка выпадающего списка и кнопка календаря.
+// Повторяет форму и цвета Input, иначе в одной форме соседствовали бы поля с разной геометрией.
+export const fieldTriggerClass = (isOpen: boolean, hasValue = true) => [
+  'w-full flex items-center gap-3 rounded-full py-3 pl-5 pr-4 text-sm text-left',
+  'bg-zinc-100 dark:bg-zinc-900 border transition-[border-color,box-shadow,background-color] duration-200 focus:outline-none',
+  isOpen
+    ? 'border-zinc-400 dark:border-zinc-600 ring-2 ring-zinc-200 dark:ring-zinc-700'
+    : 'border-transparent hover:border-zinc-300 dark:hover:border-zinc-700',
+  hasValue ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-600',
+].join(' ');
+
+// Всплывающая панель под таким полем. Светлый фон в светлой теме — то, чего не хватало прежнему
+// меню языка: оно было тёмным всегда и висело чёрным прямоугольником поверх светлой формы.
+export const popoverPanelClass = [
+  'bg-white dark:bg-[#171717] border border-zinc-200 dark:border-zinc-800',
+  'rounded-3xl shadow-xl shadow-zinc-900/10 dark:shadow-black/50',
+].join(' ');
+
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
 }

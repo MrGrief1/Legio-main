@@ -17,17 +17,20 @@ import { Poll } from './components/FeedComponents';
 import { NewsItem } from './types';
 import { API_URL } from './config';
 import { useScrollLock } from './hooks/useScrollLock';
-import { Menu, X, Moon, Sun, Search } from 'lucide-react';
+import { Menu, X, Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
 import { DialogProvider } from './context/DialogContext';
 import { NotificationProvider } from './context/NotificationContext';
 
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
+  // Тема живёт в ThemeProvider: она настраивается в модалке настроек, здесь она нужна только для
+  // фоновой подсветки ниже.
+  const { theme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [view, setView] = useState<'feed' | 'open-polls' | 'admin' | 'create' | 'manage' | 'leaderboard' | 'statistics' | 'reports' | 'info'>('feed');
   const [category, setCategory] = useState('all');
   // `search` is what the inputs show; `appliedSearch` is what the feed actually queries. Keeping
@@ -38,39 +41,6 @@ const AppContent: React.FC = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [deepNews, setDeepNews] = useState<NewsItem | null>(null);
   const [deepNewsOpen, setDeepNewsOpen] = useState(false);
-
-  // Toggle Theme Function
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-  // ... (rest of useEffects)
-
-  // Initialize theme based on system preference or default
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      if (savedTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-      document.documentElement.classList.add('dark');
-    } else {
-      setTheme('light');
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
 
   // Lock body scroll when mobile menu is open
   useScrollLock(mobileMenuOpen);
@@ -294,12 +264,6 @@ const AppContent: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={toggleTheme}
-                  className="p-3 rounded-full bg-zinc-200 dark:bg-zinc-900 text-zinc-900 dark:text-white"
-                >
-                  {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-                </button>
-                <button
                   onClick={() => setMobileMenuOpen(false)}
                   className="p-3 rounded-full bg-zinc-200 dark:bg-zinc-900 text-zinc-900 dark:text-white"
                 >
@@ -317,8 +281,6 @@ const AppContent: React.FC = () => {
 
             {/* Reused Navigation Links */}
             <Sidebar
-              theme={theme}
-              toggleTheme={toggleTheme}
               className="!pt-0 !px-0 !h-auto overflow-visible"
               showHeader={false}
               activeKey={activeNavKey}
@@ -347,8 +309,6 @@ const AppContent: React.FC = () => {
             everything in it is reachable. */}
         <div className="hidden md:block w-60 lg:w-72 shrink-0">
           <Sidebar
-            theme={theme}
-            toggleTheme={toggleTheme}
             activeKey={activeNavKey}
             accountVisibility={rightPanelVisible ? 'auto' : 'always'}
             onAdminClick={() => goTo('admin')}
@@ -400,17 +360,21 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <LanguageProvider>
-        <ToastProvider>
-          <DialogProvider>
-            {/* Inside Auth (needs the session), Language (localised copy) and Toast (its fallback
-                presentation), so it can use all three. */}
-            <NotificationProvider>
-              <AppContent />
-            </NotificationProvider>
-          </DialogProvider>
-        </ToastProvider>
-      </LanguageProvider>
+      {/* Тема применяется к <html>, поэтому провайдер стоит выше всего дерева. Первый кадр уже
+          покрашен public/theme-init.js — здесь тема становится управляемой из настроек. */}
+      <ThemeProvider>
+        <LanguageProvider>
+          <ToastProvider>
+            <DialogProvider>
+              {/* Inside Auth (needs the session), Language (localised copy) and Toast (its fallback
+                  presentation), so it can use all three. */}
+              <NotificationProvider>
+                <AppContent />
+              </NotificationProvider>
+            </DialogProvider>
+          </ToastProvider>
+        </LanguageProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 };

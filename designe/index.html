@@ -16,9 +16,16 @@
        counts — dropping it removes a supply-chain dependency without changing what loads.
        The custom-elements guard moved to its own file so the CSP can forbid inline scripts. -->
   <script src="/custom-elements-guard.js"></script>
+  <!-- Must stay a plain synchronous script in <head>: it decides light/dark before the first
+       paint. With defer/module it would run after the page is already on screen and the fix
+       would be visible as a flash. -->
+  <script src="/theme-init.js"></script>
 </head>
 
-<body class="bg-gray-100">
+<!-- Фон повторяет фон приложения в обеих темах. С жёстким светлым bg-gray-100 тёмная тема
+     успевала мигнуть белым в кадрах между применением класса и монтированием React. -->
+
+<body class="bg-zinc-50 dark:bg-black">
   <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>

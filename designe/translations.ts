@@ -123,6 +123,27 @@ export interface Translations {
         stepCurrentEmail: string;
         stepNewEmail: string;
         newEmailPlaceholder: string;
+        // Профиль: подписи, которые раньше были вшиты в разметку по-русски
+        bio: string;
+        bioPlaceholder: string;
+        birthdate: string;
+        birthdatePlaceholder: string;
+        // Оформление: тема переехала сюда с главного экрана
+        appearance: string;
+        theme: string;
+        themeHint: string;
+        themeLight: string;
+        themeDark: string;
+        themeSystem: string;
+    };
+
+    // Календарь выбора даты
+    datePicker: {
+        placeholder: string;
+        today: string;
+        clear: string;
+        previous: string;
+        next: string;
     };
 
     // Feed
@@ -474,6 +495,24 @@ export const translations: Record<Language, Translations> = {
             stepCurrentEmail: 'Шаг 1: подтвердите текущую почту',
             stepNewEmail: 'Шаг 2: подтвердите новую почту',
             newEmailPlaceholder: 'Новый адрес почты',
+            bio: 'О себе',
+            bioPlaceholder: 'Расскажите о себе...',
+            birthdate: 'День рождения',
+            birthdatePlaceholder: 'Выберите дату',
+            appearance: 'Оформление',
+            theme: 'Тема',
+            themeHint: 'Настройка сохраняется на этом устройстве.',
+            themeLight: 'Светлая',
+            themeDark: 'Тёмная',
+            themeSystem: 'Авто',
+        },
+
+        datePicker: {
+            placeholder: 'Выберите дату',
+            today: 'Сегодня',
+            clear: 'Очистить',
+            previous: 'Назад',
+            next: 'Вперёд',
         },
 
         // Feed
@@ -820,6 +859,24 @@ export const translations: Record<Language, Translations> = {
             stepCurrentEmail: 'Step 1: confirm your current email',
             stepNewEmail: 'Step 2: confirm the new email',
             newEmailPlaceholder: 'New email address',
+            bio: 'About you',
+            bioPlaceholder: 'Tell us about yourself...',
+            birthdate: 'Birthday',
+            birthdatePlaceholder: 'Pick a date',
+            appearance: 'Appearance',
+            theme: 'Theme',
+            themeHint: 'Saved on this device.',
+            themeLight: 'Light',
+            themeDark: 'Dark',
+            themeSystem: 'Auto',
+        },
+
+        datePicker: {
+            placeholder: 'Pick a date',
+            today: 'Today',
+            clear: 'Clear',
+            previous: 'Previous',
+            next: 'Next',
         },
 
         // Feed
