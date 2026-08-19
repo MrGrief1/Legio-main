@@ -57,8 +57,9 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Состояние шага с кодом. `challengeId` живёт только у входа: там пользователь ещё не
-  // аутентифицирован, и сервер опознаёт попытку по непредсказуемому идентификатору, а не по почте.
+  // Состояние шага с кодом. `challengeId` — идентификатор попытки: и вход, и регистрация
+  // опознаются по нему, а не по адресу. У входа так не перебрать чужие аккаунты, у регистрации
+  // это не даёт подменить чужую заявку своей, повторно запросив код на тот же адрес.
   const [code, setCode] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [pendingEmail, setPendingEmail] = useState('');
@@ -115,6 +116,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
       }
 
       const data = await postJson('/auth/register', { name, email, password });
+      setChallengeId(data.challengeId);
       setPendingEmail(data.email || email);
       setMaskedEmail(data.maskedEmail || '');
       setCode('');
@@ -134,7 +136,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
 
     try {
       const data = step === 'verify-register'
-        ? await postJson('/auth/register/verify', { email: pendingEmail, code })
+        ? await postJson('/auth/register/verify', { challengeId, code })
         : await postJson('/auth/login/verify', { challengeId, code });
 
       login(data.token, data.user);
@@ -156,6 +158,8 @@ export const AuthCard: React.FC<AuthCardProps> = ({ className = '' }) => {
     try {
       if (step === 'verify-register') {
         const data = await postJson('/auth/register/resend', { email: pendingEmail });
+        // Повторная отправка создаёт НОВУЮ заявку: прежний идентификатор больше не действует.
+        setChallengeId(data.challengeId);
         setMaskedEmail(data.maskedEmail || maskedEmail);
       } else if (step === 'verify-login') {
         const data = await postJson('/auth/login/resend', { challengeId });

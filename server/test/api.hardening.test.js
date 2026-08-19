@@ -141,7 +141,7 @@ test('login issues a token that expires', async () => {
 
     const registered = await request('/api/auth/register/verify', {
         method: 'POST',
-        json: { email: 'expiry@example.com', code: lastCodeFor('register') },
+        json: { challengeId: requested.body.challengeId, code: lastCodeFor('register') },
     });
 
     assert.equal(registered.status, 200);

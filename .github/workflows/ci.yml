@@ -29,6 +29,12 @@ jobs:
       - name: Run backend tests
         run: npm test
 
+      # Зависимости, которые реально попадают в образ. Проверка отдельным шагом и только по
+      # production-дереву: уязвимость в nodemon не должна валить сборку, а уязвимость в express —
+      # должна.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

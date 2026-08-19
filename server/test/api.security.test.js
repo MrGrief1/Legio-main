@@ -37,7 +37,7 @@ const registerVerifiedUser = async ({ name, email, password }) => {
 
     const verified = await requestJson('/api/auth/register/verify', {
         method: 'POST',
-        json: { email, code: lastCodeFor('register') },
+        json: { challengeId: requested.body.challengeId, code: lastCodeFor('register') },
     });
 
     assert.equal(verified.status, 200);
@@ -374,4 +374,119 @@ test('восстановление пароля не раскрывает, ес�
     assert.equal(known.status, 200);
     assert.equal(unknown.status, 200);
     assert.deepEqual(known.body, unknown.body);
+});
+
+// --- Отзыв сессий ---
+//
+// Смена пароля обязана убивать чужие сессии, иначе весь предыдущий блок защищает только от
+// «сменить пароль чужим токеном», но не от «пользоваться чужим токеном дальше».
+
+test('смена пароля отзывает ранее выданные токены', async () => {
+    const email = 'revoke.me@example.com';
+    const password = 'StrongPass1';
+    const owner = await registerVerifiedUser({ name: 'Revoke User', email, password });
+
+    // Вторая сессия того же аккаунта — то, чем в жизни оказывается украденный токен.
+    const stolen = await requestJson('/api/auth/login', {
+        method: 'POST',
+        json: { username: email, password },
+    });
+    assert.equal(stolen.status, 200);
+
+    const beforeChange = await requestJson('/api/auth/me', {
+        headers: { Authorization: `Bearer ${stolen.body.token}` },
+    });
+    assert.equal(beforeChange.status, 200);
+
+    await requestJson('/api/user/security/password/request', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${owner.token}` },
+        json: { currentPassword: password },
+    });
+
+    const confirmed = await requestJson('/api/user/security/password/confirm', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${owner.token}` },
+        json: {
+            currentPassword: password,
+            newPassword: 'NewStrongPass1',
+            code: lastCodeFor('password_change'),
+        },
+    });
+    assert.equal(confirmed.status, 200);
+    assert.ok(confirmed.body.token, 'смена пароля должна вернуть новый токен взамен отозванного');
+
+    const afterChange = await requestJson('/api/auth/me', {
+        headers: { Authorization: `Bearer ${stolen.body.token}` },
+    });
+    assert.equal(afterChange.status, 401, 'прежний токен должен перестать работать');
+
+    // Токен, выданный вместе со сменой, продолжает работать — иначе пользователь разлогинивал бы
+    // сам себя каждой сменой пароля.
+    const withFresh = await requestJson('/api/auth/me', {
+        headers: { Authorization: `Bearer ${confirmed.body.token}` },
+    });
+    assert.equal(withFresh.status, 200);
+});
+
+test('сброс пароля по коду с почты тоже отзывает старые токены', async () => {
+    const email = 'reset.revoke@example.com';
+    const password = 'StrongPass1';
+    const session = await registerVerifiedUser({ name: 'Reset User', email, password });
+
+    await requestJson('/api/auth/forgot-password', { method: 'POST', json: { email } });
+
+    const reset = await requestJson('/api/auth/reset-password', {
+        method: 'POST',
+        json: { email, code: lastCodeFor('password_reset'), password: 'AfterReset1' },
+    });
+    assert.equal(reset.status, 200);
+    assert.ok(reset.body.token);
+
+    const old = await requestJson('/api/auth/me', {
+        headers: { Authorization: `Bearer ${session.token}` },
+    });
+    assert.equal(old.status, 401);
+});
+
+// --- Привязка кода к заявке ---
+//
+// Код проверяется по идентификатору заявки, а не по адресу. Иначе повторный запрос регистрации на
+// чужой адрес подменял бы данные заявки (включая хеш пароля) на данные того, кто её перевыпустил.
+
+test('код регистрации действует только со своей заявкой', async () => {
+    const first = await requestJson('/api/auth/register', {
+        method: 'POST',
+        json: { name: 'Bind One', email: 'bind.one@example.com', password: 'StrongPass1' },
+    });
+    assert.equal(first.status, 200);
+    assert.ok(first.body.challengeId, 'заявка должна возвращать идентификатор');
+    const firstCode = lastCodeFor('register');
+
+    const second = await requestJson('/api/auth/register', {
+        method: 'POST',
+        json: { name: 'Bind Two', email: 'bind.two@example.com', password: 'StrongPass1' },
+    });
+    assert.equal(second.status, 200);
+    const secondCode = lastCodeFor('register');
+    assert.notEqual(first.body.challengeId, second.body.challengeId);
+
+    const crossed = await requestJson('/api/auth/register/verify', {
+        method: 'POST',
+        json: { challengeId: first.body.challengeId, code: secondCode },
+    });
+    assert.equal(crossed.status, 400, 'чужой код не должен подтверждать заявку');
+
+    const noChallenge = await requestJson('/api/auth/register/verify', {
+        method: 'POST',
+        json: { email: 'bind.one@example.com', code: firstCode },
+    });
+    assert.equal(noChallenge.status, 400, 'без идентификатора заявки регистрация не завершается');
+
+    const proper = await requestJson('/api/auth/register/verify', {
+        method: 'POST',
+        json: { challengeId: first.body.challengeId, code: firstCode },
+    });
+    assert.equal(proper.status, 200);
+    assert.equal(proper.body.user.username, 'bind.one@example.com');
 });

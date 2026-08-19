@@ -24,15 +24,27 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - CORS_ORIGIN=http://localhost:3000
+      # Без ключа сервер намеренно не стартует. Compose подставит его из вашего .env рядом с этим
+      # файлом и остановится с понятной ошибкой, если переменной нет.
+      - SECRET_KEY=${SECRET_KEY:?задайте SECRET_KEY (32+ символа) в .env рядом с docker-compose.yml}
+      # Имена переменных должны совпадать с теми, что читает код (server/.env.example).
+      # Здесь стояло CORS_ORIGIN, которого приложение не знает, — политика молча оставалась
+      # дефолтной.
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - DATABASE_PATH=/app/data/database.sqlite
     volumes:
-      - ./server/legio.db:/app/legio.db
+      # Каталог, а не файл: SQLite держит рядом с базой -wal и -shm, и подмонтированный
+      # одиночный файл терял их при перезапуске.
+      - ./server/data:/app/data
       - ./server/uploads:/app/uploads
     restart: unless-stopped
     networks:
       - legio-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      # Отдельный health-эндпоинт, а не корень: корень отдаёт HTML-оболочку SPA и отвечает 200
+      # даже когда база недоступна. Проверка через node, а не curl: в node:18-slim curl нет,
+      # и прежняя команда просто не выполнялась.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -132,7 +132,10 @@ export const SecuritySettings: React.FC = () => {
         const data = await postJson('/api/user/security/password/request', { currentPassword });
         if (data.codeRequired === false) {
             // Почты нет — подтверждать нечем, меняем сразу по текущему паролю.
-            await postJson('/api/user/security/password/confirm', { currentPassword, newPassword });
+            const changed = await postJson('/api/user/security/password/confirm', { currentPassword, newPassword });
+            // Смена пароля отзывает все выданные токены, включая текущий: сервер возвращает новый,
+            // иначе следующий же запрос получил бы 401 и выкинул пользователя из аккаунта.
+            login(changed.token, changed.user);
             showToast(t.settings.passwordChanged, 'success');
             resetFlow();
             return;
@@ -144,7 +147,8 @@ export const SecuritySettings: React.FC = () => {
     });
 
     const confirmPasswordChange = () => run(async () => {
-        await postJson('/api/user/security/password/confirm', { currentPassword, newPassword, code });
+        const changed = await postJson('/api/user/security/password/confirm', { currentPassword, newPassword, code });
+        login(changed.token, changed.user);
         showToast(t.settings.passwordChanged, 'success');
         resetFlow();
     });

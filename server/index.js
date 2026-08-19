@@ -14,15 +14,6 @@ const { createEmailAuthService, AuthCodeError, maskEmail } = require('./emailAut
 
 require('dotenv').config();
 
-const normalizeLogin = (value) => String(value || '').trim().toLowerCase();
-
-const parseCsvSet = (value) => new Set(
-    String(value || '')
-        .split(',')
-        .map(normalizeLogin)
-        .filter(Boolean)
-);
-
 const getConfiguredSecretKey = () => {
     const secretKey = String(process.env.SECRET_KEY || '').trim();
     const jwtSecret = String(process.env.JWT_SECRET || '').trim();
@@ -89,9 +80,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const ALLOW_BOOTSTRAP_ADMIN = toBoolean(process.env.ALLOW_BOOTSTRAP_ADMIN, process.env.NODE_ENV !== 'production');
 const WP_SYNC_ON_STARTUP = toBoolean(process.env.WP_SYNC_ON_STARTUP, false);
 const WP_SYNC_FULL_REPLACE = toBoolean(process.env.WP_SYNC_FULL_REPLACE, true);
-const FORCED_ADMIN_LOGINS = parseCsvSet(process.env.FORCED_ADMIN_LOGINS);
 const VISITOR_ID_HASH_SALT = process.env.VISITOR_ID_HASH_SALT || SECRET_KEY;
-const ALLOW_LEGACY_PLAINTEXT_PASSWORDS = toBoolean(process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS, false);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').trim();
 
 // Where uploaded avatars and chat attachments live.
@@ -377,6 +366,8 @@ if (rateLimit) {
     // читается при каждом открытии вкладки «Безопасность». Под общим лимитом в 10/час обычный
     // пользователь блокировал бы сам себя, просто заходя в настройки.
     app.use('/api/user/security/password', accountUpdateLimiter);
+    // Сброс пароля по коду с почты — такая же смена учётных данных, как и маршруты выше.
+    app.use('/api/auth/reset-password', accountUpdateLimiter);
     app.use('/api/upload', uploadLimiter);
 
     // Отдельно от лимитов выше: loginLimiter и registerLimiter не считают успешные запросы
@@ -428,6 +419,7 @@ if (rateLimit) {
     app.use('/api/', simpleLimiter);
     app.use('/api/auth/login', simpleAuthLimiter);
     app.use('/api/auth/register', simpleAuthLimiter);
+    app.use('/api/auth/reset-password', simpleAuthLimiter);
 }
 
 const sendValidationError = (res, error) => {
@@ -766,9 +758,13 @@ if (!mailer.isMailerConfigured()) {
 }
 
 // Чистим погашенные и просроченные коды раз в сутки, чтобы таблица не росла бесконечно.
-setInterval(() => {
-    emailAuth.purgeExpiredCodes().catch((err) => console.error('Failed to purge auth codes:', err.message));
-}, 24 * 60 * 60 * 1000).unref?.();
+// Первый прогон — при старте: контейнер на Railway переживает редеплой чаще, чем раз в сутки,
+// и таймер сам по себе мог не сработать ни разу.
+const purgeAuthCodes = () => emailAuth
+    .purgeExpiredCodes()
+    .catch((err) => console.error('Failed to purge auth codes:', err.message));
+
+setInterval(purgeAuthCodes, 24 * 60 * 60 * 1000).unref?.();
 
 // Ответ на ошибку кода. Коды AuthCodeError машиночитаемы — фронтенд по ним различает
 // «неверный код», «истёк», «слишком часто» и показывает разные подсказки.
@@ -917,10 +913,6 @@ const verifyPassword = async (plainPassword, storedHash) => {
         return false;
     }
 
-    if (ALLOW_LEGACY_PLAINTEXT_PASSWORDS) {
-        return String(plainPassword) === String(storedHash);
-    }
-
     return false;
 };
 
@@ -1031,13 +1023,15 @@ const upload = multer({
 
 // --- Middleware ---
 
-// Sessions are bearer tokens held in localStorage, so a leaked token is a usable credential for
-// as long as it stays valid. Bounding that window is the only revocation this design has.
+// Sessions are bearer tokens held in localStorage, so a leaked token is a usable credential until
+// it expires — or until the account revokes it. Отзыв делает claim `tv`: он несёт поколение
+// токенов из users.token_version, и запрос с устаревшим поколением получает 401. Поэтому смена
+// пароля (и сброс через почту) выбрасывает все остальные сессии, а не только меняет пароль.
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const JWT_ALGORITHM = 'HS256';
 
-const signAuthToken = ({ id, username, role }) => jwt.sign(
-    { id, username, role },
+const signAuthToken = ({ id, username, role, tokenVersion }) => jwt.sign(
+    { id, username, role, tv: Number(tokenVersion) || 0 },
     SECRET_KEY,
     { expiresIn: JWT_EXPIRES_IN, algorithm: JWT_ALGORITHM }
 );
@@ -1071,10 +1065,17 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ message: 'Session expired. Please login again.' });
     }
 
-    db.get("SELECT id FROM users WHERE id = ?", [user.id], (dbErr, dbUser) => {
+    db.get("SELECT id, token_version FROM users WHERE id = ?", [user.id], (dbErr, dbUser) => {
         if (dbErr) return res.status(500).json({ message: "Database error" });
         if (!dbUser) {
             return res.status(401).json({ message: "Token user no longer exists. Please login again." });
+        }
+
+        // Токены без `tv` (выданные до появления отзыва) читаются как поколение 0 — ровно то,
+        // что стоит в колонке у всех, кто с тех пор не менял пароль. Так отзыв включается без
+        // одномоментного разлогина всех пользователей.
+        if ((Number(user.tv) || 0) !== (Number(dbUser.token_version) || 0)) {
+            return res.status(401).json({ message: 'Session expired. Please login again.' });
         }
 
         req.user = user;
@@ -1120,17 +1121,6 @@ const getUserFromToken = (req) => {
 const getUserIdFromToken = (req) => {
     const user = getUserFromToken(req);
     return user ? user.id : null;
-};
-
-const isForcedAdminLogin = (login) => FORCED_ADMIN_LOGINS.has(normalizeLogin(login));
-
-const enforceForcedAdminRoles = async () => {
-    for (const forcedLogin of FORCED_ADMIN_LOGINS) {
-        await dbRunAsync(
-            "UPDATE users SET role = 'admin' WHERE LOWER(username) = LOWER(?)",
-            [forcedLogin]
-        );
-    }
 };
 
 const CATEGORY_LABELS_RU = {
@@ -1592,7 +1582,12 @@ const toPublicUser = (user) => ({
 });
 
 const buildSessionResponse = (user) => ({
-    token: signAuthToken({ id: user.id, username: user.username, role: user.role }),
+    token: signAuthToken({
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        tokenVersion: user.token_version,
+    }),
     user: toPublicUser(user),
 });
 
@@ -1608,6 +1603,18 @@ const findUserForLogin = (login) => dbGetAsync(
      LIMIT 1`,
     [login, login, login, login, login]
 );
+
+// Проверка живости для docker-compose и Railway. Отдельный маршрут, а не корень: корень отдаёт
+// оболочку SPA и отвечает 200 даже когда база недоступна — то есть проверка ничего не проверяла.
+app.get('/api/health', async (req, res) => {
+    try {
+        await dbGetAsync('SELECT 1 AS ok');
+        res.json({ status: 'ok' });
+    } catch (error) {
+        console.error('Health check failed:', error.message);
+        res.status(503).json({ status: 'error' });
+    }
+});
 
 // Шаг 1: проверяем данные, занятость email/имени и отправляем код. Аккаунт пока не создаётся.
 app.post('/api/auth/register', async (req, res) => {
@@ -1651,6 +1658,7 @@ app.post('/api/auth/register', async (req, res) => {
 
         res.json({
             requiresVerification: true,
+            challengeId: challenge.challengeId,
             email: username,
             maskedEmail: challenge.maskedEmail,
             expiresAt: challenge.expiresAt,
@@ -1665,16 +1673,25 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Шаг 2: код верен — только теперь создаётся аккаунт и выдаётся токен.
+//
+// Заявка ищется по `challengeId`, а не по адресу. Поиск по адресу означал бы «последняя живая
+// заявка на этот email»: кто угодно мог повторно запросить регистрацию на чужой адрес, погасив
+// код жертвы и подменив собой payload — включая хеш пароля. Тогда жертва, введя код из второго
+// письма, создала бы аккаунт с чужим паролем. Идентификатор заявки непредсказуем и связывает
+// введённый код именно с той формой, которую заполняли.
 app.post('/api/auth/register/verify', async (req, res) => {
-    const email = String(req.body?.email || '').trim().toLowerCase();
+    const challengeId = String(req.body?.challengeId || '').trim();
     const code = String(req.body?.code || '').trim();
 
-    if (!email) {
-        return res.status(400).json({ message: 'Email обязателен' });
+    if (!challengeId) {
+        return res.status(400).json({ message: 'Заявка на регистрацию не найдена. Зарегистрируйтесь заново.' });
     }
 
     try {
-        const verified = await emailAuth.verifyCode({ email, purpose: 'register', code });
+        const verified = await emailAuth.verifyCode({ challengeId, code });
+        if (verified.purpose !== 'register') {
+            return res.status(400).json({ message: 'Заявка на регистрацию не найдена. Зарегистрируйтесь заново.' });
+        }
         const payload = verified.payload || {};
 
         const { username, name, hashedPassword } = payload;
@@ -1701,9 +1718,7 @@ app.post('/api/auth/register/verify', async (req, res) => {
 
         const countRow = await dbGetAsync("SELECT COUNT(*) as count FROM users");
         const isFirstUser = Number(countRow?.count) === 0;
-        const userRole = ((ALLOW_BOOTSTRAP_ADMIN && isFirstUser) || isForcedAdminLogin(username))
-            ? 'admin'
-            : 'user';
+        const userRole = (ALLOW_BOOTSTRAP_ADMIN && isFirstUser) ? 'admin' : 'user';
 
         const pointsSettings = await getPointsSettings();
         const startPoints = pointsSettings.start_points;
@@ -1757,7 +1772,13 @@ app.post('/api/auth/register/resend', async (req, res) => {
             ttlMinutes: REGISTER_CODE_TTL_MINUTES,
         });
 
-        res.json({ sent: true, maskedEmail: challenge.maskedEmail, expiresAt: challenge.expiresAt });
+        // Новая выдача гасит прежний код, поэтому клиент должен перейти на новый идентификатор.
+        res.json({
+            sent: true,
+            challengeId: challenge.challengeId,
+            maskedEmail: challenge.maskedEmail,
+            expiresAt: challenge.expiresAt,
+        });
     } catch (error) {
         sendAuthCodeError(res, error, 'Failed to resend registration code');
     }
@@ -1780,11 +1801,6 @@ app.post('/api/auth/login', async (req, res) => {
         const isValidPassword = await verifyPassword(password, user.password);
         if (!isValidPassword) {
             return res.status(400).json({ message: "Invalid credentials" });
-        }
-
-        if (isForcedAdminLogin(user.username) && user.role !== 'admin') {
-            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
-            user.role = 'admin';
         }
 
         if (shouldRehashPassword(user.password)) {
@@ -1953,8 +1969,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
         const user = await dbGetAsync("SELECT * FROM users WHERE id = ?", [verified.userId]);
         if (!user) return res.status(400).json({ message: 'Пользователь не найден' });
 
+        // Сброс — это тоже смена владельцем: старые сессии (в том числе угнанные, из-за которых
+        // сброс и понадобился) должны умереть здесь же.
         const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
-        await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, user.id]);
+        await dbRunAsync(
+            "UPDATE users SET password = ?, token_version = token_version + 1 WHERE id = ?",
+            [hashedPassword, user.id]
+        );
 
         const updated = await dbGetAsync("SELECT * FROM users WHERE id = ?", [user.id]);
         // Сразу выдаём сессию: пользователь только что доказал контроль над почтой и знает новый
@@ -2161,10 +2182,17 @@ app.post('/api/user/security/password/confirm', authenticateToken, async (req, r
             });
         }
 
+        // Пароль и поколение токенов меняются одним запросом: любая сессия, выданная до этого
+        // момента, перестаёт работать. Ради этого маршрут и возвращает новый токен — иначе смена
+        // пароля разлогинивала бы того, кто её только что сделал.
         const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-        await dbRunAsync("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, user.id]);
+        await dbRunAsync(
+            "UPDATE users SET password = ?, token_version = token_version + 1 WHERE id = ?",
+            [hashedPassword, user.id]
+        );
 
-        res.json({ message: 'Пароль обновлён' });
+        const updated = await dbGetAsync("SELECT * FROM users WHERE id = ?", [user.id]);
+        res.json({ ...buildSessionResponse(updated), message: 'Пароль обновлён' });
     } catch (error) {
         if (error instanceof AuthCodeError) {
             return sendAuthCodeError(res, error, 'Failed to change password');
@@ -2332,12 +2360,11 @@ app.post('/api/user/email/confirm', authenticateToken, async (req, res) => {
             shouldUpdateUsername ? [newEmail, newEmail, user.id] : [newEmail, user.id]
         );
 
-        if (shouldUpdateUsername && isForcedAdminLogin(newEmail)) {
-            await dbRunAsync("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
-        }
+        // Почта — это канал восстановления доступа, поэтому её смена отзывает прежние сессии.
+        await dbRunAsync("UPDATE users SET token_version = token_version + 1 WHERE id = ?", [user.id]);
 
         const updated = await dbGetAsync("SELECT * FROM users WHERE id = ?", [user.id]);
-        // Новый токен: старый несёт прежний `username`, а он мог только что смениться.
+        // Новый токен: старый несёт прежние `username` и поколение, а они только что сменились.
         res.json({
             message: 'Почта обновлена',
             ...buildSessionResponse(updated),
@@ -3318,7 +3345,16 @@ app.post('/api/admin/sync/wordpress', authenticateToken, requireAdmin, async (re
 
     try {
         const stats = await syncWordpressIfConfigured({ fullReplace });
-        await enforceForcedAdminRoles();
+
+        // Полная замена стирает таблицу пользователей вместе с ролями, а иногда и с самим
+        // администратором. Восстанавливаем его тем же способом, что и при старте, — иначе после
+        // синхронизации в проект некому зайти.
+        try {
+            await ensureConfiguredAdmin();
+        } catch (adminError) {
+            console.error('[Admin Bootstrap] Failed after WordPress sync:', adminError.message);
+        }
+
         if (stats.skipped) {
             return res.status(400).json({ message: stats.reason });
         }
@@ -4781,10 +4817,11 @@ const ensureConfiguredAdmin = async () => {
 const startServer = async () => {
     await db.ready;
 
+    await purgeAuthCodes();
+
     if (WP_SYNC_ON_STARTUP) {
         try {
             const stats = await syncWordpressIfConfigured({ fullReplace: WP_SYNC_FULL_REPLACE });
-            await enforceForcedAdminRoles();
             if (stats.skipped) {
                 console.warn('[WP Sync] Startup sync skipped:', stats.reason);
             } else {
@@ -4793,12 +4830,6 @@ const startServer = async () => {
         } catch (error) {
             console.error('[WP Sync] Startup sync failed:', error.message);
         }
-    }
-
-    try {
-        await enforceForcedAdminRoles();
-    } catch (error) {
-        console.error('[Admin Override] Failed to enforce forced admin roles:', error.message);
     }
 
     try {

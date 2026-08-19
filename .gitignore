@@ -14,6 +14,11 @@ server/node_modules/
 dist/
 coverage/
 
+# Собранный фронтенд. Источник истины — designe/: образ собирает его сам (Dockerfile),
+# локально его кладёт сюда build.sh. Закоммиченная копия расходилась со сборкой и раздувала
+# историю на каждый релиз.
+server/public/
+
 server/uploads/
 .DS_Store
 .vscode/
