@@ -353,7 +353,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                 )}
 
                 <div className="relative z-10 flex items-start gap-3 p-3">
-                  <div className={`mt-0.5 transition-colors duration-200 ${selectedOption === option.id
+                  <div className={`mt-0.5 shrink-0 transition-colors duration-200 ${selectedOption === option.id
                     ? 'text-blue-500 scale-110'
                     : (hasVoted || !!pollData.is_resolved)
                       ? 'text-zinc-300 dark:text-zinc-600'
@@ -371,36 +371,42 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                     )}
                   </div>
 
-                  <div className="flex-1 flex justify-between items-center">
-                    <span className={`text-sm leading-relaxed transition-colors duration-200 ${selectedOption === option.id || isCorrect
-                      ? 'text-zinc-900 dark:text-white font-medium'
-                      : 'text-zinc-600 dark:text-zinc-300 group-hover/option:text-zinc-900 dark:group-hover/option:text-zinc-200'
-                      }`}>
-                      {option.text}
-                    </span>
+                  {/* min-w-0 обязателен: без него длинный вариант распирает строку по своей
+                      минимальной ширине, и проценты справа схлопываются до обрезка («1» вместо
+                      «100%»). Кнопка «Выбрать» вынесена под текст — на узком экране рядом с ним
+                      она сдавливала вариант до двух слов в строке и налезала на него. */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className={`min-w-0 break-words text-sm leading-relaxed transition-colors duration-200 ${selectedOption === option.id || isCorrect
+                        ? 'text-zinc-900 dark:text-white font-medium'
+                        : 'text-zinc-600 dark:text-zinc-300 group-hover/option:text-zinc-900 dark:group-hover/option:text-zinc-200'
+                        }`}>
+                        {option.text}
+                      </span>
+
+                      {showResults && option.percent > 0 && (
+                        <div
+                          className="shrink-0 text-sm leading-relaxed font-bold tabular-nums whitespace-nowrap text-blue-600 dark:text-blue-400 transition-all duration-500 ease-out motion-reduce:transition-none"
+                          style={{
+                            opacity: revealed ? 1 : 0,
+                            transform: revealed ? 'translateX(0)' : 'translateX(8px)',
+                            transitionDelay: `${revealDelay}ms`,
+                          }}
+                        >
+                          <AnimatedPercent value={option.percent} active={revealed} delay={revealDelay} />
+                        </div>
+                      )}
+                    </div>
 
                     {canResolve && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleResolve(option.id); }}
-                        className="text-xs bg-zinc-200 dark:bg-zinc-800 hover:bg-green-500 hover:text-white px-2 py-1 rounded transition-colors ml-2"
+                        className="mt-2 text-xs whitespace-nowrap bg-zinc-200 dark:bg-zinc-800 hover:bg-green-500 hover:text-white px-2 py-1 rounded transition-colors"
                       >
                         Выбрать
                       </button>
                     )}
                   </div>
-
-                  {showResults && option.percent > 0 && (
-                    <div
-                      className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400 transition-all duration-500 ease-out motion-reduce:transition-none"
-                      style={{
-                        opacity: revealed ? 1 : 0,
-                        transform: revealed ? 'translateX(0)' : 'translateX(8px)',
-                        transitionDelay: `${revealDelay}ms`,
-                      }}
-                    >
-                      <AnimatedPercent value={option.percent} active={revealed} delay={revealDelay} />
-                    </div>
-                  )}
                 </div>
               </div>
 
