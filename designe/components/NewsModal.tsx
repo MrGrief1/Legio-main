@@ -92,9 +92,11 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
 
         <div className="relative bg-white dark:bg-[#121212] w-full h-[100dvh] sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col">
 
-          {/* Header / Image */}
+          {/* Header / Image.
+              Пропорция вместо фиксированной высоты — как в карточке ленты; потолок ниже, потому
+              что под картинкой в модалке ещё текст и опрос, и они не должны уезжать за экран. */}
           {hasImage ? (
-            <div className="relative h-56 shrink-0">
+            <div className="relative w-full aspect-[16/10] max-h-[40vh] shrink-0">
               <img
                 src={item.image}
                 alt={item.title}

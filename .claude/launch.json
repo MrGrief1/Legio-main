@@ -4,9 +4,9 @@
     {
       "name": "legio-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev", "--", "--port", "3010"],
       "cwd": "designe",
-      "port": 3000
+      "port": 3010
     }
   ]
 }

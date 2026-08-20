@@ -626,10 +626,13 @@ export const NewsCard: React.FC<{
           className="bg-white dark:bg-[#121212] rounded-[32px] border border-zinc-200 dark:border-zinc-800/50 overflow-hidden hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-500 group cursor-pointer animate-in fade-in slide-in-from-bottom-4"
           onClick={() => setIsModalOpen(true)}
         >
-          {/* Высота картинки урезана: раньше одна карточка с изображением и вариантами ответа не
-              помещалась в экран ноутбука целиком, и до вариантов приходилось долистывать. */}
+          {/* Пропорция, а не фиксированная высота: на широком мониторе карточка растягивается,
+              и жёсткие 224 пикселя превращали изображение в узкую полосу почти 3:1.
+              Потолок задан в vh и подобран так, чтобы на ноутбучном экране (13", ~850 CSS px
+              высоты) он ещё не срабатывал и картинка оставалась честными 16:10, а на низких
+              экранах — подрезал её, чтобы карточка с вариантами ответа влезала целиком. */}
           {hasImage && (
-            <div className="relative h-40 sm:h-48 lg:h-56 w-full overflow-hidden">
+            <div className="relative w-full aspect-[16/10] max-h-[52vh] overflow-hidden">
               <img
                 src={item.image}
                 alt={item.title}
