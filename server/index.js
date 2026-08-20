@@ -2568,6 +2568,10 @@ async function buildFeedItem(row, userId, showVoters) {
         id: opt.id,
         text: opt.text,
         percent: opt.total_votes > 0 ? Math.round((opt.vote_count / opt.total_votes) * 100) : 0,
+        // Сырые счётчики нужны клиенту, чтобы сразу после голоса пересчитать проценты локально
+        // и анимировать заливку до реальных значений, не дожидаясь перезагрузки ленты.
+        vote_count: opt.vote_count,
+        total_votes: opt.total_votes,
         // Left out of the payload entirely for non-admins (JSON drops undefined keys).
         voters: showVoters ? (opt.voters || []) : undefined
     }));

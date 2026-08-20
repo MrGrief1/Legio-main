@@ -23,6 +23,8 @@ export interface PollOption {
   id: number;
   text: string;
   percent: number;
+  vote_count?: number;
+  total_votes?: number;
   voters?: User[];
 }
 

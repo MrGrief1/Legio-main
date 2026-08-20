@@ -78,11 +78,33 @@ input[type="search"]::-webkit-search-results-decoration {
   animation: calendar-view-in 160ms ease-out;
 }
 
+/* Блик, один раз пробегающий по варианту опроса, за который отдан голос: пока шкала наливается,
+   он подсвечивает именно выбранную строку. */
+@keyframes poll-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.poll-sheen {
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.22), transparent);
+  animation: poll-sheen 1100ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .animate-popover,
   .animate-popover-up,
   .animate-calendar-view {
     animation: none;
+  }
+
+  .poll-sheen {
+    animation: none;
+    opacity: 0;
   }
 }

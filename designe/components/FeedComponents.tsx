@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Button } from './UI';
 import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X } from 'lucide-react';
 import { PollData, PollOption, NewsItem, User } from '../types';
@@ -21,6 +21,70 @@ const formatPollDate = (value: string): string => {
 
 // How many voter chips to show inline before collapsing the rest behind a "+N" button.
 const VISIBLE_VOTERS = 3;
+
+// Тайминги «наливания» шкалы результатов: длительность самой заливки и шаг задержки,
+// с которым варианты стартуют друг за другом, чтобы результат читался сверху вниз.
+const POLL_FILL_DURATION = 900;
+const POLL_FILL_STEP = 90;
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Докручивает число до цели вместо мгновенной подстановки: работает и на рост (свой голос),
+// и на убывание (доля варианта падает, когда общее число голосов выросло).
+const useCountUp = (target: number, active: boolean, delay = 0): number => {
+  const [value, setValue] = useState(0);
+  const valueRef = useRef(0);
+
+  useEffect(() => {
+    if (!active) {
+      valueRef.current = 0;
+      setValue(0);
+      return;
+    }
+
+    if (prefersReducedMotion()) {
+      valueRef.current = target;
+      setValue(target);
+      return;
+    }
+
+    const from = valueRef.current;
+    if (from === target) return;
+
+    let frame = 0;
+    let start: number | null = null;
+
+    const step = (now: number) => {
+      if (start === null) start = now;
+      const progress = Math.min(1, (now - start) / POLL_FILL_DURATION);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = Math.round(from + (target - from) * eased);
+      valueRef.current = next;
+      setValue(next);
+      if (progress < 1) frame = requestAnimationFrame(step);
+    };
+
+    const timer = window.setTimeout(() => {
+      frame = requestAnimationFrame(step);
+    }, delay);
+
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+    };
+  }, [target, active, delay]);
+
+  return value;
+};
+
+// Отдельный компонент, потому что хук нельзя вызвать внутри map по вариантам.
+const AnimatedPercent: React.FC<{ value: number; active: boolean; delay: number }> = ({ value, active, delay }) => {
+  const shown = useCountUp(value, active, delay);
+  return <>{shown}%</>;
+};
 
 // Full list of everyone who picked a given option — opened from the "+N" button.
 const VotersModal: React.FC<{
@@ -90,12 +154,61 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showVoters, setShowVoters] = useState(false);
   const [votersModalOption, setVotersModalOption] = useState<PollOption | null>(null);
+  // Шкалы стартуют со scaleX(0) и уезжают к своей доле только на следующем кадре — иначе
+  // браузеру не от чего анимировать и заливка просто появляется целиком.
+  const [revealed, setRevealed] = useState(false);
+  // Ступенчатый старт нужен только на первом показе; дальше (перезагрузка ленты, чужие голоса)
+  // шкалы должны переезжать к новым долям сразу, без накопленной задержки.
+  const [stagger, setStagger] = useState(true);
 
   useEffect(() => {
     setPollData(data);
     setSelectedOption(data.user_voted_option_id || null);
     setHasVoted(!!data.user_voted_option_id);
   }, [data]);
+
+  const showResults = hasVoted || !!pollData.is_resolved;
+
+  useEffect(() => {
+    if (!showResults) {
+      setRevealed(false);
+      setStagger(true);
+      return;
+    }
+
+    if (prefersReducedMotion()) {
+      setRevealed(true);
+      setStagger(false);
+      return;
+    }
+
+    // Двойной rAF: одиночный успевает отработать до первой отрисовки, и переход снова теряется.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setRevealed(true));
+    });
+
+    // Подстраховка: если кадры почему-то не приходят, шкала не должна остаться пустой. На скрытой
+    // вкладке ничего не делаем — там rAF просто ждёт возврата пользователя и анимация отыграет ему.
+    const fallback = window.setTimeout(() => {
+      if (document.visibilityState === 'visible') setRevealed(true);
+    }, 300);
+
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      window.clearTimeout(fallback);
+    };
+  }, [showResults]);
+
+  useEffect(() => {
+    if (!revealed || !stagger) return;
+    const timer = window.setTimeout(
+      () => setStagger(false),
+      POLL_FILL_DURATION + pollData.options.length * POLL_FILL_STEP
+    );
+    return () => window.clearTimeout(timer);
+  }, [revealed, stagger, pollData.options.length]);
 
   const handleVote = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -117,13 +230,26 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
 
       setHasVoted(true);
 
-      const updatedOptions = pollData.options.map(opt => {
-        if (opt.id === selectedOption) {
-          return { ...opt, vote_count: (opt as any).vote_count + 1, total_votes: (opt as any).total_votes + 1 };
-        }
-        return opt;
-      });
-      setPollData({ ...pollData, options: updatedOptions });
+      // Проценты пересчитываются локально по той же формуле, что и на сервере: свой вариант растёт,
+      // остальные проседают (общее число голосов стало больше) — шкалы едут сразу к верным долям,
+      // не дожидаясь перезагрузки ленты. Если бэкенд ещё не отдаёт счётчики — оставляем как есть.
+      const hasCounts = pollData.options.every(
+        opt => typeof opt.vote_count === 'number' && typeof opt.total_votes === 'number'
+      );
+
+      if (hasCounts) {
+        const updatedOptions = pollData.options.map(opt => {
+          const voteCount = (opt.vote_count as number) + (opt.id === selectedOption ? 1 : 0);
+          const totalVotes = (opt.total_votes as number) + 1;
+          return {
+            ...opt,
+            vote_count: voteCount,
+            total_votes: totalVotes,
+            percent: totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0,
+          };
+        });
+        setPollData({ ...pollData, options: updatedOptions });
+      }
 
       if (onPollChange) {
         setTimeout(() => onPollChange(), 500);
@@ -186,8 +312,9 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
       )}
 
       <div className="space-y-3 mb-6">
-        {pollData.options.map((option) => {
+        {pollData.options.map((option, index) => {
           const isCorrect = pollData.is_resolved === 1 && pollData.correct_option_id === option.id;
+          const revealDelay = stagger ? index * POLL_FILL_STEP : 0;
 
           return (
             <div key={option.id} className="space-y-2">
@@ -202,10 +329,26 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                 className={`relative group/option cursor-pointer rounded-xl transition-all duration-300 overflow-hidden ${hasVoted || pollData.is_resolved ? 'cursor-default' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
                   } ${isCorrect ? 'ring-2 ring-green-500' : ''}`}
               >
-                {(hasVoted || !!pollData.is_resolved) && (
+                {/* Заливка всегда в DOM: пока результатов нет, она стоит на scaleX(0) и прозрачна,
+                    поэтому переход отрабатывает и при первом показе, и при смене долей. */}
+                <div
+                  className={`absolute inset-0 origin-left will-change-transform transition-[transform,opacity] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${isCorrect
+                    ? 'bg-gradient-to-r from-green-500/10 to-green-500/30'
+                    : 'bg-gradient-to-r from-blue-100/40 to-blue-200/70 dark:from-blue-900/20 dark:to-blue-800/40'
+                    }`}
+                  style={{
+                    transform: `scaleX(${showResults && revealed ? option.percent / 100 : 0})`,
+                    opacity: showResults ? 1 : 0,
+                    transitionDuration: `${POLL_FILL_DURATION}ms`,
+                    transitionDelay: `${revealDelay}ms`,
+                  }}
+                />
+
+                {/* Одиночный блик по строке, за которую отдан голос — подтверждение выбора. */}
+                {showResults && revealed && selectedOption === option.id && (
                   <div
-                    className={`absolute inset-0 ${isCorrect ? 'bg-green-500/20' : 'bg-blue-100/50 dark:bg-blue-900/20'} transition-transform duration-1000 ease-out origin-left will-change-transform`}
-                    style={{ transform: `scaleX(${option.percent / 100})` }}
+                    className="pointer-events-none absolute inset-0 poll-sheen"
+                    style={{ animationDelay: `${revealDelay}ms` }}
                   />
                 )}
 
@@ -246,9 +389,16 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                     )}
                   </div>
 
-                  {(hasVoted || !!pollData.is_resolved) && option.percent > 0 && (
-                    <div className="text-sm font-bold text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-right-4 duration-700">
-                      {option.percent}%
+                  {showResults && option.percent > 0 && (
+                    <div
+                      className="text-sm font-bold tabular-nums text-blue-600 dark:text-blue-400 transition-all duration-500 ease-out motion-reduce:transition-none"
+                      style={{
+                        opacity: revealed ? 1 : 0,
+                        transform: revealed ? 'translateX(0)' : 'translateX(8px)',
+                        transitionDelay: `${revealDelay}ms`,
+                      }}
+                    >
+                      <AnimatedPercent value={option.percent} active={revealed} delay={revealDelay} />
                     </div>
                   )}
                 </div>
