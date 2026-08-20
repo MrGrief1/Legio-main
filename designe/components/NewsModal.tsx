@@ -96,7 +96,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
               Пропорция вместо фиксированной высоты — как в карточке ленты; потолок ниже, потому
               что под картинкой в модалке ещё текст и опрос, и они не должны уезжать за экран. */}
           {hasImage ? (
-            <div className="relative w-full aspect-[16/10] max-h-[40vh] shrink-0">
+            <div className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[40vh] shrink-0">
               <img
                 src={item.image}
                 alt={item.title}
