@@ -41,6 +41,78 @@ export interface Translations {
         resolving: string;
         searchPlaceholder: string;
         noResults: string;
+        // Вкладки набора опросов
+        tabOverdue: string;
+        tabActive: string;
+        tabResolved: string;
+        tabHintOverdue: string;
+        tabHintActive: string;
+        tabHintResolved: string;
+        emptyOverdue: string;
+        emptyActive: string;
+        emptyResolved: string;
+        // Фильтры и сортировка
+        author: string;
+        allAuthors: string;
+        onlyMine: string;
+        withoutAuthor: string;
+        authorHint: string;
+        // Согласование числительных: 1 голос, 2 голоса, 5 голосов.
+        votesOne: string;
+        votesFew: string;
+        sortBy: string;
+        sortDeadline: string;
+        sortCreated: string;
+        sortResolvedAt: string;
+        sortTitle: string;
+        sortAuthor: string;
+        sortVotes: string;
+        orderAsc: string;
+        orderDesc: string;
+        resetFilters: string;
+        // Плотность списка
+        compactView: string;
+        expandedView: string;
+        // Строка опроса
+        createdOn: string;
+        deadline: string;
+        noDeadline: string;
+        overdue: string;
+        unknownAuthor: string;
+        openPoll: string;
+        editPoll: string;
+        // Вкладка черновиков и запланированных публикаций
+        tabDrafts: string;
+        tabHintDrafts: string;
+        emptyDrafts: string;
+        draftBadge: string;
+        scheduledBadge: string;
+        goesLiveAt: string;
+        noPollYet: string;
+        continueEditing: string;
+        publishNow: string;
+        confirmPublishNow: string;
+        publishedNow: string;
+        deleteDraft: string;
+        confirmDeleteDraft: string;
+        draftDeleted: string;
+        copyLink: string;
+        linkCopied: string;
+        linkCopyFailed: string;
+        expandRow: string;
+        collapseRow: string;
+        resolvedBy: string;
+        resolvedAt: string;
+        correctAnswer: string;
+        resolvedBadge: string;
+        loadMore: string;
+        loadingMore: string;
+        shown: string;
+        confirmResolve: string;
+        resolveSuccess: string;
+        resolveFailed: string;
+        networkError: string;
+        openFailed: string;
     };
 
     // Auth
@@ -255,6 +327,28 @@ export interface Translations {
         validationContent: string;
         validationPoll: string;
         validationPollUnique: string;
+        // Правка уже опубликованного материала
+        editTitle: string;
+        editSubtitle: string;
+        saved: string;
+        saveChanges: string;
+        cancelEdit: string;
+        loadFailed: string;
+        pollLockedHint: string;
+        // Черновики и отложенная публикация
+        saveDraft: string;
+        draftSaved: string;
+        scheduledSaved: string;
+        draftNeedsTitle: string;
+        publishNow: string;
+        publishSchedule: string;
+        publishWhen: string;
+        publishDateLabel: string;
+        publishTimeLabel: string;
+        publishScheduleHint: string;
+        publishNowHint: string;
+        schedulePublish: string;
+        editingDraft: string;
     };
 
     // Leaderboard
@@ -397,7 +491,7 @@ export const translations: Record<Language, Translations> = {
             leaderboard: 'Таблица лидеров',
             adminPanel: 'Админ панель',
             createPoll: 'Создать опрос',
-            managePolls: 'Завершить опросы',
+            managePolls: 'Управление опросами',
             statistics: 'Статистика',
             errorReports: 'Сообщения об ошибках',
             information: 'Информация',
@@ -406,15 +500,81 @@ export const translations: Record<Language, Translations> = {
         },
 
         managePolls: {
-            title: 'Завершение опросов',
-            subtitle: 'Незавершённые опросы. Нажмите на верный вариант, чтобы завершить опрос и начислить баллы.',
+            title: 'Опросы',
+            subtitle: 'Все опросы в одном месте: заголовок, автор и срок — можно завершить прямо здесь или открыть опрос целиком.',
             loading: 'Загрузка опросов...',
             empty: 'Все опросы завершены',
             votes: 'голосов',
             pickCorrect: 'Выберите правильный ответ:',
             resolving: 'Завершаем...',
-            searchPlaceholder: 'Поиск по незавершённым опросам...',
+            searchPlaceholder: 'Поиск по заголовку, вопросу или автору...',
             noResults: 'Ничего не найдено',
+            tabOverdue: 'Требуют завершения',
+            tabActive: 'Ещё идут',
+            tabResolved: 'Завершённые',
+            tabHintOverdue: 'Срок голосования вышел, верный вариант ещё не выбран.',
+            tabHintActive: 'Голосование открыто — завершать пока рано.',
+            tabHintResolved: 'Уже завершённые опросы: видно, кто и когда проставил верный вариант.',
+            emptyOverdue: 'Просроченных опросов нет — всё разобрано',
+            emptyActive: 'Открытых опросов нет',
+            emptyResolved: 'Завершённых опросов пока нет',
+            author: 'Автор',
+            allAuthors: 'Все авторы',
+            onlyMine: 'Только мои',
+            withoutAuthor: 'Без автора',
+            authorHint: '{pending} к завершению · {total} всего',
+            votesOne: 'голос',
+            votesFew: 'голоса',
+            sortBy: 'Сортировка',
+            sortDeadline: 'По сроку',
+            sortCreated: 'По дате создания',
+            sortResolvedAt: 'По дате завершения',
+            sortTitle: 'По заголовку',
+            sortAuthor: 'По автору',
+            sortVotes: 'По числу голосов',
+            orderAsc: 'По возрастанию',
+            orderDesc: 'По убыванию',
+            resetFilters: 'Сбросить',
+            compactView: 'Сжато',
+            expandedView: 'Развёрнуто',
+            createdOn: 'Создан',
+            deadline: 'До',
+            noDeadline: 'Без срока',
+            overdue: 'Срок вышел',
+            unknownAuthor: 'Автор не указан',
+            openPoll: 'Открыть опрос',
+            editPoll: 'Редактировать',
+            tabDrafts: 'Черновики',
+            tabHintDrafts: 'Черновики и запланированные публикации — читателям они пока не видны.',
+            emptyDrafts: 'Черновиков нет',
+            draftBadge: 'Черновик',
+            scheduledBadge: 'Запланирован',
+            goesLiveAt: 'Выйдет',
+            noPollYet: 'Опрос ещё не заполнен',
+            continueEditing: 'Продолжить',
+            publishNow: 'Опубликовать сейчас',
+            confirmPublishNow: 'Опубликовать «{title}» прямо сейчас?',
+            publishedNow: 'Опубликовано — материал уже в ленте',
+            deleteDraft: 'Удалить',
+            confirmDeleteDraft: 'Удалить «{title}» без возможности восстановления?',
+            draftDeleted: 'Удалено',
+            copyLink: 'Скопировать ссылку',
+            linkCopied: 'Ссылка скопирована — можно переслать',
+            linkCopyFailed: 'Не удалось скопировать ссылку',
+            expandRow: 'Показать варианты',
+            collapseRow: 'Скрыть варианты',
+            resolvedBy: 'Завершил',
+            resolvedAt: 'Завершён',
+            correctAnswer: 'Верный ответ',
+            resolvedBadge: 'Завершён',
+            loadMore: 'Показать ещё',
+            loadingMore: 'Загружаем...',
+            shown: 'Показано',
+            confirmResolve: 'Отметить вариант «{option}» верным и завершить опрос? Это действие нельзя отменить.',
+            resolveSuccess: 'Опрос завершён. Начислено {points} баллов победителям ({winners}).',
+            resolveFailed: 'Не удалось завершить опрос.',
+            networkError: 'Ошибка сети. Попробуйте ещё раз.',
+            openFailed: 'Не удалось открыть опрос.',
         },
 
         // Auth
@@ -623,6 +783,26 @@ export const translations: Record<Language, Translations> = {
             validationContent: 'Заполните заголовок, описание и обложку',
             validationPoll: 'Укажите вопрос и минимум 2 варианта ответа',
             validationPollUnique: 'Варианты ответа не должны повторяться',
+            editTitle: 'Редактирование публикации',
+            editSubtitle: 'Правки применяются сразу. Отданные голоса сохраняются: варианты сопоставляются по номеру, а не по тексту.',
+            saved: 'Изменения сохранены',
+            saveChanges: 'Сохранить изменения',
+            cancelEdit: 'Отменить правку',
+            loadFailed: 'Не удалось загрузить публикацию для редактирования',
+            pollLockedHint: 'Опрос уже завершён — вопрос и варианты изменить нельзя, баллы за него начислены. Остальные поля правятся свободно.',
+            saveDraft: 'Сохранить черновик',
+            draftSaved: 'Черновик сохранён — он в разделе «Управление опросами», вкладка «Черновики»',
+            scheduledSaved: 'Публикация запланирована — выйдет автоматически в указанное время',
+            draftNeedsTitle: 'Для черновика нужен хотя бы заголовок (от 3 символов)',
+            publishNow: 'Опубликовать сейчас',
+            publishSchedule: 'Запланировать',
+            publishWhen: 'Когда публиковать',
+            publishDateLabel: 'Дата выхода',
+            publishTimeLabel: 'Время выхода',
+            publishScheduleHint: 'Публикация появится в ленте сама, в указанные дату и время по вашим часам.',
+            publishNowHint: 'Материал появится в ленте сразу после нажатия кнопки.',
+            schedulePublish: 'Запланировать публикацию',
+            editingDraft: 'Это черновик — читателям он пока не виден.',
         },
 
         // Leaderboard
@@ -761,7 +941,7 @@ export const translations: Record<Language, Translations> = {
             leaderboard: 'Leaderboard',
             adminPanel: 'Admin Panel',
             createPoll: 'Create poll',
-            managePolls: 'Resolve polls',
+            managePolls: 'Manage polls',
             statistics: 'Statistics',
             errorReports: 'Error Reports',
             information: 'Information',
@@ -770,15 +950,81 @@ export const translations: Record<Language, Translations> = {
         },
 
         managePolls: {
-            title: 'Resolve polls',
-            subtitle: 'Open polls awaiting a result. Tap the correct option to close the poll and award points.',
+            title: 'Polls',
+            subtitle: 'Every poll in one place: headline, author and deadline — resolve it here or open the full poll.',
             loading: 'Loading polls...',
             empty: 'All polls are resolved',
             votes: 'votes',
             pickCorrect: 'Pick the correct answer:',
             resolving: 'Resolving...',
-            searchPlaceholder: 'Search unresolved polls...',
+            searchPlaceholder: 'Search by headline, question or author...',
             noResults: 'Nothing found',
+            tabOverdue: 'Needs a result',
+            tabActive: 'Still running',
+            tabResolved: 'Resolved',
+            tabHintOverdue: 'Voting has closed and no correct option has been picked yet.',
+            tabHintActive: 'Voting is still open — too early to resolve.',
+            tabHintResolved: 'Already resolved polls: who picked the answer, and when.',
+            emptyOverdue: 'Nothing overdue — everything is resolved',
+            emptyActive: 'No open polls',
+            emptyResolved: 'No resolved polls yet',
+            author: 'Author',
+            allAuthors: 'All authors',
+            onlyMine: 'Mine only',
+            withoutAuthor: 'No author',
+            authorHint: '{pending} to resolve · {total} total',
+            votesOne: 'vote',
+            votesFew: 'votes',
+            sortBy: 'Sort',
+            sortDeadline: 'By deadline',
+            sortCreated: 'By creation date',
+            sortResolvedAt: 'By resolution date',
+            sortTitle: 'By headline',
+            sortAuthor: 'By author',
+            sortVotes: 'By vote count',
+            orderAsc: 'Ascending',
+            orderDesc: 'Descending',
+            resetFilters: 'Reset',
+            compactView: 'Compact',
+            expandedView: 'Expanded',
+            createdOn: 'Created',
+            deadline: 'Until',
+            noDeadline: 'No deadline',
+            overdue: 'Overdue',
+            unknownAuthor: 'No author',
+            openPoll: 'Open poll',
+            editPoll: 'Edit',
+            tabDrafts: 'Drafts',
+            tabHintDrafts: 'Drafts and scheduled posts — readers cannot see them yet.',
+            emptyDrafts: 'No drafts',
+            draftBadge: 'Draft',
+            scheduledBadge: 'Scheduled',
+            goesLiveAt: 'Goes live',
+            noPollYet: 'Poll not filled in yet',
+            continueEditing: 'Continue',
+            publishNow: 'Publish now',
+            confirmPublishNow: 'Publish "{title}" right now?',
+            publishedNow: 'Published — it is in the feed now',
+            deleteDraft: 'Delete',
+            confirmDeleteDraft: 'Delete "{title}" permanently?',
+            draftDeleted: 'Deleted',
+            copyLink: 'Copy link',
+            linkCopied: 'Link copied — ready to forward',
+            linkCopyFailed: 'Could not copy the link',
+            expandRow: 'Show options',
+            collapseRow: 'Hide options',
+            resolvedBy: 'Resolved by',
+            resolvedAt: 'Resolved',
+            correctAnswer: 'Correct answer',
+            resolvedBadge: 'Resolved',
+            loadMore: 'Load more',
+            loadingMore: 'Loading...',
+            shown: 'Showing',
+            confirmResolve: 'Mark "{option}" as the correct answer and close the poll? This cannot be undone.',
+            resolveSuccess: 'Poll resolved. {points} points awarded to the winners ({winners}).',
+            resolveFailed: 'Could not resolve the poll.',
+            networkError: 'Network error. Please try again.',
+            openFailed: 'Could not open the poll.',
         },
 
         // Auth
@@ -987,6 +1233,26 @@ export const translations: Record<Language, Translations> = {
             validationContent: 'Fill in the title, description and cover image',
             validationPoll: 'Provide a question and at least 2 options',
             validationPollUnique: 'Poll options must not repeat',
+            editTitle: 'Edit publication',
+            editSubtitle: 'Changes apply immediately. Existing votes are kept: options are matched by id, not by text.',
+            saved: 'Changes saved',
+            saveChanges: 'Save changes',
+            cancelEdit: 'Cancel editing',
+            loadFailed: 'Could not load the publication for editing',
+            pollLockedHint: 'This poll is already resolved — its question and options are locked because points have been awarded. Everything else stays editable.',
+            saveDraft: 'Save draft',
+            draftSaved: 'Draft saved — find it under "Manage polls", the "Drafts" tab',
+            scheduledSaved: 'Publication scheduled — it will go live automatically at the set time',
+            draftNeedsTitle: 'A draft needs at least a headline (3 characters or more)',
+            publishNow: 'Publish now',
+            publishSchedule: 'Schedule',
+            publishWhen: 'When to publish',
+            publishDateLabel: 'Publish date',
+            publishTimeLabel: 'Publish time',
+            publishScheduleHint: 'The post goes live on its own, at the date and time on your clock.',
+            publishNowHint: 'The post appears in the feed as soon as you press the button.',
+            schedulePublish: 'Schedule publication',
+            editingDraft: 'This is a draft — readers cannot see it yet.',
         },
 
         // Leaderboard

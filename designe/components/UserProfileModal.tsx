@@ -1,37 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import { X, Calendar, Trophy, Target, Clock, Vote, CheckCircle2, Hourglass, TrendingUp } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
 import { Avatar } from './Avatar';
-import { getApiUrl } from '../config';
-import { formatDateOnly } from '../utils/date';
 import { getLevel } from '../constants';
+import { ProfileStatsGrid, ProfileUser, useProfileData } from './ProfileStats';
 
-export interface ProfileUser {
-    id: number;
-    username: string;
-    name: string;
-    avatar: string;
-    bio?: string;
-    birthdate?: string;
-    points: number;
-    level?: number;
-    role: string;
-    created_at: string;
-}
-
-interface ProfileStats {
-    votesTotal: number;
-    votesResolved: number;
-    votesCorrect: number;
-    votesWrong: number;
-    votesPending: number;
-    accuracy: number | null;
-    monthlyPoints: number;
-    allTimeRank: number | null;
-    monthlyRank: number | null;
-}
+// Оставлено экспортом: тип профиля исторически брали отсюда.
+export type { ProfileUser };
 
 interface UserProfileModalProps {
     isOpen: boolean;
@@ -42,61 +19,12 @@ interface UserProfileModalProps {
     userId?: number | null;
 }
 
-const StatTile: React.FC<{
-    icon: React.ReactNode;
-    label: string;
-    value: React.ReactNode;
-    tone?: string;
-    className?: string;
-}> = ({ icon, label, value, tone = 'bg-zinc-500/10 text-zinc-500', className = '' }) => (
-    <div className={`p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-2xl border border-zinc-100 dark:border-zinc-800 flex items-center gap-3 ${className}`}>
-        <div className={`p-2 rounded-xl shrink-0 ${tone}`}>{icon}</div>
-        <div className="min-w-0">
-            <p className="text-xs text-zinc-500 truncate">{label}</p>
-            <p className="font-bold text-zinc-900 dark:text-white truncate">{value}</p>
-        </div>
-    </div>
-);
-
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, user, userId }) => {
     const hasTransitionedIn = useMountTransition(isOpen, 300);
     useScrollLock(isOpen);
-    const [freshUser, setFreshUser] = useState<ProfileUser | null>(user || null);
-    const [stats, setStats] = useState<ProfileStats | null>(null);
-    const [loading, setLoading] = useState(false);
 
     const targetId = userId ?? user?.id ?? null;
-
-    useEffect(() => {
-        setFreshUser(user || null);
-    }, [user]);
-
-    useEffect(() => {
-        if (!isOpen || !targetId) return;
-
-        // A new target means the previous person's numbers must not linger on screen.
-        setStats(null);
-        setLoading(true);
-
-        const token = localStorage.getItem('token');
-        fetch(getApiUrl(`/api/users/${targetId}/profile`), {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-            .then((res) => {
-                if (!res.ok) throw new Error('Failed to fetch profile');
-                return res.json();
-            })
-            .then((data) => {
-                if (data && data.id) {
-                    setFreshUser(data);
-                    setStats(data.stats || null);
-                }
-            })
-            .catch(() => {
-                // Keep whatever the caller passed in when the refresh fails.
-            })
-            .finally(() => setLoading(false));
-    }, [isOpen, targetId]);
+    const { user: freshUser, stats, loading } = useProfileData(targetId, isOpen, user);
 
     const displayUser = freshUser || user;
 
@@ -164,55 +92,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <StatTile
-                                icon={<Trophy size={18} />}
-                                label={stats?.allTimeRank ? `Очки · #${stats.allTimeRank} в рейтинге` : 'Очки'}
-                                value={(displayUser.points || 0).toLocaleString()}
-                                tone="bg-yellow-500/10 text-yellow-500"
-                            />
-                            <StatTile
-                                icon={<TrendingUp size={18} />}
-                                label={stats?.monthlyRank ? `За месяц · #${stats.monthlyRank}` : 'За месяц'}
-                                value={stats ? `+${stats.monthlyPoints.toLocaleString()}` : (loading ? '…' : '+0')}
-                                tone="bg-green-500/10 text-green-500"
-                            />
-                            <StatTile
-                                icon={<Vote size={18} />}
-                                label="Прогнозов"
-                                value={stats ? stats.votesTotal.toLocaleString() : (loading ? '…' : '0')}
-                                tone="bg-blue-500/10 text-blue-500"
-                            />
-                            <StatTile
-                                icon={<Target size={18} />}
-                                label="Точность"
-                                value={stats?.accuracy !== null && stats?.accuracy !== undefined ? `${stats.accuracy}%` : (loading ? '…' : '—')}
-                                tone="bg-purple-500/10 text-purple-500"
-                            />
-                            <StatTile
-                                icon={<CheckCircle2 size={18} />}
-                                label="Верных прогнозов"
-                                value={stats ? `${stats.votesCorrect} / ${stats.votesResolved}` : (loading ? '…' : '0')}
-                                tone="bg-emerald-500/10 text-emerald-500"
-                            />
-                            <StatTile
-                                icon={<Hourglass size={18} />}
-                                label="Ждут результата"
-                                value={stats ? stats.votesPending.toLocaleString() : (loading ? '…' : '0')}
-                                tone="bg-amber-500/10 text-amber-500"
-                            />
-                            <StatTile
-                                icon={<Calendar size={18} />}
-                                label="Дата рождения"
-                                value={formatDateOnly(displayUser.birthdate, 'Не указана')}
-                                tone="bg-pink-500/10 text-pink-500"
-                            />
-                            <StatTile
-                                icon={<Clock size={18} />}
-                                label="Регистрация"
-                                value={formatDateOnly(displayUser.created_at, 'Неизвестно')}
-                            />
-                        </div>
+                        <ProfileStatsGrid user={displayUser} stats={stats} loading={loading} />
                     </div>
                 </div>
             </div>

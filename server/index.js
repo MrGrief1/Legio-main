@@ -69,6 +69,8 @@ try { ({ PasswordHash } = require('phpass')); } catch (e) { }
 
 const app = express();
 let server = null;
+// Таймер автопубликации запланированных новостей.
+let schedulePublishTimer = null;
 
 // Enable trust proxy for Railway and other reverse proxies
 app.set('trust proxy', 1);
@@ -1134,6 +1136,7 @@ const CATEGORY_LABELS_RU = {
     politika: 'Политика',
     semya: 'Семья',
     sport: 'Спорт',
+    'torgi-aukcion': 'Торги/аукцион',
     turizm: 'Туризм',
     ekologiya: 'Экология',
     ekonomika: 'Экономика',
@@ -1149,6 +1152,7 @@ const CATEGORY_LABELS_RU = {
     society: 'Общество',
     politics: 'Политика',
     family: 'Семья',
+    auctions: 'Торги/аукцион',
     tourism: 'Туризм',
     ecology: 'Экология',
     economy: 'Экономика',
@@ -1252,6 +1256,46 @@ const validateFeedPollStatus = (value) => {
 // must not be able to tie a vote back to a person. Everyone (creators included) still gets the
 // aggregated counts/percentages.
 const canViewVoters = (role) => role === 'admin';
+
+// Что считается опубликованным для читателя. Запланированная новость становится видимой сама,
+// как только наступило её время: это подстраховка на случай, если фоновый перевод статуса ещё не
+// отработал — материал не может «зависнуть» невидимым из-за того, что не сработал таймер.
+const publishedNewsClause = (alias = 'n') =>
+    `(COALESCE(${alias}.status, 'published') = 'published'
+      OR (COALESCE(${alias}.status, 'published') = 'scheduled'
+          AND ${alias}.publish_at IS NOT NULL
+          AND ${alias}.publish_at <= datetime('now')))`;
+
+// Перевод дозревших запланированных новостей в опубликованные.
+//
+// created_at здесь — это дата публикации: по ней лента сортируется и её же видит читатель.
+// Поэтому вместе со статусом переносится и она, иначе новость, запланированная на три дня вперёд,
+// вышла бы сразу на три дня вглубь ленты, где её никто не увидит.
+const publishDueNews = async () => {
+    try {
+        const result = await dbRunAsync(
+            `UPDATE news
+                SET status = 'published', created_at = publish_at
+              WHERE status = 'scheduled'
+                AND publish_at IS NOT NULL
+                AND publish_at <= datetime('now')`
+        );
+        const changes = Number(result?.changes) || 0;
+        if (changes > 0) {
+            console.log(`[Schedule] Published ${changes} scheduled post(s)`);
+        }
+        return changes;
+    } catch (error) {
+        // Проверка повторится через минуту, а до тех пор материал всё равно виден по clause выше.
+        console.error('Failed to publish scheduled news:', error);
+        return 0;
+    }
+};
+
+// Авторство опроса — служебная информация редакции. Админам и создателю оно нужно, чтобы
+// каждый работал со своими опросами и мог перепроверить чужие; обычному читателю его видеть
+// незачем, поэтому автор просто не попадает в ответ для всех остальных.
+const canViewAuthor = (role) => role === 'admin' || role === 'creator';
 
 // Each period declares the bucket granularity and how many buckets to render.
 const STATISTICS_PERIODS = new Map([
@@ -1358,6 +1402,48 @@ const validateTags = (value) => {
     return uniqueTags;
 };
 
+// У черновика опрос может быть в любой стадии сборки: пустой вопрос, один вариант, ни одного.
+// Сохраняем то, что уже набрано, и ничего не требуем — все проверки ждут публикации.
+const validateDraftPoll = (poll) => {
+    if (poll === undefined || poll === null || poll === '') return null;
+    if (typeof poll !== 'object' || Array.isArray(poll)) {
+        throw createValidationError('poll', 'Poll must be an object');
+    }
+
+    const question = sanitizeTextInput(poll.question);
+    if (question.length > 200) {
+        throw createValidationError('poll.question', 'Poll question must be 200 characters or less');
+    }
+
+    const rawOptions = Array.isArray(poll.options) ? poll.options : [];
+    const options = rawOptions
+        .map((option) => {
+            const isObject = option && typeof option === 'object' && !Array.isArray(option);
+            const text = sanitizeTextInput(isObject ? option.text : option);
+            if (text.length > 200) {
+                throw createValidationError('poll.options', 'Each poll option must be 200 characters or less');
+            }
+            const id = isObject && option.id !== undefined && option.id !== null && option.id !== ''
+                ? parsePositiveInt(option.id, 'poll.options.id')
+                : null;
+            return { id, text };
+        })
+        .filter((option) => option.text);
+
+    if (!question && options.length === 0) return null;
+
+    let endsAt = null;
+    if (poll.endDate !== undefined && poll.endDate !== null && String(poll.endDate).trim() !== '') {
+        const raw = String(poll.endDate).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            throw createValidationError('poll.endDate', 'Poll end date must use YYYY-MM-DD format');
+        }
+        endsAt = raw;
+    }
+
+    return { question, options, endsAt };
+};
+
 const validatePoll = (poll) => {
     if (poll === undefined || poll === null || poll === '') {
         return null;
@@ -1380,15 +1466,22 @@ const validatePoll = (poll) => {
         throw createValidationError('poll.options', 'Poll must contain at least 2 options');
     }
 
+    // Создание присылает варианты строками, редактирование — объектами {id, text}: без id нельзя
+    // отличить переименование варианта от удаления старого и добавления нового, а от этого зависит,
+    // переживут ли правку уже отданные за него голоса.
     const options = poll.options.map((option) => {
-        const sanitized = sanitizeTextInput(option);
+        const isObject = option && typeof option === 'object' && !Array.isArray(option);
+        const sanitized = sanitizeTextInput(isObject ? option.text : option);
         if (sanitized.length < 1 || sanitized.length > 200) {
             throw createValidationError('poll.options', 'Each poll option must be between 1 and 200 characters');
         }
-        return sanitized;
+        const id = isObject && option.id !== undefined && option.id !== null && option.id !== ''
+            ? parsePositiveInt(option.id, 'poll.options.id')
+            : null;
+        return { id, text: sanitized };
     });
 
-    const uniqueOptions = new Set(options.map((option) => option.toLowerCase()));
+    const uniqueOptions = new Set(options.map((option) => option.text.toLowerCase()));
     if (uniqueOptions.size !== options.length) {
         throw createValidationError('poll.options', 'Poll options must be unique');
     }
@@ -1487,28 +1580,77 @@ const validateProfileUpdatePayload = (body = {}) => {
     return { avatar, name, bio, birthdate };
 };
 
-const validateNewsPayload = (body = {}) => ({
-    title: (() => {
-        const title = sanitizeTextInput(body.title);
-        if (title.length < 5 || title.length > 200) {
-            throw createValidationError('title', 'Title must be between 5 and 200 characters');
+const NEWS_STATUSES = new Set(['draft', 'scheduled', 'published']);
+
+const validateNewsStatus = (value) => {
+    if (value === undefined || value === null || value === '') return 'published';
+    const normalized = String(value).trim().toLowerCase();
+    if (!NEWS_STATUSES.has(normalized)) {
+        throw createValidationError('status', 'status must be one of: draft, scheduled, published');
+    }
+    return normalized;
+};
+
+// Время выхода приходит от клиента в ISO с зоной, а хранится в том же «наивном UTC», что и
+// created_at, — тогда сравнение с datetime('now') не требует никаких преобразований в SQL.
+const validatePublishAt = (value, { required }) => {
+    if (value === undefined || value === null || String(value).trim() === '') {
+        if (required) {
+            throw createValidationError('publishAt', 'Publish date and time are required for a scheduled post');
         }
-        return title;
-    })(),
-    description: (() => {
-        const description = sanitizeTextInput(body.description, { allowNewlines: true });
-        if (description.length < 10 || description.length > 5000) {
-            throw createValidationError('description', 'Description must be between 10 and 5000 characters');
+        return null;
+    }
+
+    const parsed = new Date(String(value).trim());
+    if (Number.isNaN(parsed.getTime())) {
+        throw createValidationError('publishAt', 'Publish date is invalid');
+    }
+
+    // Минута допуска: пока редактор дожимал «Запланировать», выбранное время могло только что пройти.
+    if (required && parsed.getTime() < Date.now() - 60_000) {
+        throw createValidationError('publishAt', 'Publish date must be in the future');
+    }
+
+    return parsed.toISOString().slice(0, 19).replace('T', ' ');
+};
+
+// Черновик по определению неполон: у него может не быть ни текста, ни картинки, ни собранного
+// опроса — иначе его нельзя было бы сохранить и вернуться к нему завтра. Поэтому в режиме
+// черновика обязателен только заголовок, а полный набор правил включается на публикации.
+const validateNewsPayload = (body = {}, { draft = false } = {}) => {
+    const status = validateNewsStatus(body.status);
+    const isDraft = draft || status === 'draft';
+
+    const title = sanitizeTextInput(body.title);
+    if (isDraft) {
+        if (title.length < 3 || title.length > 200) {
+            throw createValidationError('title', 'Draft title must be between 3 and 200 characters');
         }
-        return description;
-    })(),
-    image: validateUrl(body.image, 'image', { allowRelative: true }) ?? '',
-    // Source (istochnik) — optional link to the news source, ported from the old version.
-    source: validateUrl(body.source, 'source', { allowRelative: false }) ?? '',
-    tags: validateTags(body.tags),
-    poll: validatePoll(body.poll),
-    category: validateCategory(body.category),
-});
+    } else if (title.length < 5 || title.length > 200) {
+        throw createValidationError('title', 'Title must be between 5 and 200 characters');
+    }
+
+    const description = sanitizeTextInput(body.description, { allowNewlines: true });
+    if (!isDraft && (description.length < 10 || description.length > 5000)) {
+        throw createValidationError('description', 'Description must be between 10 and 5000 characters');
+    }
+    if (isDraft && description.length > 5000) {
+        throw createValidationError('description', 'Description must be 5000 characters or less');
+    }
+
+    return {
+        title,
+        description,
+        image: validateUrl(body.image, 'image', { allowRelative: true }) ?? '',
+        // Source (istochnik) — optional link to the news source, ported from the old version.
+        source: validateUrl(body.source, 'source', { allowRelative: false }) ?? '',
+        tags: validateTags(body.tags),
+        poll: isDraft ? validateDraftPoll(body.poll) : validatePoll(body.poll),
+        category: validateCategory(body.category),
+        status,
+        publishAt: validatePublishAt(body.publishAt, { required: status === 'scheduled' }),
+    };
+};
 
 const validateReportPayload = (body = {}) => {
     const message = sanitizeTextInput(body.message, { allowNewlines: true });
@@ -2480,7 +2622,7 @@ app.post('/api/visit', (req, res) => {
 // Shared by GET /api/feed and GET /api/news/:id so a shared link renders identically.
 // `showVoters` must come from canViewVoters() — voter identities never leave the server for
 // anyone else, so a non-admin client cannot reveal them by tweaking the UI.
-async function buildFeedItem(row, userId, showVoters) {
+async function buildFeedItem(row, userId, showVoters, showAuthor = false) {
     const item = {
         id: row.id,
         title: row.title,
@@ -2493,6 +2635,20 @@ async function buildFeedItem(row, userId, showVoters) {
         isLiked: row.is_liked > 0,
         poll: null
     };
+
+    // Только для админов/создателя (JSON выбрасывает undefined, поэтому для остальных ключа
+    // в ответе просто не будет). NULL у новостей из WordPress и у всего, созданного до колонки.
+    if (showAuthor) {
+        item.status = row.status || 'published';
+        item.publish_at = row.publish_at || null;
+        item.author = row.author_id
+            ? {
+                id: row.author_id,
+                username: row.author_username || '',
+                name: row.author_name || row.author_username || '',
+            }
+            : null;
+    }
 
     if (!row.poll_id) return item;
 
@@ -2583,7 +2739,20 @@ async function buildFeedItem(row, userId, showVoters) {
         is_resolved: row.is_resolved,
         correct_option_id: row.correct_option_id,
         ends_at: row.ends_at || null,
-        user_voted_option_id: userVotedOptionId // Flag for frontend
+        user_voted_option_id: userVotedOptionId, // Flag for frontend
+        // Автор и дата создания дублируются сюда из новости: опрос показывается и внутри карточки,
+        // и в модалке, и оба раза админу нужно видеть, чей это опрос, не выходя из него.
+        author: showAuthor ? (item.author || null) : undefined,
+        created_at: showAuthor ? (row.created_at || null) : undefined,
+        // Кто и когда завершил — та же служебная информация, что и автор.
+        resolved_at: showAuthor ? (row.resolved_at || null) : undefined,
+        resolved_by: showAuthor && row.resolved_by
+            ? {
+                id: row.resolved_by,
+                username: row.resolver_username || '',
+                name: row.resolver_name || row.resolver_username || '',
+            }
+            : undefined,
     };
 
     return item;
@@ -2631,10 +2800,15 @@ app.get('/api/feed', (req, res) => {
     let query = `
         SELECT n.*,
                p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
+               p.resolved_at, p.resolved_by,
+               au.username as author_username, au.name as author_name,
+               ru.username as resolver_username, ru.name as resolver_name,
                (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
         FROM news n
         LEFT JOIN polls p
                ON p.id = (SELECT MIN(id) FROM polls WHERE news_id = n.id${pollFilterClause})
+        LEFT JOIN users au ON au.id = n.author_id
+        LEFT JOIN users ru ON ru.id = p.resolved_by
     `;
 
     const params = [userId || 0]; // userId parameter for is_liked subquery
@@ -2672,6 +2846,10 @@ app.get('/api/feed', (req, res) => {
         conditions.push(`p.id IS NOT NULL`);
     }
 
+    // Черновики и ещё не наступившие запланированные публикации в ленту не попадают никому,
+    // включая редакцию: у неё для этого есть вкладка «Черновики».
+    conditions.push(publishedNewsClause('n'));
+
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(' AND ')}`;
     }
@@ -2701,11 +2879,11 @@ app.get('/api/feed', (req, res) => {
     query += ` LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    const continueWithViewerRole = (showVoters) => {
+    const continueWithViewerRole = (showVoters, showAuthor) => {
         db.all(query, params, (err, rows) => {
             if (err) return sendServerError(res, err);
 
-            Promise.all(rows.map((row) => buildFeedItem(row, userId, showVoters)))
+            Promise.all(rows.map((row) => buildFeedItem(row, userId, showVoters, showAuthor)))
                 .then(results => res.json(results))
                 .catch(buildErr => sendServerError(res, buildErr, 'Failed to build feed'));
         });
@@ -2713,16 +2891,16 @@ app.get('/api/feed', (req, res) => {
 
     const resolveViewerAndRespond = () => {
         if (!userId) {
-            continueWithViewerRole(false);
+            continueWithViewerRole(false, false);
             return;
         }
 
         db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
             if (roleErr) {
-                continueWithViewerRole(false);
+                continueWithViewerRole(false, false);
                 return;
             }
-            continueWithViewerRole(canViewVoters(dbUser?.role));
+            continueWithViewerRole(canViewVoters(dbUser?.role), canViewAuthor(dbUser?.role));
         });
     };
 
@@ -2736,6 +2914,130 @@ app.get('/api/feed', (req, res) => {
     }
 
     resolveViewerAndRespond();
+});
+
+// Черновики и запланированные публикации (Admin/Creator).
+//
+// Отдельный эндпоинт, а не вкладка в /api/polls/manage: у черновика опроса может ещё не быть
+// вовсе, поэтому считать надо от новостей, а не от опросов.
+//
+// Зарегистрирован до '/api/news/:id' — иначе Express принял бы «drafts» за идентификатор.
+app.get('/api/news/drafts', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    let status;
+    let page;
+    let limit;
+    let search;
+
+    try {
+        const rawStatus = req.query.status === undefined || req.query.status === null || req.query.status === ''
+            ? 'all'
+            : String(req.query.status).trim().toLowerCase();
+        if (!['draft', 'scheduled', 'all'].includes(rawStatus)) {
+            throw createValidationError('status', 'status must be one of: draft, scheduled, all');
+        }
+        status = rawStatus;
+
+        page = parseBoundedInt(req.query.page, 'page', { min: 1, max: 100000, defaultValue: 1 });
+        limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 100, defaultValue: 30 });
+        search = req.query.search === undefined || req.query.search === null || req.query.search === ''
+            ? ''
+            : sanitizeTextInput(req.query.search);
+        if (search.length > 100) {
+            throw createValidationError('search', 'Search must be 100 characters or less');
+        }
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    // Запланированная публикация, чьё время уже наступило, здесь больше не нужна — она ушла в ленту.
+    const conditions = [`(n.status = 'draft' OR (n.status = 'scheduled' AND (n.publish_at IS NULL OR n.publish_at > datetime('now'))))`];
+    const params = [];
+
+    if (status !== 'all') {
+        conditions.push('n.status = ?');
+        params.push(status);
+    }
+
+    if (search) {
+        const words = search.split(/\s+/).filter(Boolean).slice(0, 6);
+        for (const word of words) {
+            conditions.push(`COALESCE(n.search_text, LOWER(n.title), '') LIKE ? ESCAPE '\\'`);
+            params.push(`%${escapeSqlLike(foldForSearch(word))}%`);
+        }
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    try {
+        const totalRow = await dbGetAsync(`SELECT COUNT(*) as total FROM news n ${where}`, params);
+        const total = Number(totalRow?.total) || 0;
+        const offset = (page - 1) * limit;
+
+        const rows = await dbAllAsync(
+            `SELECT n.id, n.title, n.description, n.image, n.category, n.status, n.publish_at,
+                    n.created_at, n.author_id,
+                    au.username as author_username, au.name as author_name,
+                    p.id as poll_id, p.question, p.ends_at,
+                    (SELECT COUNT(*) FROM poll_options po WHERE po.poll_id = p.id) as options_count
+               FROM news n
+               LEFT JOIN users au ON au.id = n.author_id
+               LEFT JOIN polls p ON p.id = (SELECT MIN(id) FROM polls WHERE news_id = n.id)
+             ${where}
+             ORDER BY
+                -- Ближайшие к выходу — сверху; черновики без даты идут после запланированных.
+                (n.status = 'scheduled') DESC,
+                COALESCE(n.publish_at, '9999-12-31') ASC,
+                COALESCE(datetime(n.created_at), n.created_at, '0000-00-00') DESC,
+                n.id DESC
+             LIMIT ? OFFSET ?`,
+            [...params, limit, offset]
+        );
+
+        const countsRow = await dbGetAsync(
+            `SELECT SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,
+                    SUM(CASE WHEN status = 'scheduled' AND (publish_at IS NULL OR publish_at > datetime('now')) THEN 1 ELSE 0 END) as scheduled
+               FROM news`
+        );
+
+        res.json({
+            items: rows.map((row) => ({
+                id: row.id,
+                title: row.title || '',
+                description: row.description || '',
+                image: row.image || '',
+                category: row.category || '',
+                status: row.status,
+                publish_at: row.publish_at || null,
+                created_at: row.created_at || null,
+                author: row.author_id
+                    ? {
+                        id: row.author_id,
+                        username: row.author_username || '',
+                        name: row.author_name || row.author_username || '',
+                    }
+                    : null,
+                poll: row.poll_id
+                    ? {
+                        id: row.poll_id,
+                        question: row.question || '',
+                        ends_at: row.ends_at || null,
+                        options_count: Number(row.options_count) || 0,
+                    }
+                    : null,
+            })),
+            total,
+            page,
+            limit,
+            hasMore: offset + rows.length < total,
+            counts: {
+                draft: Number(countsRow?.draft) || 0,
+                scheduled: Number(countsRow?.scheduled) || 0,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to list drafts:', error);
+        sendServerError(res, error);
+    }
 });
 
 // Fetch a single news item by id (used by shared /?news=<id> links to open the post directly)
@@ -2755,38 +3057,59 @@ app.get('/api/news/:id', (req, res) => {
     const query = `
         SELECT n.*,
                p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
+               p.resolved_at, p.resolved_by,
+               au.username as author_username, au.name as author_name,
+               ru.username as resolver_username, ru.name as resolver_name,
                (SELECT COUNT(*) FROM likes WHERE news_id = n.id AND user_id = ?) as is_liked
         FROM news n
         LEFT JOIN polls p ON p.id = (SELECT MIN(id) FROM polls WHERE news_id = n.id)
+        LEFT JOIN users au ON au.id = n.author_id
+        LEFT JOIN users ru ON ru.id = p.resolved_by
         WHERE n.id = ?
     `;
 
-    const respond = (showVoters) => {
+    const respond = (showVoters, showAuthor, canSeeUnpublished) => {
         db.get(query, [userId || 0, newsId], (err, row) => {
             if (err) return sendServerError(res, err);
             if (!row) return res.status(404).json({ error: 'News not found' });
 
-            buildFeedItem(row, userId, showVoters)
+            // Черновик и ещё не вышедшая запланированная новость открываются по прямой ссылке
+            // только редакции — ей это нужно для предпросмотра и для формы правки. Для всех
+            // остальных такой страницы просто не существует.
+            const status = row.status || 'published';
+            const isDue = status === 'scheduled' && row.publish_at && new Date(`${String(row.publish_at).replace(' ', 'T')}Z`) <= new Date();
+            if (status !== 'published' && !isDue && !canSeeUnpublished) {
+                return res.status(404).json({ error: 'News not found' });
+            }
+
+            buildFeedItem(row, userId, showVoters, showAuthor)
                 .then(item => res.json(item))
                 .catch(buildErr => res.status(500).json({ error: buildErr.message }));
         });
     };
 
     if (!userId) {
-        respond(false);
+        respond(false, false, false);
         return;
     }
 
     db.get("SELECT role FROM users WHERE id = ?", [userId], (roleErr, dbUser) => {
-        respond(!roleErr && canViewVoters(dbUser?.role));
+        respond(
+            !roleErr && canViewVoters(dbUser?.role),
+            !roleErr && canViewAuthor(dbUser?.role),
+            !roleErr && canViewAuthor(dbUser?.role)
+        );
     });
 });
 
 app.get('/api/categories', (req, res) => {
     db.all(
+        // Счётчик рубрик в боковом меню считает только опубликованное: иначе черновик поднимал бы
+        // цифру у рубрики, в которой читателю ещё нечего смотреть.
         `SELECT category, COUNT(*) AS count
-         FROM news
+         FROM news n
          WHERE category IS NOT NULL AND TRIM(category) != ''
+           AND ${publishedNewsClause('n')}
          GROUP BY category
          ORDER BY count DESC, category ASC`,
         [],
@@ -2848,7 +3171,8 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
         await dbRunAsync('BEGIN TRANSACTION');
 
         const newsResult = await dbRunAsync(
-            "INSERT INTO news (title, description, image, tags, category, source, search_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            `INSERT INTO news (title, description, image, tags, category, source, search_text, author_id, status, publish_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 payload.title,
                 payload.description,
@@ -2858,6 +3182,16 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
                 payload.source,
                 // Folded once here so search never has to fold at query time.
                 buildNewsSearchText(payload),
+                // Авторство опроса — это авторство новости: опрос создаётся только здесь.
+                req.user.id,
+                payload.status,
+                payload.publishAt,
+                // created_at — это дата публикации: по ней сортируется лента и её видит читатель.
+                // У запланированной новости она сразу равна времени выхода, иначе материал вышел
+                // бы вглубь ленты, на дату, когда его только начали готовить.
+                payload.status === 'scheduled' && payload.publishAt
+                    ? payload.publishAt
+                    : new Date().toISOString().slice(0, 19).replace('T', ' '),
             ]
         );
 
@@ -2870,7 +3204,7 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
             for (const option of payload.poll.options) {
                 await dbRunAsync(
                     "INSERT INTO poll_options (poll_id, text) VALUES (?, ?)",
-                    [pollResult.lastID, option]
+                    [pollResult.lastID, option.text]
                 );
             }
         }
@@ -2881,6 +3215,163 @@ app.post('/api/news', authenticateToken, requireCreatorOrAdmin, async (req, res)
         await dbRunAsync('ROLLBACK').catch(() => null);
         console.error('Error creating news:', error);
         res.status(500).json({ message: "Failed to create news" });
+    }
+});
+
+// Редактирование опубликованной новости и её опроса (Admin/Creator).
+//
+// Раньше исправить опечатку в уже опубликованном опросе было нельзя — только удалить его целиком
+// вместе со всеми голосами. Здесь правка идёт так, чтобы отданные голоса пережили её:
+//   - варианты сопоставляются по id, поэтому переименование не трогает голоса;
+//   - новый вариант просто добавляется;
+//   - удалить можно только вариант, за который ещё никто не голосовал;
+//   - у завершённого опроса вопрос и варианты заморожены — баллы за него уже начислены.
+app.put('/api/news/:id', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    let newsId;
+    let payload;
+
+    try {
+        newsId = parsePositiveInt(req.params.id, 'id');
+        payload = validateNewsPayload(req.body);
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    try {
+        const existing = await dbGetAsync('SELECT id, status FROM news WHERE id = ?', [newsId]);
+        if (!existing) {
+            return res.status(404).json({ message: 'News not found' });
+        }
+
+        const poll = await dbGetAsync(
+            'SELECT id, is_resolved FROM polls WHERE news_id = ? ORDER BY id ASC LIMIT 1',
+            [newsId]
+        );
+
+        if (poll && Number(poll.is_resolved) === 1 && payload.poll) {
+            const currentOptions = await dbAllAsync(
+                'SELECT id, text FROM poll_options WHERE poll_id = ? ORDER BY id ASC',
+                [poll.id]
+            );
+            const sameSet = currentOptions.length === payload.poll.options.length
+                && payload.poll.options.every((option) => {
+                    const match = currentOptions.find((row) => row.id === option.id);
+                    return match && match.text === option.text;
+                });
+            const currentQuestion = await dbGetAsync('SELECT question FROM polls WHERE id = ?', [poll.id]);
+
+            if (!sameSet || currentQuestion?.question !== payload.poll.question) {
+                return res.status(400).json({
+                    message: 'Опрос уже завершён: вопрос и варианты изменить нельзя, баллы за него начислены.',
+                });
+            }
+        }
+
+        await dbRunAsync('BEGIN TRANSACTION');
+        try {
+            // Дата публикации переезжает вместе со статусом: черновик, который публикуют сегодня,
+            // должен встать в ленту сегодняшним числом, а не тем днём, когда его начали писать.
+            const nowStamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            const wasUnpublished = (existing.status || 'published') !== 'published';
+            const createdAtUpdate = payload.status === 'scheduled' && payload.publishAt
+                ? payload.publishAt
+                : payload.status === 'published' && wasUnpublished
+                    ? nowStamp
+                    : null;
+
+            await dbRunAsync(
+                `UPDATE news
+                    SET title = ?, description = ?, image = ?, tags = ?, category = ?, source = ?, search_text = ?,
+                        status = ?, publish_at = ?,
+                        created_at = COALESCE(?, created_at)
+                  WHERE id = ?`,
+                [
+                    payload.title,
+                    payload.description,
+                    payload.image,
+                    JSON.stringify(payload.tags),
+                    payload.category,
+                    payload.source,
+                    // Обязательно пересобрать: иначе отредактированную новость продолжит находить
+                    // только старая формулировка, а новая не найдётся вовсе.
+                    buildNewsSearchText(payload),
+                    payload.status,
+                    payload.publishAt,
+                    createdAtUpdate,
+                    newsId,
+                ]
+            );
+
+            if (payload.poll) {
+                let pollId = poll?.id;
+
+                if (!pollId) {
+                    const created = await dbRunAsync(
+                        'INSERT INTO polls (news_id, question, ends_at) VALUES (?, ?, ?)',
+                        [newsId, payload.poll.question, payload.poll.endsAt]
+                    );
+                    pollId = created.lastID;
+                } else {
+                    await dbRunAsync(
+                        'UPDATE polls SET question = ?, ends_at = ? WHERE id = ?',
+                        [payload.poll.question, payload.poll.endsAt, pollId]
+                    );
+                }
+
+                const currentOptions = await dbAllAsync(
+                    'SELECT id FROM poll_options WHERE poll_id = ?',
+                    [pollId]
+                );
+                const keptIds = new Set(
+                    payload.poll.options.map((option) => option.id).filter(Boolean)
+                );
+
+                for (const row of currentOptions) {
+                    if (keptIds.has(row.id)) continue;
+
+                    const votes = await dbGetAsync(
+                        'SELECT COUNT(*) AS total FROM votes WHERE option_id = ?',
+                        [row.id]
+                    );
+                    if (Number(votes?.total) > 0) {
+                        throw createValidationError(
+                            'poll.options',
+                            'Нельзя удалить вариант, за который уже проголосовали. Переименуйте его или оставьте.'
+                        );
+                    }
+                    await dbRunAsync('DELETE FROM poll_options WHERE id = ?', [row.id]);
+                }
+
+                for (const option of payload.poll.options) {
+                    if (option.id && currentOptions.some((row) => row.id === option.id)) {
+                        await dbRunAsync(
+                            'UPDATE poll_options SET text = ? WHERE id = ? AND poll_id = ?',
+                            [option.text, option.id, pollId]
+                        );
+                    } else {
+                        await dbRunAsync(
+                            'INSERT INTO poll_options (poll_id, text) VALUES (?, ?)',
+                            [pollId, option.text]
+                        );
+                    }
+                }
+            }
+
+            await dbRunAsync('COMMIT');
+        } catch (transactionError) {
+            await dbRunAsync('ROLLBACK').catch(() => null);
+            throw transactionError;
+        }
+
+        res.json({ message: 'News updated', id: newsId });
+    } catch (error) {
+        // Отказ «за вариант уже голосовали» — это ошибка ввода, а не сбой: её текст должен дойти
+        // до редактора, а не превратиться в «Internal server error».
+        if (error && error.details) {
+            return sendValidationError(res, error);
+        }
+        console.error('Error updating news:', error);
+        sendServerError(res, error);
     }
 });
 
@@ -3001,8 +3492,8 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
         await dbRunAsync('BEGIN TRANSACTION');
         try {
             await dbRunAsync(
-                "UPDATE polls SET correct_option_id = ?, is_resolved = 1 WHERE id = ?",
-                [correctOptionId, pollId]
+                "UPDATE polls SET correct_option_id = ?, is_resolved = 1, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [correctOptionId, req.user.id, pollId]
             );
 
             if (pointsToAward > 0 && winnersCount > 0) {
@@ -3050,49 +3541,357 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
     }
 });
 
-// List polls that still need a correct answer (Admin/Creator only).
-// Lets moderators find & resolve open polls from one place instead of hunting
-// through the feed.
+// --- Poll management (Admin/Creator) -------------------------------------------------
+//
+// Раньше здесь был один список «всё, что не завершено», без автора, без даты создания и без
+// возможности открыть сам опрос — админ копировал заголовок и искал его во вкладке
+// «Незавершённые опросы». Теперь это один эндпоинт с фильтрами, сортировкой и постраничной
+// выдачей, и он же отдаёт уже завершённые опросы (кто завершил и когда) для перепроверки.
+
+// Наборы, между которыми переключается вкладка «Опросы» в админке.
+const POLL_MANAGE_STATUSES = new Map([
+    // Требуют решения: срок голосования вышел, верный вариант не проставлен.
+    // NULLIF: у части перенесённых опросов срок лежит пустой строкой, а не NULL — без свёртки
+    // такой опрос попал бы в «просроченные», потому что '' сортируется раньше любой даты.
+    ['overdue', "p.is_resolved = 0 AND NULLIF(TRIM(p.ends_at), '') IS NOT NULL AND p.ends_at < date('now')"],
+    // Ещё идут: голосование открыто.
+    ['active', "p.is_resolved = 0 AND (NULLIF(TRIM(p.ends_at), '') IS NULL OR p.ends_at >= date('now'))"],
+    // Всё незавершённое разом.
+    ['pending', 'p.is_resolved = 0'],
+    // Завершённые — только для просмотра и перепроверки.
+    ['resolved', 'p.is_resolved = 1'],
+    ['all', '1 = 1'],
+]);
+
+// NULL-ы всегда в конец, в какую бы сторону ни сортировали: опрос без срока или без автора не
+// должен занимать первую строку просто потому, что пустое значение сортируется раньше любого.
+const POLL_MANAGE_SORTS = new Map([
+    ['deadline', { expr: "COALESCE(NULLIF(TRIM(p.ends_at), ''), '9999-12-31')", nullsLast: "NULLIF(TRIM(p.ends_at), '') IS NULL" }],
+    ['created', { expr: "COALESCE(datetime(n.created_at), n.created_at, '0000-00-00')", nullsLast: 'n.created_at IS NULL' }],
+    ['resolved', { expr: "COALESCE(datetime(p.resolved_at), p.resolved_at, '0000-00-00')", nullsLast: 'p.resolved_at IS NULL' }],
+    ['title', { expr: "LOWER(COALESCE(NULLIF(TRIM(n.title), ''), p.question, ''))", nullsLast: "COALESCE(NULLIF(TRIM(n.title), ''), '') = ''" }],
+    ['author', { expr: "LOWER(COALESCE(NULLIF(TRIM(au.name), ''), au.username, ''))", nullsLast: 'n.author_id IS NULL' }],
+    ['votes', { expr: '(SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id)', nullsLast: null }],
+]);
+
+const validatePollManageStatus = (value) => {
+    if (value === undefined || value === null || value === '') return 'pending';
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (!POLL_MANAGE_STATUSES.has(normalized)) {
+        throw createValidationError('status', `status must be one of: ${[...POLL_MANAGE_STATUSES.keys()].join(', ')}`);
+    }
+    return normalized;
+};
+
+const validatePollManageSort = (value, fallback) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    const normalized = sanitizeTextInput(value).toLowerCase();
+    if (!POLL_MANAGE_SORTS.has(normalized)) {
+        throw createValidationError('sort', `sort must be one of: ${[...POLL_MANAGE_SORTS.keys()].join(', ')}`);
+    }
+    return normalized;
+};
+
+// Собирает варианты сразу для всех опросов страницы: один запрос вместо запроса на опрос.
+const loadPollOptions = async (pollIds) => {
+    if (pollIds.length === 0) return new Map();
+
+    const placeholders = pollIds.map(() => '?').join(',');
+    const rows = await dbAllAsync(
+        `SELECT po.id, po.poll_id, po.text,
+                (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count
+           FROM poll_options po
+          WHERE po.poll_id IN (${placeholders})
+          ORDER BY po.id ASC`,
+        pollIds
+    );
+
+    const byPoll = new Map();
+    for (const row of rows) {
+        const list = byPoll.get(row.poll_id) || [];
+        list.push({ id: row.id, text: row.text, vote_count: Number(row.vote_count) || 0 });
+        byPoll.set(row.poll_id, list);
+    }
+    return byPoll;
+};
+
+const buildManagePollRow = (poll, options) => ({
+    id: poll.poll_id,
+    question: poll.question,
+    news_id: poll.news_id,
+    news_title: poll.news_title || '',
+    news_image: poll.news_image || '',
+    news_category: poll.news_category || '',
+    created_at: poll.news_created_at || null,
+    ends_at: poll.ends_at || null,
+    is_resolved: Number(poll.is_resolved) || 0,
+    correct_option_id: poll.correct_option_id || null,
+    resolved_at: poll.resolved_at || null,
+    author: poll.author_id
+        ? {
+            id: poll.author_id,
+            username: poll.author_username || '',
+            name: poll.author_name || poll.author_username || '',
+        }
+        : null,
+    resolved_by: poll.resolved_by
+        ? {
+            id: poll.resolved_by,
+            username: poll.resolver_username || '',
+            name: poll.resolver_name || poll.resolver_username || '',
+        }
+        : null,
+    total_votes: Number(poll.total_votes) || 0,
+    options: options || [],
+});
+
+app.get('/api/polls/manage', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    let status;
+    let sort;
+    let order;
+    let page;
+    let limit;
+    let search;
+    let authorId;
+
+    try {
+        status = validatePollManageStatus(req.query.status);
+        // У завершённых осмысленная сортировка по умолчанию — дата завершения (свежие сверху),
+        // у незавершённых — срок голосования (горящие сверху).
+        sort = validatePollManageSort(req.query.sort, status === 'resolved' ? 'resolved' : 'deadline');
+        order = validateSortOrder(req.query.order, sort === 'resolved' || sort === 'created' || sort === 'votes' ? 'desc' : 'asc');
+        page = parseBoundedInt(req.query.page, 'page', { min: 1, max: 100000, defaultValue: 1 });
+        limit = parseBoundedInt(req.query.limit, 'limit', { min: 1, max: 100, defaultValue: 30 });
+
+        search = req.query.search === undefined || req.query.search === null || req.query.search === ''
+            ? ''
+            : sanitizeTextInput(req.query.search);
+        if (search.length > 100) {
+            throw createValidationError('search', 'Search must be 100 characters or less');
+        }
+
+        // author=me разворачивается в id текущего пользователя, author=none — «без автора».
+        const rawAuthor = req.query.author === undefined || req.query.author === null ? '' : String(req.query.author).trim();
+        if (rawAuthor === '' || rawAuthor.toLowerCase() === 'all') {
+            authorId = null;
+        } else if (rawAuthor.toLowerCase() === 'me') {
+            authorId = req.user.id;
+        } else if (rawAuthor.toLowerCase() === 'none') {
+            authorId = 'none';
+        } else {
+            authorId = parsePositiveInt(rawAuthor, 'author');
+        }
+    } catch (error) {
+        return sendValidationError(res, error);
+    }
+
+    // Неопубликованные материалы в очередь на завершение не попадают: у черновика может быть
+    // проставлен прошедший срок, и он бы висел в «Требуют завершения», хотя его никто не видел.
+    const conditions = [POLL_MANAGE_STATUSES.get(status), publishedNewsClause('n')];
+    const params = [];
+
+    if (authorId === 'none') {
+        conditions.push('n.author_id IS NULL');
+    } else if (authorId) {
+        conditions.push('n.author_id = ?');
+        params.push(authorId);
+    }
+
+    const from = `
+        FROM polls p
+        LEFT JOIN news n ON p.news_id = n.id
+        LEFT JOIN users au ON au.id = n.author_id
+        LEFT JOIN users ru ON ru.id = p.resolved_by
+    `;
+
+    const sortSpec = POLL_MANAGE_SORTS.get(sort);
+    const direction = order === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = [
+        sortSpec.nullsLast ? `(${sortSpec.nullsLast}) ASC` : null,
+        `${sortSpec.expr} ${direction}`,
+        'p.id DESC',
+    ].filter(Boolean).join(', ');
+
+    try {
+        if (search) {
+            // Ищем по заголовку новости, имени автора и тексту вопроса.
+            //
+            // Регистр — главная сложность: LOWER() и LIKE в SQLite складывают только ASCII, поэтому
+            // «юлия» никогда не совпало бы с «Юлия» на стороне базы. Поэтому здесь три разных приёма:
+            //   - заголовок ищется по n.search_text — он свёрнут ещё при записи;
+            //   - авторов немного, поэтому их имена сворачиваются в JS и запрос получает готовый
+            //     список id;
+            //   - у вопроса свёрнутой копии нет, и остаётся перебор правдоподобных написаний слова.
+            const words = search.split(/\s+/).filter(Boolean).slice(0, 6);
+
+            const authorRows = await dbAllAsync(
+                `SELECT DISTINCT u.id, u.username, u.name
+                   FROM users u
+                  WHERE EXISTS (SELECT 1 FROM news n2 WHERE n2.author_id = u.id)`
+            );
+
+            for (const word of words) {
+                const folded = foldForSearch(word);
+                const legs = [];
+
+                legs.push(`COALESCE(n.search_text, LOWER(n.title), '') LIKE ? ESCAPE '\\'`);
+                params.push(`%${escapeSqlLike(folded)}%`);
+
+                // Слово внутри вопроса хранится в нижнем регистре, в начале — с заглавной, а искать
+                // могут и капсом. Три варианта покрывают эти случаи; полноценную свёртку дал бы только
+                // отдельный индекс по вопросам, которого у опросов пока нет.
+                const questionVariants = new Set([
+                    folded,
+                    folded.charAt(0).toUpperCase() + folded.slice(1),
+                    word,
+                ]);
+                for (const variant of questionVariants) {
+                    legs.push(`COALESCE(p.question, '') LIKE ? ESCAPE '\\'`);
+                    params.push(`%${escapeSqlLike(variant)}%`);
+                }
+
+                const matchedAuthors = authorRows
+                    .filter((row) => foldForSearch(`${row.name || ''} ${row.username || ''}`).includes(folded))
+                    .map((row) => row.id);
+                if (matchedAuthors.length > 0) {
+                    legs.push(`n.author_id IN (${matchedAuthors.map(() => '?').join(',')})`);
+                    params.push(...matchedAuthors);
+                }
+
+                conditions.push(`(${legs.join(' OR ')})`);
+            }
+        }
+
+        // where собирается только теперь: условия поиска дописываются выше, уже внутри try.
+        const where = `WHERE ${conditions.join(' AND ')}`;
+
+        const totalRow = await dbGetAsync(`SELECT COUNT(*) as total ${from} ${where}`, params);
+        const total = Number(totalRow?.total) || 0;
+        const offset = (page - 1) * limit;
+
+        const polls = await dbAllAsync(
+            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved,
+                    p.correct_option_id, p.resolved_at, p.resolved_by,
+                    n.title as news_title, n.image as news_image, n.category as news_category,
+                    n.created_at as news_created_at, n.author_id,
+                    au.username as author_username, au.name as author_name,
+                    ru.username as resolver_username, ru.name as resolver_name,
+                    (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id) as total_votes
+             ${from}
+             ${where}
+             ORDER BY ${orderBy}
+             LIMIT ? OFFSET ?`,
+            [...params, limit, offset]
+        );
+
+        const optionsByPoll = await loadPollOptions(polls.map((poll) => poll.poll_id));
+        const items = polls.map((poll) => buildManagePollRow(poll, optionsByPoll.get(poll.poll_id)));
+
+        // Счётчики на вкладках считаются одним проходом и не зависят от текущего фильтра статуса,
+        // иначе бейдж «сколько ещё завершать» показывал бы только то, что уже на экране.
+        const countsRow = await dbGetAsync(
+            `SELECT
+                SUM(CASE WHEN p.is_resolved = 0 AND NULLIF(TRIM(p.ends_at), '') IS NOT NULL AND p.ends_at < date('now') THEN 1 ELSE 0 END) as overdue,
+                SUM(CASE WHEN p.is_resolved = 0 AND (NULLIF(TRIM(p.ends_at), '') IS NULL OR p.ends_at >= date('now')) THEN 1 ELSE 0 END) as active,
+                SUM(CASE WHEN p.is_resolved = 0 THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN p.is_resolved = 1 THEN 1 ELSE 0 END) as resolved,
+                COUNT(*) as all_polls
+             FROM polls p
+             LEFT JOIN news n ON p.news_id = n.id
+             WHERE ${publishedNewsClause('n')}
+               ${authorId === 'none' ? 'AND n.author_id IS NULL' : authorId ? 'AND n.author_id = ?' : ''}`,
+            authorId && authorId !== 'none' ? [authorId] : []
+        );
+
+        res.json({
+            items,
+            total,
+            page,
+            limit,
+            hasMore: offset + items.length < total,
+            counts: {
+                overdue: Number(countsRow?.overdue) || 0,
+                active: Number(countsRow?.active) || 0,
+                pending: Number(countsRow?.pending) || 0,
+                resolved: Number(countsRow?.resolved) || 0,
+                all: Number(countsRow?.all_polls) || 0,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to list polls for management:', error);
+        sendServerError(res, error);
+    }
+});
+
+// Авторы, у которых есть хотя бы один опрос — наполняет выпадающий фильтр «Автор».
+// Считается по всей базе, а не по текущей странице, иначе фильтр показывал бы не всех.
+app.get('/api/polls/manage/authors', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
+    try {
+        const rows = await dbAllAsync(
+            `SELECT u.id, u.username, u.name, u.role,
+                    SUM(CASE WHEN p.is_resolved = 0 THEN 1 ELSE 0 END) as pending_count,
+                    COUNT(*) as total_count
+               FROM polls p
+               JOIN news n ON p.news_id = n.id
+               JOIN users u ON u.id = n.author_id
+              WHERE ${publishedNewsClause('n')}
+              GROUP BY u.id, u.username, u.name, u.role
+              ORDER BY LOWER(COALESCE(NULLIF(TRIM(u.name), ''), u.username)) ASC`
+        );
+
+        // Импортированные из WordPress новости автора не имеют — но их опросы всё равно надо уметь
+        // отфильтровать, поэтому «Без автора» отдаётся отдельной псевдо-строкой.
+        const orphanRow = await dbGetAsync(
+            `SELECT SUM(CASE WHEN p.is_resolved = 0 THEN 1 ELSE 0 END) as pending_count,
+                    COUNT(*) as total_count
+               FROM polls p
+               LEFT JOIN news n ON p.news_id = n.id
+              WHERE n.author_id IS NULL AND ${publishedNewsClause('n')}`
+        );
+
+        res.json({
+            authors: rows.map((row) => ({
+                id: row.id,
+                username: row.username,
+                name: row.name || row.username,
+                role: row.role,
+                pendingCount: Number(row.pending_count) || 0,
+                totalCount: Number(row.total_count) || 0,
+            })),
+            withoutAuthor: {
+                pendingCount: Number(orphanRow?.pending_count) || 0,
+                totalCount: Number(orphanRow?.total_count) || 0,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to list poll authors:', error);
+        sendServerError(res, error);
+    }
+});
+
+// Оставлено для совместимости: тот же список незавершённых опросов, плоским массивом.
 app.get('/api/polls/pending', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
     try {
         const polls = await dbAllAsync(
-            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id,
+            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved,
+                    p.correct_option_id, p.resolved_at, p.resolved_by,
                     n.title as news_title, n.image as news_image, n.category as news_category,
+                    n.created_at as news_created_at, n.author_id,
+                    au.username as author_username, au.name as author_name,
+                    ru.username as resolver_username, ru.name as resolver_name,
                     (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id) as total_votes
-             FROM polls p
-             LEFT JOIN news n ON p.news_id = n.id
-             WHERE p.is_resolved = 0
-             ORDER BY (p.ends_at IS NULL), p.ends_at ASC, p.id DESC`,
+               FROM polls p
+               LEFT JOIN news n ON p.news_id = n.id
+               LEFT JOIN users au ON au.id = n.author_id
+               LEFT JOIN users ru ON ru.id = p.resolved_by
+              WHERE p.is_resolved = 0 AND ${publishedNewsClause('n')}
+              ORDER BY (NULLIF(TRIM(p.ends_at), '') IS NULL), p.ends_at ASC, p.id DESC
+              LIMIT 500`,
             []
         );
 
-        const result = await Promise.all(polls.map(async (poll) => {
-            const options = await dbAllAsync(
-                `SELECT po.id, po.text,
-                        (SELECT COUNT(*) FROM votes v WHERE v.option_id = po.id) as vote_count
-                 FROM poll_options po
-                 WHERE po.poll_id = ?`,
-                [poll.poll_id]
-            );
-
-            return {
-                id: poll.poll_id,
-                question: poll.question,
-                news_id: poll.news_id,
-                news_title: poll.news_title || '',
-                news_image: poll.news_image || '',
-                news_category: poll.news_category || '',
-                ends_at: poll.ends_at || null,
-                total_votes: Number(poll.total_votes) || 0,
-                options: options.map((opt) => ({
-                    id: opt.id,
-                    text: opt.text,
-                    vote_count: Number(opt.vote_count) || 0,
-                })),
-            };
-        }));
-
-        res.json(result);
+        const optionsByPoll = await loadPollOptions(polls.map((poll) => poll.poll_id));
+        res.json(polls.map((poll) => buildManagePollRow(poll, optionsByPoll.get(poll.poll_id))));
     } catch (error) {
         console.error('Failed to list pending polls:', error);
         sendServerError(res, error);
@@ -3642,7 +4441,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
         // ---- All-time totals ----
         const totals = {
             users: await getCount('SELECT COUNT(*) as count FROM users'),
-            news: await getCount('SELECT COUNT(*) as count FROM news'),
+            news: await getCount(`SELECT COUNT(*) as count FROM news n WHERE ${publishedNewsClause('n')}`),
             polls: await getCount('SELECT COUNT(*) as count FROM polls'),
             votes: await getCount('SELECT COUNT(*) as count FROM votes'),
             likes: await getCount('SELECT COUNT(*) as count FROM likes'),
@@ -3789,6 +4588,7 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             FROM news n
             LEFT JOIN polls p ON p.news_id = n.id
             LEFT JOIN votes v ON v.poll_id = p.id
+            WHERE ${publishedNewsClause('n')}
             GROUP BY category
             HAVING polls > 0
             ORDER BY votes DESC, polls DESC
@@ -4746,6 +5546,11 @@ const shutdown = (signal, exitCode = 0) => {
     isShuttingDown = true;
     console.log(`[Shutdown] ${signal} received`);
 
+    if (schedulePublishTimer) {
+        clearInterval(schedulePublishTimer);
+        schedulePublishTimer = null;
+    }
+
     const closeDatabase = () => {
         db.close((dbError) => {
             if (dbError) {
@@ -4858,6 +5663,15 @@ const startServer = async () => {
     } catch (error) {
         console.error('[Monthly prize] Startup settlement failed:', error.message);
     }
+
+    // Пока сервис был выключен, время выхода у запланированных публикаций могло наступить.
+    await publishDueNews();
+
+    // Отдельной инфраструктуры расписаний в проекте нет, и заводить её ради одной задачи незачем:
+    // минутного таймера достаточно, а точность «плюс-минус минута» для выхода новости не критична.
+    // unref, чтобы таймер не держал процесс при остановке.
+    schedulePublishTimer = setInterval(() => { publishDueNews(); }, 60_000);
+    if (typeof schedulePublishTimer.unref === 'function') schedulePublishTimer.unref();
 
     server = app.listen(PORT, HOST, () => {
         console.log(`Server running on http://${HOST}:${PORT}`);

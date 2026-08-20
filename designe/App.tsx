@@ -41,6 +41,8 @@ const AppContent: React.FC = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [deepNews, setDeepNews] = useState<NewsItem | null>(null);
   const [deepNewsOpen, setDeepNewsOpen] = useState(false);
+  // Какую публикацию правим. null — мастер работает как «создать опрос».
+  const [editingNewsId, setEditingNewsId] = useState<number | null>(null);
 
   // Lock body scroll when mobile menu is open
   useScrollLock(mobileMenuOpen);
@@ -145,7 +147,17 @@ const AppContent: React.FC = () => {
     if (nextCategory !== undefined) setCategory(nextCategory);
     setMobileMenuOpen(false);
     clearSearch();
+    // Любой переход по меню закрывает правку: иначе «Создать опрос» открывался бы с чужим
+    // материалом внутри, и новая публикация молча уходила бы поверх старой.
+    setEditingNewsId(null);
   }, [clearSearch]);
+
+  // Открыть мастер на правке конкретной публикации — из карточки в ленте или из списка опросов.
+  const startEditing = useCallback((newsId: number) => {
+    goTo('create');
+    setEditingNewsId(newsId);
+    setDeepNewsOpen(false);
+  }, [goTo]);
 
   // Which sidebar entry to highlight: the feed view splits into the "all news" tab, the favorites
   // shortcut and the category buttons, everything else maps straight to the view name.
@@ -327,11 +339,22 @@ const AppContent: React.FC = () => {
         </div>
 
         <div className={`flex-1 w-full min-w-0 ${isWideView ? '' : 'max-w-3xl'}`}>
-          {view === 'feed' ? <Feed category={category} search={appliedSearch} /> :
-            view === 'open-polls' ? <Feed category="all" search={appliedSearch} pollStatus="open" /> :
+          {view === 'feed' ? <Feed category={category} search={appliedSearch} onEditNews={startEditing} /> :
+            view === 'open-polls' ? <Feed category="all" search={appliedSearch} pollStatus="open" onEditNews={startEditing} /> :
             view === 'admin' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><AdminPanel /></div> :
-              view === 'create' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><CreatePoll /></div> :
-              view === 'manage' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><ManagePolls /></div> :
+              view === 'create' ? (
+                <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8">
+                  {/* key сбрасывает состояние мастера при переходе между «создать» и «править»,
+                      и между разными правками: иначе в форме остаются поля прошлой публикации. */}
+                  <CreatePoll
+                    key={editingNewsId ?? 'new'}
+                    editingNewsId={editingNewsId}
+                    onFinished={() => goTo('manage')}
+                    onCancelEdit={() => goTo('manage')}
+                  />
+                </div>
+              ) :
+              view === 'manage' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><ManagePolls onEditNews={startEditing} /></div> :
               view === 'statistics' ? <Statistics /> :
                 view === 'reports' ? <ErrorReports /> :
                   view === 'info' ? <div className="py-4 lg:py-8 px-3 md:px-4 lg:px-8"><Information /></div> :

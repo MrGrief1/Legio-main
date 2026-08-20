@@ -16,6 +16,7 @@ import {
   Bitcoin,
   Users,
   Newspaper,
+  Gavel,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Category, User, NewsItem } from './types';
@@ -33,6 +34,7 @@ export const CATEGORY_NAMES = {
     politics: 'Политика',
     family: 'Семья',
     sport: 'Спорт',
+    'torgi-aukcion': 'Торги/аукцион',
     tourism: 'Туризм',
     ecology: 'Экология',
     economy: 'Экономика',
@@ -48,6 +50,7 @@ export const CATEGORY_NAMES = {
     politics: 'Politics',
     family: 'Family',
     sport: 'Sport',
+    'torgi-aukcion': 'Auctions',
     tourism: 'Tourism',
     ecology: 'Ecology',
     economy: 'Economy',
@@ -90,6 +93,8 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   family: Baby,
   kriptovalyuta: Bitcoin,
   crypto: Bitcoin,
+  'torgi-aukcion': Gavel,
+  auctions: Gavel,
 };
 
 export const getCategoryIcon = (id: string): LucideIcon =>
@@ -111,6 +116,7 @@ export const CATEGORIES: Category[] = [
   { id: 'politika', name: 'Политика' },
   { id: 'semya', name: 'Семья' },
   { id: 'sport', name: 'Спорт' },
+  { id: 'torgi-aukcion', name: 'Торги/аукцион' },
   { id: 'turizm', name: 'Туризм' },
   { id: 'ekologiya', name: 'Экология' },
   { id: 'ekonomika', name: 'Экономика' },

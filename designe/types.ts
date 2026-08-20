@@ -28,6 +28,14 @@ export interface PollOption {
   voters?: User[];
 }
 
+// Кто создал новость (а с ней и опрос) либо кто опрос завершил. Сервер отдаёт эти поля только
+// админам и создателю — у обычного читателя ключа в ответе просто нет.
+export interface PollAuthor {
+  id: number;
+  username: string;
+  name: string;
+}
+
 export interface PollData {
   id: number;
   question: string;
@@ -36,6 +44,10 @@ export interface PollData {
   correct_option_id?: number | null;
   ends_at?: string | null;
   user_voted_option_id?: number | null;
+  author?: PollAuthor | null;
+  created_at?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: PollAuthor | null;
 }
 
 export interface NewsItem {
@@ -49,4 +61,5 @@ export interface NewsItem {
   category?: string;
   poll?: PollData | null;
   isLiked?: boolean;
+  author?: PollAuthor | null;
 }

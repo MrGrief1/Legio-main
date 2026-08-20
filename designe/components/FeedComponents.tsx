@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Button } from './UI';
-import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X } from 'lucide-react';
+import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X, User as UserIcon, Pencil } from 'lucide-react';
 import { PollData, PollOption, NewsItem, User } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
@@ -10,7 +10,7 @@ import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
-import { formatNewsDate } from '../utils/date';
+import { formatNewsDate, formatDateOnly, formatDateTime } from '../utils/date';
 
 // Format a YYYY-MM-DD poll end date to DD.MM.YYYY; fall back to the raw string.
 const formatPollDate = (value: string): string => {
@@ -21,6 +21,10 @@ const formatPollDate = (value: string): string => {
 
 // How many voter chips to show inline before collapsing the rest behind a "+N" button.
 const VISIBLE_VOTERS = 3;
+
+// Кто видит авторство опроса. Зеркалит серверный гейт: админ и создатель — да, читатель — нет.
+const canSeeEditorialMeta = (user: { role?: string } | null | undefined): boolean =>
+  !!user && (user.role === 'admin' || user.role === 'creator');
 
 // Тайминги «наливания» шкалы результатов: длительность самой заливки и шаг задержки,
 // с которым варианты стартуют друг за другом, чтобы результат читался сверху вниз.
@@ -291,9 +295,15 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
   // behind the votes. The server also withholds `option.voters` from everyone else.
   const canSeeVoters = !!user && user.role === 'admin';
 
+  // Служебная строка редакции: кто завёл опрос, когда и кто его закрыл. Сервер отдаёт эти поля
+  // только админам и создателю, поэтому наличие ключа `author` — и есть признак, что показывать
+  // строку можно; у читателя её просто нет.
+  const showEditorialMeta = canSeeEditorialMeta(user)
+    && (pollData.author !== undefined || pollData.created_at !== undefined || !!pollData.resolved_by);
+
   return (
     <div
-      className={`bg-zinc-50 dark:bg-zinc-900/50 rounded-[24px] p-5 lg:p-6 mb-6 border ${pollData.is_resolved ? 'border-green-500/20 dark:border-green-500/20' : 'border-zinc-100 dark:border-zinc-800'}`}
+      className={`bg-zinc-50 dark:bg-zinc-900/50 rounded-[20px] p-4 lg:p-5 mb-4 border ${pollData.is_resolved ? 'border-green-500/20 dark:border-green-500/20' : 'border-zinc-100 dark:border-zinc-800'}`}
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
     >
@@ -303,15 +313,39 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
       </h4>
 
       {pollData.ends_at && !pollData.is_resolved ? (
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-5">
-          <Clock size={13} />
-          <span>Голосование до {formatPollDate(pollData.ends_at)}</span>
+        // Срок голосования — то, по чему читатель решает, успевает он или нет, и то, по чему
+        // редакция ищет опросы к завершению. Раньше он терялся серой мелочью наравне со всем
+        // остальным, поэтому сама дата теперь заметно плотнее подписи.
+        <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+          <Clock size={14} className="shrink-0" />
+          <span>
+            Голосование до{' '}
+            <span className="font-bold text-sm text-zinc-800 dark:text-zinc-100 tabular-nums">
+              {formatPollDate(pollData.ends_at)}
+            </span>
+          </span>
         </div>
       ) : (
-        <div className="mb-3" />
+        <div className="mb-2" />
       )}
 
-      <div className="space-y-3 mb-6">
+      {showEditorialMeta && (
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400 dark:text-zinc-500 mb-3 pb-3 border-b border-zinc-100 dark:border-zinc-800">
+          <span className={`flex items-center gap-1.5 ${pollData.author ? '' : 'italic'}`}>
+            <UserIcon size={12} className="shrink-0" />
+            {pollData.author ? (pollData.author.name || pollData.author.username) : 'Автор не указан'}
+          </span>
+          {pollData.created_at && <span>Создан {formatDateOnly(pollData.created_at)}</span>}
+          {pollData.is_resolved === 1 && (
+            <span className="text-green-600 dark:text-green-500">
+              Завершён {formatDateTime(pollData.resolved_at, '—')}
+              {pollData.resolved_by && ` · ${pollData.resolved_by.name || pollData.resolved_by.username}`}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="space-y-2 mb-4">
         {pollData.options.map((option, index) => {
           const isCorrect = pollData.is_resolved === 1 && pollData.correct_option_id === option.id;
           const revealDelay = stagger ? index * POLL_FILL_STEP : 0;
@@ -352,7 +386,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                   />
                 )}
 
-                <div className="relative z-10 flex items-start gap-3 p-3">
+                <div className="relative z-10 flex items-start gap-3 px-3 py-2.5">
                   <div className={`mt-0.5 shrink-0 transition-colors duration-200 ${selectedOption === option.id
                     ? 'text-blue-500 scale-110'
                     : (hasVoted || !!pollData.is_resolved)
@@ -451,7 +485,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
         })}
       </div>
 
-      <div className="flex justify-between items-center h-10">
+      <div className="flex justify-between items-center min-h-[2.25rem]">
         {canSeeVoters && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowVoters(!showVoters); }}
@@ -506,7 +540,11 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
   );
 });
 
-export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) => void }> = React.memo(({ item, onRefresh }) => {
+export const NewsCard: React.FC<{
+  item: NewsItem;
+  onRefresh?: (newsId: number) => void;
+  onEdit?: (newsId: number) => void;
+}> = React.memo(({ item, onRefresh, onEdit }) => {
   // Лента перечитывает по этому сигналу одну карточку, а не весь список, поэтому ей нужен id.
   // Колбэк собирается здесь и один раз: если отдавать вниз новую стрелку на каждый рендер,
   // React.memo на Poll перестанет работать.
@@ -515,8 +553,19 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
   const [likeLoading, setLikeLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  // Часть перенесённых из WordPress новостей ссылается на картинки, которых больше нет. Раньше
+  // такая карточка всё равно резервировала под изображение блок в треть экрана — и лента
+  // выглядела как полотно пустых белых полей. Не загрузилась — блока просто нет.
+  const [imageBroken, setImageBroken] = useState(false);
   const { user } = useAuth();
   const { showAlert, showConfirm } = useDialog();
+
+  // Новая ссылка на картинку заслуживает новой попытки её загрузить.
+  useEffect(() => {
+    setImageBroken(false);
+  }, [item.image]);
+
+  const hasImage = !!item.image && !imageBroken;
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -577,36 +626,62 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
           className="bg-white dark:bg-[#121212] rounded-[32px] border border-zinc-200 dark:border-zinc-800/50 overflow-hidden hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-500 group cursor-pointer animate-in fade-in slide-in-from-bottom-4"
           onClick={() => setIsModalOpen(true)}
         >
-          <div className="relative h-64 lg:h-96 w-full overflow-hidden">
-            <img
-              src={item.image}
-              alt={item.title}
-              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-black/5 dark:bg-black/20" />
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-[#121212] dark:via-[#121212]/90 dark:to-transparent" />
+          {/* Высота картинки урезана: раньше одна карточка с изображением и вариантами ответа не
+              помещалась в экран ноутбука целиком, и до вариантов приходилось долистывать. */}
+          {hasImage && (
+            <div className="relative h-40 sm:h-48 lg:h-56 w-full overflow-hidden">
+              <img
+                src={item.image}
+                alt={item.title}
+                onError={() => setImageBroken(true)}
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-black/5 dark:bg-black/20" />
+              <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-[#121212] dark:via-[#121212]/90 dark:to-transparent" />
 
-            <div className="absolute bottom-4 left-6 flex flex-wrap gap-2 z-10">
-              {item.tags.map((tag, i) => (
-                <span key={i} className="px-4 py-1.5 bg-zinc-100/95 dark:bg-zinc-900/95 rounded-full text-xs font-medium text-zinc-900 dark:text-zinc-200 border border-white/40 dark:border-white/10 shadow-sm">
-                  {tag}
-                </span>
-              ))}
+              <div className="absolute bottom-3 left-5 flex flex-wrap gap-2 z-10">
+                {item.tags.map((tag, i) => (
+                  <span key={i} className="px-3.5 py-1 bg-zinc-100/95 dark:bg-zinc-900/95 rounded-full text-xs font-medium text-zinc-900 dark:text-zinc-200 border border-white/40 dark:border-white/10 shadow-sm">
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="px-6 pb-6 pt-2 lg:px-8 lg:pb-8">
-            {formatNewsDate(item.date) && (
-              <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-zinc-400 dark:text-zinc-500">
-                <Clock size={12} className="shrink-0" />
-                <span>{formatNewsDate(item.date)}</span>
+          <div className={`px-5 pb-5 lg:px-6 lg:pb-6 ${hasImage ? 'pt-2' : 'pt-5'}`}>
+            {/* Без картинки теги теряют своё место поверх неё — здесь они становятся обычной строкой,
+                а карточка не превращается в пустой прямоугольник с одним заголовком. */}
+            {!hasImage && item.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {item.tags.map((tag, i) => (
+                  <span key={i} className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    {tag}
+                  </span>
+                ))}
               </div>
             )}
-            <h3 className="text-xl lg:text-2xl font-bold text-zinc-900 dark:text-white mb-3 leading-tight hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mb-1.5 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+              {formatNewsDate(item.date) && (
+                <span className="flex items-center gap-1.5">
+                  <Clock size={12} className="shrink-0" />
+                  {formatNewsDate(item.date)}
+                </span>
+              )}
+              {/* Авторство видно только редакции — читателю оно ни к чему. */}
+              {canSeeEditorialMeta(user) && (
+                <span className={`flex items-center gap-1.5 ${item.author ? '' : 'italic'}`}>
+                  <UserIcon size={12} className="shrink-0" />
+                  {item.author ? (item.author.name || item.author.username) : 'Автор не указан'}
+                </span>
+              )}
+            </div>
+            <h3 className="text-lg lg:text-xl font-bold text-zinc-900 dark:text-white mb-2 leading-tight hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
               {item.title}
             </h3>
-            <p className="text-zinc-500 dark:text-zinc-400 text-sm leading-relaxed mb-6 line-clamp-3">
+            <p className="text-zinc-500 dark:text-zinc-400 text-sm leading-relaxed mb-4 line-clamp-2">
               {item.description}
             </p>
 
@@ -616,7 +691,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={e => e.stopPropagation()}
-                className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 mb-6 -mt-2 max-w-full truncate"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 mb-4 -mt-1 max-w-full truncate"
               >
                 <LinkIcon size={13} className="shrink-0" />
                 <span className="truncate">Источник</span>
@@ -633,16 +708,16 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
               <button
                 onClick={handleLike}
                 disabled={likeLoading}
-                className={`p-2.5 rounded-full transition-colors duration-200 group/btn relative ${isLiked
+                className={`p-2 rounded-full transition-colors duration-200 group/btn relative ${isLiked
                   ? 'bg-red-50 dark:bg-red-900/20 text-red-500'
                   : 'text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-red-500'
                   }`}
               >
-                <Heart size={22} className={`${isLiked ? 'fill-current' : ''}`} />
+                <Heart size={20} className={`${isLiked ? 'fill-current' : ''}`} />
               </button>
 
               <button
@@ -653,7 +728,7 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
                   const originalHTML = button.innerHTML;
 
                   navigator.clipboard.writeText(url).then(() => {
-                    button.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
                     button.classList.add('!text-green-500', '!bg-green-50', 'dark:!bg-green-900/20');
 
                     setTimeout(() => {
@@ -665,9 +740,9 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
                     showAlert('Не удалось скопировать ссылку');
                   });
                 }}
-                className="p-2.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full group/btn"
+                className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full group/btn"
               >
-                <Share2 size={22} className="group-hover/btn:scale-110 transition-transform" />
+                <Share2 size={20} className="group-hover/btn:scale-110 transition-transform" />
               </button>
 
               <button
@@ -679,18 +754,32 @@ export const NewsCard: React.FC<{ item: NewsItem; onRefresh?: (newsId: number) =
                   }
                   setIsReportModalOpen(true);
                 }}
-                className="p-2.5 text-zinc-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/10 rounded-full transition-all group/btn"
+                className="p-2 text-zinc-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/10 rounded-full transition-all group/btn"
               >
-                <AlertTriangle size={22} className="group-hover/btn:scale-110 transition-transform" />
+                <AlertTriangle size={20} className="group-hover/btn:scale-110 transition-transform" />
               </button>
 
               {user && (user.role === 'admin' || user.role === 'creator') && (
-                <button
-                  onClick={handleDelete}
-                  className="p-2.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all group/btn"
-                >
-                  <Trash2 size={22} className="group-hover/btn:scale-110 transition-transform" />
-                </button>
+                <>
+                  {/* Опечатку в опубликованном опросе раньше можно было исправить только удалением
+                      всей новости вместе с голосами — теперь правка открывается отсюда. */}
+                  {onEdit && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEdit(Number(item.id)); }}
+                      title="Редактировать"
+                      aria-label="Редактировать"
+                      className="p-2 text-zinc-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-all group/btn"
+                    >
+                      <Pencil size={20} className="group-hover/btn:scale-110 transition-transform" />
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDelete}
+                    className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all group/btn"
+                  >
+                    <Trash2 size={20} className="group-hover/btn:scale-110 transition-transform" />
+                  </button>
+                </>
               )}
             </div>
 

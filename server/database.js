@@ -219,6 +219,34 @@ function initDb() {
       }
     });
 
+    // Кто создал новость (а вместе с ней и опрос). Отдельного эндпоинта создания опроса нет:
+    // опрос всегда рождается внутри POST /api/news, поэтому автор опроса — это автор новости,
+    // а дата создания опроса — news.created_at. У новостей, перенесённых из WordPress, и у всего,
+    // что было создано до этой колонки, автор остаётся NULL — интерфейс показывает «—».
+    db.run(`ALTER TABLE news ADD COLUMN author_id INTEGER`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding author_id column to news:', err);
+      }
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_news_author_id ON news(author_id)`);
+
+    // Состояние публикации: 'published' (видна всем), 'draft' (черновик, виден только редакции),
+    // 'scheduled' (запланирована, выйдет в publish_at). Значение по умолчанию делает все
+    // существующие новости опубликованными, поэтому отдельный backfill не нужен.
+    db.run(`ALTER TABLE news ADD COLUMN status TEXT DEFAULT 'published'`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding status column to news:', err);
+      }
+    });
+    // Время выхода запланированной публикации — в том же «наивном UTC», что и created_at
+    // ("YYYY-MM-DD HH:MM:SS"), чтобы сравнение с datetime('now') работало напрямую.
+    db.run(`ALTER TABLE news ADD COLUMN publish_at TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding publish_at column to news:', err);
+      }
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_news_status_publish_at ON news(status, publish_at)`);
+
     // Add name and avatar to users if missing
     db.run(`ALTER TABLE users ADD COLUMN name TEXT`, (err) => {
       if (err && !err.message.includes('duplicate column name')) {
@@ -248,6 +276,21 @@ function initDb() {
         console.error('Error adding ends_at column:', err);
       }
     });
+
+    // Кто и когда завершил опрос. Нужно вкладке «Завершённые» в разделе управления опросами:
+    // без этого нельзя перепроверить, кто из админов проставил верный вариант.
+    // Для опросов, завершённых до появления колонок, остаётся NULL — показывается «—».
+    db.run(`ALTER TABLE polls ADD COLUMN resolved_by INTEGER`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding resolved_by column to polls:', err);
+      }
+    });
+    db.run(`ALTER TABLE polls ADD COLUMN resolved_at TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding resolved_at column to polls:', err);
+      }
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_polls_is_resolved ON polls(is_resolved)`);
 
     // Poll Options table
     db.run(`CREATE TABLE IF NOT EXISTS poll_options (

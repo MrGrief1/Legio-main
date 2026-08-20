@@ -23,10 +23,16 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
   const [isLiked, setIsLiked] = useState(item.isLiked || false);
   const [likeLoading, setLikeLoading] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  // Битая ссылка на картинку (таких немало среди перенесённых из WordPress) оставляла в шапке
+  // модалки пустой блок в 256 пикселей. Не загрузилась — шапка становится текстовой.
+  const [imageBroken, setImageBroken] = useState(false);
 
   useEffect(() => {
     setIsLiked(item.isLiked || false);
+    setImageBroken(false);
   }, [item]);
+
+  const hasImage = !!item.image && !imageBroken;
 
   useScrollLock(isOpen);
 
@@ -87,32 +93,57 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
         <div className="relative bg-white dark:bg-[#121212] w-full h-[100dvh] sm:h-auto sm:max-w-2xl sm:max-h-[90vh] rounded-none sm:rounded-[32px] border-0 sm:border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col">
 
           {/* Header / Image */}
-          <div className="relative h-64 shrink-0">
-            <img
-              src={item.image}
-              alt={item.title}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          {hasImage ? (
+            <div className="relative h-56 shrink-0">
+              <img
+                src={item.image}
+                alt={item.title}
+                onError={() => setImageBroken(true)}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
 
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
-            >
-              <X size={20} />
-            </button>
+              <button
+                onClick={onClose}
+                className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
 
-            <div className="absolute bottom-4 left-6 right-6">
-              <div className="flex flex-wrap gap-2 mb-2">
-                {item.tags.map((tag, i) => (
-                  <span key={i} className="px-3 py-1 bg-black/50 rounded-full text-xs font-medium text-white border border-white/20">
-                    {tag}
-                  </span>
-                ))}
+              <div className="absolute bottom-4 left-6 right-6">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {item.tags.map((tag, i) => (
+                    <span key={i} className="px-3 py-1 bg-black/50 rounded-full text-xs font-medium text-white border border-white/20">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <h2 className="text-2xl font-bold text-white leading-tight">{item.title}</h2>
               </div>
-              <h2 className="text-2xl font-bold text-white leading-tight">{item.title}</h2>
             </div>
-          </div>
+          ) : (
+            <div className="relative shrink-0 px-6 pt-6 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <button
+                onClick={onClose}
+                className="absolute top-4 right-4 p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-full text-zinc-600 dark:text-zinc-300 transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="pr-12">
+                {item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {item.tags.map((tag, i) => (
+                      <span key={i} className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <h2 className="text-2xl font-bold text-zinc-900 dark:text-white leading-tight">{item.title}</h2>
+              </div>
+            </div>
+          )}
 
           {/* Content Scrollable Area */}
           <div className="flex-1 overflow-y-auto overscroll-contain p-6 lg:p-8">

@@ -9,7 +9,14 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 // 'open' shows only posts whose poll is still unresolved — the "Незавершённые опросы" tab.
 export type FeedPollStatus = 'all' | 'open';
 
-export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: FeedPollStatus }> = ({ category = 'all', search = '', pollStatus = 'all' }) => {
+export const Feed: React.FC<{
+  category?: string;
+  search?: string;
+  pollStatus?: FeedPollStatus;
+  // Правка публикации живёт в мастере на уровне приложения, поэтому лента только сообщает,
+  // какую именно новость открыли на редактирование.
+  onEditNews?: (newsId: number) => void;
+}> = ({ category = 'all', search = '', pollStatus = 'all', onEditNews }) => {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -200,10 +207,10 @@ export const Feed: React.FC<{ category?: string; search?: string; pollStatus?: F
       </div>
 
       {/* Feed Items */}
-      <div className="space-y-8 pb-20">
+      <div className="space-y-5 pb-20">
         {Array.isArray(news) && news.length > 0 ? (
           news.map((item) => (
-            <NewsCard key={item.id} item={item} onRefresh={refreshItem} />
+            <NewsCard key={item.id} item={item} onRefresh={refreshItem} onEdit={onEditNews} />
           ))
         ) : (
           /* One empty state, and it says which situation it is. Two stacked messages used to render
