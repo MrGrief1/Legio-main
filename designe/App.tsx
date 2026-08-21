@@ -159,6 +159,14 @@ const AppContent: React.FC = () => {
     setDeepNewsOpen(false);
   }, [goTo]);
 
+  // Новый раздел открывается с его начала. Прокрутка — свойство страницы, а не раздела, поэтому
+  // при переходе она оставалась там, где человек её оставил: мастер правки — длинная страница с
+  // кнопками «Сохранить» и «Отмена» внизу, и после выхода из правки короткий список опросов
+  // оказывался выше экрана, а человек смотрел в пустоту и думал, что страница не загрузилась.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [view, category]);
+
   // Which sidebar entry to highlight: the feed view splits into the "all news" tab, the favorites
   // shortcut and the category buttons, everything else maps straight to the view name.
   const activeNavKey = view === 'feed' ? (category === 'all' ? 'feed' : category) : view;
