@@ -13,15 +13,6 @@
       ],
       "cwd": "designe",
       "port": 3011
-    },
-    {
-      "name": "legio-backend",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "index.js"
-      ],
-      "cwd": "server",
-      "port": 3001
     }
   ]
 }

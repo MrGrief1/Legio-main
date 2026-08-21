@@ -82,32 +82,33 @@ export const Avatar: React.FC<AvatarProps> = ({
         ? { width: '100%', height: '100%', flexShrink: 0 }
         : { width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 };
 
-    if (!imageSrc || hasError) {
-        const label = (fallbackText && fallbackText.trim()) || (alt && alt !== 'User' ? alt : '');
-        const initials = initialsForName(label);
-        const bg = colorForKey(label || initials);
-        return (
-            <div
-                className={`rounded-full flex items-center justify-center text-white font-semibold overflow-hidden select-none ${className}`}
-                style={{ ...sizeStyle, backgroundColor: bg }}
-            >
-                {/* The box is sized by the parent in fill mode, but the initials still need a
-                    concrete font size — so `size` keeps serving as the typography hint. Callers
-                    pass the box's nominal size, and a small mismatch only shifts the glyph weight,
-                    never the layout. */}
-                <span style={{ fontSize: size * 0.4, lineHeight: 1 }}>{initials}</span>
-            </div>
-        );
-    }
+    const label = (fallbackText && fallbackText.trim()) || (alt && alt !== 'User' ? alt : '');
+    const initials = initialsForName(label);
+    const bg = colorForKey(label || initials);
 
+    // Инициалы рисуются всегда, фотография ложится поверх них. Раньше <img> отдавался напрямую, и
+    // пока файл не загрузился, на его месте была пустота: в модалке профиля это выглядело как
+    // белый круг на первых кадрах. Теперь до появления фотографии видны инициалы — как в Telegram.
     return (
-        <img
-            src={imageSrc}
-            alt={alt}
-            className={`rounded-full object-cover ${className}`}
-            style={sizeStyle}
-            onError={handleError}
-            loading="lazy"
-        />
+        <div
+            className={`relative rounded-full flex items-center justify-center text-white font-semibold overflow-hidden select-none ${className}`}
+            style={{ ...sizeStyle, backgroundColor: bg }}
+        >
+            {/* The box is sized by the parent in fill mode, but the initials still need a
+                concrete font size — so `size` keeps serving as the typography hint. Callers
+                pass the box's nominal size, and a small mismatch only shifts the glyph weight,
+                never the layout. */}
+            <span style={{ fontSize: size * 0.4, lineHeight: 1 }}>{initials}</span>
+
+            {imageSrc && !hasError && (
+                <img
+                    src={imageSrc}
+                    alt={alt}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={handleError}
+                    loading="lazy"
+                />
+            )}
+        </div>
     );
 };
