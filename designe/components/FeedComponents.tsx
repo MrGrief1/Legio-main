@@ -290,7 +290,19 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
     }
   };
 
-  const canResolve = user && (user.role === 'admin' || user.role === 'creator') && !pollData.is_resolved;
+  // Завершение опроса необратимо и начисляет баллы, а кнопка для него стояла под каждым вариантом
+  // вплотную к «Голосовать» — и читалась редакцией как «выбрать этот вариант», то есть как способ
+  // проголосовать. Так за август закрылись десять опросов со сроками вплоть до 2027 года, причём
+  // каждый раз «верным» оказывался вариант, за который не голосовал никто, — то есть тот, который
+  // нажимавший считал своим прогнозом. Теперь кнопка появляется только после конца голосования:
+  // до этого момента завершать нечего, а сервер такой запрос всё равно отклонит.
+  // Пустая строка в ends_at (наследие переноса из WordPress) — это «срока нет», а не «срок пуст».
+  const deadline = String(pollData.ends_at || '').trim();
+  const votingClosed = !deadline || deadline < new Date().toISOString().slice(0, 10);
+  const canResolve = !!user
+    && (user.role === 'admin' || user.role === 'creator')
+    && !pollData.is_resolved
+    && votingClosed;
   // Who voted for what is admin-only: creators can resolve polls but must not see the names
   // behind the votes. The server also withholds `option.voters` from everyone else.
   const canSeeVoters = !!user && user.role === 'admin';
@@ -433,11 +445,14 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                     </div>
 
                     {canResolve && (
+                      // Подпись называет последствие, а не действие: «Выбрать» стояло рядом с
+                      // «Голосовать» и читалось как выбор своего варианта, а нажатие закрывало опрос.
                       <button
                         onClick={(e) => { e.stopPropagation(); handleResolve(option.id); }}
-                        className="mt-2 text-xs whitespace-nowrap bg-zinc-200 dark:bg-zinc-800 hover:bg-green-500 hover:text-white px-2 py-1 rounded transition-colors"
+                        title="Завершить опрос: этот вариант станет верным ответом"
+                        className="mt-2 text-xs whitespace-nowrap border border-green-500/50 text-green-700 dark:text-green-400 hover:bg-green-500 hover:text-white hover:border-green-500 px-2 py-1 rounded transition-colors"
                       >
-                        Выбрать
+                        Это верный ответ — завершить
                       </button>
                     )}
                   </div>

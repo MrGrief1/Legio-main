@@ -38,6 +38,7 @@ export interface Translations {
         empty: string;
         votes: string;
         pickCorrect: string;
+        pickBlocked: string;
         resolving: string;
         searchPlaceholder: string;
         noResults: string;
@@ -506,6 +507,7 @@ export const translations: Record<Language, Translations> = {
             empty: 'Все опросы завершены',
             votes: 'голосов',
             pickCorrect: 'Выберите правильный ответ:',
+            pickBlocked: 'Голосование ещё идёт — завершить опрос можно после окончания срока',
             resolving: 'Завершаем...',
             searchPlaceholder: 'Поиск по заголовку, вопросу или автору...',
             noResults: 'Ничего не найдено',
@@ -956,6 +958,7 @@ export const translations: Record<Language, Translations> = {
             empty: 'All polls are resolved',
             votes: 'votes',
             pickCorrect: 'Pick the correct answer:',
+            pickBlocked: 'Voting is still open — the poll can be resolved after its deadline',
             resolving: 'Resolving...',
             searchPlaceholder: 'Search by headline, question or author...',
             noResults: 'Nothing found',

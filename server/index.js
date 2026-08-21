@@ -3433,6 +3433,13 @@ app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
     );
 });
 
+// Срок голосования хранится как YYYY-MM-DD; в тексте отказа он должен читаться так же, как в
+// интерфейсе, иначе редактор сверяет дату из сообщения с датой на экране и видит два разных вида.
+const formatDeadlineRu = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+    return match ? `${match[3]}.${match[2]}.${match[1]}` : String(value || '').trim();
+};
+
 // Resolve Poll (Admin/Creator only)
 app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
     let pollId;
@@ -3446,8 +3453,14 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
     }
 
     try {
+        // `still_open` считается ровно тем же выражением, что и вкладка «требуют завершения» в
+        // админке, — иначе «срок вышел» означало бы в двух местах разное. NULLIF обязателен: у
+        // части перенесённых из WordPress опросов срок лежит пустой строкой, а не NULL, и без
+        // свёртки такой опрос считался бы вечно идущим и не завершался бы никогда.
         const poll = await dbGetAsync(
-            "SELECT id, is_resolved FROM polls WHERE id = ?",
+            `SELECT id, is_resolved, ends_at,
+                    (NULLIF(TRIM(ends_at), '') IS NOT NULL AND ends_at >= date('now')) AS still_open
+               FROM polls WHERE id = ?`,
             [pollId]
         );
 
@@ -3457,6 +3470,15 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
 
         if (Number(poll.is_resolved) === 1) {
             return res.status(400).json({ message: "Poll already resolved" });
+        }
+
+        // Завершение начисляет баллы и отменить его нечем, поэтому оно недоступно, пока идёт
+        // голосование. Без этой проверки один промах мышью закрывал опрос, до конца которого
+        // оставались месяцы: так за август закрылись десять опросов со сроками вплоть до 2027 года.
+        if (Number(poll.still_open) === 1) {
+            return res.status(400).json({
+                message: `Опрос ещё идёт: голосование открыто до ${formatDeadlineRu(poll.ends_at)}. Завершить его можно после этой даты.`,
+            });
         }
 
         const option = await dbGetAsync(

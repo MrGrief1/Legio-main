@@ -121,6 +121,15 @@ const isOverdue = (endsAt: string | null): boolean => {
     return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) < today;
 };
 
+// Завершать опрос можно, только когда голосование уже закрылось: завершение начисляет баллы и
+// не отменяется. Пустой срок (наследие переноса из WordPress) означает «срока нет» — такой опрос
+// завершается в любой момент. Условие повторяет проверку на сервере, чтобы список не предлагал
+// кнопку, которую сервер всё равно отклонит.
+const votingClosed = (endsAt: string | null): boolean => {
+    const value = String(endsAt || '').trim();
+    return !value || isOverdue(value);
+};
+
 const fillTemplate = (template: string, values: Record<string, string | number>): string =>
     template.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
 
@@ -840,6 +849,10 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                             );
                         }) : polls.map((poll) => {
                             const overdue = poll.is_resolved === 0 && isOverdue(poll.ends_at);
+                            // Вкладка «ещё идут» показывает опросы с открытым голосованием — там
+                            // варианты остаются некликабельными, иначе список сам предлагал бы
+                            // закрыть опрос за месяцы до срока.
+                            const canPick = poll.is_resolved === 0 && votingClosed(poll.ends_at);
                             const busy = resolvingId === poll.id;
                             const expanded = density === 'expanded' || expandedIds.has(poll.id);
                             const authorName = poll.author?.name || poll.author?.username || t.managePolls.unknownAuthor;
@@ -957,7 +970,11 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                 </p>
 
                                                 <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">
-                                                    {poll.is_resolved === 1 ? t.managePolls.correctAnswer : t.managePolls.pickCorrect}
+                                                    {poll.is_resolved === 1
+                                                        ? t.managePolls.correctAnswer
+                                                        : canPick
+                                                            ? t.managePolls.pickCorrect
+                                                            : t.managePolls.pickBlocked}
                                                 </div>
 
                                                 <div className="space-y-2">
@@ -968,7 +985,7 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                             totalVotes={poll.total_votes}
                                                             isCorrect={poll.correct_option_id === option.id}
                                                             disabled={busy}
-                                                            onPick={poll.is_resolved === 1 ? undefined : () => handleResolve(poll, option)}
+                                                            onPick={canPick ? () => handleResolve(poll, option) : undefined}
                                                         />
                                                     ))}
                                                 </div>
