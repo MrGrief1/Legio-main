@@ -14,6 +14,7 @@ import { useToast } from '../context/ToastContext';
 import { Language } from '../translations';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -64,6 +65,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
     // Lock body scroll
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
 
     if (!user) return null;
 

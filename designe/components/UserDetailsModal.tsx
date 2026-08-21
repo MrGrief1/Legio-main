@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { useLanguage } from '../context/LanguageContext';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
@@ -94,6 +95,8 @@ export const UserDetailsModal: React.FC<UserDetailsModalProps> = ({
 }) => {
     const hasTransitionedIn = useMountTransition(isOpen, 300);
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
     const { t } = useLanguage();
     const [details, setDetails] = useState<UserDetails | null>(null);
     const [loading, setLoading] = useState(false);

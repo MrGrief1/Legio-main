@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { Avatar } from './Avatar';
 import { getLevel } from '../constants';
 import { ProfileStatsGrid, ProfileUser, useProfileData } from './ProfileStats';
@@ -22,6 +23,8 @@ interface UserProfileModalProps {
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, user, userId }) => {
     const hasTransitionedIn = useMountTransition(isOpen, 300);
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
 
     const targetId = userId ?? user?.id ?? null;
     const { user: freshUser, stats, loading } = useProfileData(targetId, isOpen, user);

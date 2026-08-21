@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { AuthCard } from './AuthCard';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 
 // Login / registration in a dialog.
 //
@@ -10,6 +11,8 @@ import { useScrollLock } from '../hooks/useScrollLock';
 // sidebar offers the same thing when the layout has no room for a permanent card.
 export const AuthModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
 
     useEffect(() => {
         if (!isOpen) return;

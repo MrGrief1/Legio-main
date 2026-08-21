@@ -17,6 +17,7 @@ import { Poll } from './components/FeedComponents';
 import { NewsItem } from './types';
 import { API_URL } from './config';
 import { useScrollLock } from './hooks/useScrollLock';
+import { useBackClose, pushBackStep } from './hooks/useBackClose';
 import { Menu, X, Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
@@ -46,6 +47,29 @@ const AppContent: React.FC = () => {
 
   // Lock body scroll when mobile menu is open
   useScrollLock(mobileMenuOpen);
+
+  // При открытом меню «назад» закрывает меню, а не уходит с сайта.
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
+  useBackClose(mobileMenuOpen, closeMobileMenu);
+
+  // Снимок текущего раздела для шагов «назад». Держим в ref, потому что goTo вызывается из
+  // обработчиков и ему нужны значения на момент нажатия, а не на момент создания колбэка.
+  const navSnapshotRef = useRef({ view, category, editingNewsId });
+  useEffect(() => {
+    navSnapshotRef.current = { view, category, editingNewsId };
+  });
+
+  // Переход по разделам — такой же шаг назад, как открытие модалки: «назад» возвращает туда,
+  // откуда пришли, вместе с категорией и открытой правкой.
+  const pushNavStep = useCallback(() => {
+    const from = navSnapshotRef.current;
+    pushBackStep(() => {
+      setView(from.view);
+      setCategory(from.category);
+      setEditingNewsId(from.editingNewsId);
+      setMobileMenuOpen(false);
+    });
+  }, []);
 
   // The mobile menu is CSS-hidden from md up, but its scroll lock lives in React state. Close it
   // when the viewport grows so a resize/rotation can't leave the page frozen behind a menu that
@@ -79,17 +103,24 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const newsId = new URLSearchParams(window.location.search).get('news');
-    if (newsId) fetchDeepNews(newsId);
+    const params = new URLSearchParams(window.location.search);
+    const newsId = params.get('news');
+    if (!newsId) return;
+
+    // Параметр убираем сразу, до открытия модалки: свой шаг «назад» она добавит уже поверх чистого
+    // адреса, и возврат из неё не оставит ссылку, по которой пост открылся бы снова.
+    params.delete('news');
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    );
+
+    fetchDeepNews(newsId);
   }, [fetchDeepNews]);
 
-  const closeDeepNews = () => {
-    setDeepNewsOpen(false);
-    // Drop the ?news= param so a refresh/back doesn't reopen the post.
-    const url = new URL(window.location.href);
-    url.searchParams.delete('news');
-    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-  };
+  const closeDeepNews = () => setDeepNewsOpen(false);
 
   // Typing used to fire one feed request per keystroke: laggy, and ten characters was ten requests
   // against a 100-per-15-minutes limit, so a few searches could lock the user out with 429s.
@@ -134,6 +165,8 @@ const AppContent: React.FC = () => {
   }, [mobileSearchOpen]);
 
   const handleCategorySelect = (catId: string) => {
+    const from = navSnapshotRef.current;
+    if (from.view !== 'feed' || from.category !== catId) pushNavStep();
     setCategory(catId);
     setView('feed');
     setMobileMenuOpen(false);
@@ -143,6 +176,12 @@ const AppContent: React.FC = () => {
   // Every nav destination resets the query, so a stale search can never survive a navigation and
   // silently filter whatever the user lands on next.
   const goTo = useCallback((next: typeof view, nextCategory?: string) => {
+    const from = navSnapshotRef.current;
+    // Повторный клик по текущему разделу шагом назад не считается — иначе «назад» жалось бы
+    // вхолостую по разу на каждое такое нажатие.
+    const isSameSpot = next === from.view && (nextCategory === undefined || nextCategory === from.category);
+    if (!isSameSpot) pushNavStep();
+
     setView(next);
     if (nextCategory !== undefined) setCategory(nextCategory);
     setMobileMenuOpen(false);
@@ -150,7 +189,7 @@ const AppContent: React.FC = () => {
     // Любой переход по меню закрывает правку: иначе «Создать опрос» открывался бы с чужим
     // материалом внутри, и новая публикация молча уходила бы поверх старой.
     setEditingNewsId(null);
-  }, [clearSearch]);
+  }, [clearSearch, pushNavStep]);
 
   // Открыть мастер на правке конкретной публикации — из карточки в ленте или из списка опросов.
   const startEditing = useCallback((newsId: number) => {

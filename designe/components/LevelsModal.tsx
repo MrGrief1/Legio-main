@@ -4,6 +4,7 @@ import { X, ChevronRight } from 'lucide-react';
 import { LEVELS, getLevel } from '../constants';
 import { useAuth } from '../context/AuthContext';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { Avatar } from './Avatar';
 import { ProfileStatsGrid, ProfileUser, useProfileData } from './ProfileStats';
 
@@ -23,6 +24,8 @@ export const LevelsModal: React.FC<LevelsModalProps> = ({ isOpen, onClose }) => 
   const { user: profile, stats, loading } = useProfileData(selfId, isOpen);
 
   useScrollLock(isOpen);
+  // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+  useBackClose(isOpen, onClose);
 
   if (!isOpen) return null;
 

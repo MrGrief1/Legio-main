@@ -4,9 +4,24 @@
     {
       "name": "legio-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3010"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3011"
+      ],
       "cwd": "designe",
-      "port": 3010
+      "port": 3011
+    },
+    {
+      "name": "legio-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "index.js"
+      ],
+      "cwd": "server",
+      "port": 3001
     }
   ]
 }

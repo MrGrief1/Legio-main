@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Trophy, X, Sparkles } from 'lucide-react';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { useLanguage } from '../context/LanguageContext';
 
 export interface PrizeNotification {
@@ -41,6 +42,8 @@ export const PrizeModal: React.FC<PrizeModalProps> = ({ notification, onClose })
     const isOpen = !!notification;
     const hasTransitionedIn = useMountTransition(isOpen, 300);
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
     const { language } = useLanguage();
 
     // Counts the prize up instead of just printing it — the number is the point of the whole dialog.

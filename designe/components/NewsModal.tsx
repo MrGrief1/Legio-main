@@ -7,6 +7,7 @@ import { useDialog } from '../context/DialogContext';
 import { ReportModal } from './ReportModal';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { parseNewsDate } from '../utils/date';
 
 interface NewsModalProps {
@@ -35,6 +36,8 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
   const hasImage = !!item.image && !imageBroken;
 
   useScrollLock(isOpen);
+  // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+  useBackClose(isOpen, onClose);
 
   const handleLike = async (e?: React.MouseEvent) => {
     e?.stopPropagation();

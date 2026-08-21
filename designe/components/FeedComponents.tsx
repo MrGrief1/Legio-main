@@ -10,6 +10,7 @@ import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { formatNewsDate, formatDateOnly, formatDateTime } from '../utils/date';
 
 // Format a YYYY-MM-DD poll end date to DD.MM.YYYY; fall back to the raw string.
@@ -99,6 +100,8 @@ const VotersModal: React.FC<{
   onSelectUser: (user: User) => void;
 }> = ({ isOpen, onClose, optionText, voters, onSelectUser }) => {
   useScrollLock(isOpen);
+  // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+  useBackClose(isOpen, onClose);
   if (!isOpen) return null;
   return (
     <div

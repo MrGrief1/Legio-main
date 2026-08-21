@@ -8,6 +8,7 @@ import { ChatContactItem, ChatMessageItem, Message, ChatContact } from './ChatCo
 import { Avatar } from './Avatar';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 import { getApiUrl } from '../config';
 
 interface ChatModalProps {
@@ -145,6 +146,29 @@ export const ChatModal: React.FC<ChatModalProps> = React.memo(({ isOpen, onClose
     }, [files, scrollToBottom]);
 
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
+
+    // Панель диалога наезжает поверх списка контактов только на узком экране; на широком обе
+    // колонки видны разом, и тратить на этот невидимый переход нажатие «назад» нельзя — со
+    // стороны это выглядело бы как «кнопка не работает».
+    const [isNarrow, setIsNarrow] = useState(() => window.matchMedia('(max-width: 639px)').matches);
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(max-width: 639px)');
+        const handleChange = () => setIsNarrow(mediaQuery.matches);
+
+        handleChange();
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+    }, []);
+
+    // Внутри чата «назад» разбирает экраны по одному: карточка собеседника → список диалогов →
+    // закрытие чата. Порядок объявления задаёт порядок шагов в стеке.
+    const closeMobileChat = useCallback(() => setShowMobileChat(false), []);
+    useBackClose(isOpen && isNarrow && showMobileChat, closeMobileChat);
+
+    const closeContactInfo = useCallback(() => setShowContactInfo(false), []);
+    useBackClose(isOpen && showContactInfo, closeContactInfo);
 
     const fetchChats = async () => {
         try {

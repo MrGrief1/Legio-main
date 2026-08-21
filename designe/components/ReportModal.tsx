@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Button } from './UI';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 
 interface ReportModalProps {
     isOpen: boolean;
@@ -20,6 +21,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({ isOpen, onClose, newsI
     const [success, setSuccess] = useState(false);
     const hasTransitionedIn = useMountTransition(isOpen, 300);
     useScrollLock(isOpen);
+    // Кнопка «назад» закрывает модалку, а не уводит с сайта.
+    useBackClose(isOpen, onClose);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

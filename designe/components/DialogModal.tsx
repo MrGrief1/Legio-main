@@ -5,6 +5,7 @@ import { DialogType } from '../context/DialogContext';
 import { Button } from './UI';
 import { useMountTransition } from '../hooks/useMountTransition';
 import { useScrollLock } from '../hooks/useScrollLock';
+import { useBackClose } from '../hooks/useBackClose';
 
 interface DialogModalProps {
     isOpen: boolean;
@@ -25,6 +26,13 @@ export const DialogModal: React.FC<DialogModalProps> = ({
 
     // Lock body scroll when dialog is open
     useScrollLock(isOpen);
+
+    // «Назад» закрывает диалог так же, как Escape: у вопроса это «отмена», иначе обещание из
+    // showConfirm осталось бы неразрешённым, и вызвавший его код завис бы навсегда.
+    useBackClose(isOpen, () => {
+        if (type === 'confirm') onCancel?.();
+        else onConfirm?.();
+    });
 
     // Handle escape key
     useEffect(() => {
