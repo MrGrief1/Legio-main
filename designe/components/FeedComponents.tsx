@@ -174,7 +174,15 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
     setHasVoted(!!data.user_voted_option_id);
   }, [data]);
 
-  const showResults = hasVoted || !!pollData.is_resolved;
+  // Голосование закрылось по сроку, но результат ещё не объявлен: выбор больше не принимается,
+  // а проценты уже можно показать — иначе читатель, не успевший проголосовать, видит опрос,
+  // в котором нечего нажать и нечего посмотреть.
+  const votingClosedByDeadline = !!pollData.voting_closed && !pollData.is_resolved;
+  // Аннулированный: закрыт, но победителя нет. Расклад голосов показываем — он и есть всё, что
+  // от такого опроса осталось.
+  const isVoid = !!pollData.is_void;
+  const canVote = !hasVoted && !pollData.is_resolved && !votingClosedByDeadline;
+  const showResults = hasVoted || !!pollData.is_resolved || votingClosedByDeadline;
 
   useEffect(() => {
     if (!showResults) {
@@ -277,20 +285,29 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
   // нажимавший считал своим прогнозом. Поэтому до конца срока кнопка выглядит иначе и открывает
   // подтверждение с датой: закрыть идущий опрос по-прежнему можно, но не одним промахом мышью.
   // Пустая строка в ends_at (наследие переноса из WordPress) — это «срока нет», а не «срок пуст».
+  // Признак «срок вышел» берём с сервера (voting_closed), а не считаем по часам читателя: иначе
+  // на отставших часах интерфейс попросит подтверждение досрочного завершения у опроса, который
+  // сервер уже считает закрытым, — и наоборот.
   const deadline = String(pollData.ends_at || '').trim();
-  const votingClosed = !deadline || deadline < new Date().toISOString().slice(0, 10);
+  const votingClosed = !deadline || !!pollData.voting_closed;
+  // Аннулированный опрос редакция может закрыть по-настоящему, если исход всё-таки стал
+  // известен — сервер такой переход разрешает. Обычный завершённый переигрывать нельзя.
   const canResolve = !!user
     && (user.role === 'admin' || user.role === 'creator')
-    && !pollData.is_resolved;
+    && (!pollData.is_resolved || isVoid);
 
   const handleResolve = async (optionId: number) => {
     // Пока срок не вышел, это досрочное завершение: спрашиваем отдельно и называем дату, до
     // которой идёт голосование, — иначе «вы уверены?» ничем не отличается от обычного закрытия
     // просроченного опроса. Флаг `early` сервер требует явно: без него он такой запрос отклонит.
-    const early = !votingClosed;
+    // У аннулированного опроса голосование уже закрыто, обрывать нечего — подтверждение
+    // досрочности здесь бессмысленно, и сервер его не требует.
+    const early = !votingClosed && !isVoid;
     const confirmed = await showConfirm(early
       ? `Голосование идёт до ${formatPollDate(deadline)}. Завершить опрос досрочно? Баллы начислятся сразу, отменить нельзя.`
-      : "Вы уверены, что это правильный ответ? Это действие нельзя отменить.");
+      : isVoid
+        ? "Опрос был закрыт без результата. Объявить этот вариант верным и начислить баллы? Отменить нельзя."
+        : "Вы уверены, что это правильный ответ? Это действие нельзя отменить.");
     if (!confirmed) return;
 
     try {
@@ -330,26 +347,42 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
 
   return (
     <div
-      className={`bg-zinc-50 dark:bg-zinc-900/50 rounded-[20px] p-4 lg:p-5 mb-4 border ${pollData.is_resolved ? 'border-green-500/20 dark:border-green-500/20' : 'border-zinc-100 dark:border-zinc-800'}`}
+      className={`bg-zinc-50 dark:bg-zinc-900/50 rounded-[20px] p-4 lg:p-5 mb-4 border ${pollData.is_resolved && !isVoid ? 'border-green-500/20 dark:border-green-500/20' : 'border-zinc-100 dark:border-zinc-800'}`}
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
     >
       <h4 className="font-semibold text-zinc-900 dark:text-white text-[15px] mb-2 leading-snug">
         {pollData.question}
-        {pollData.is_resolved === 1 && <span className="ml-2 text-xs text-green-500 font-bold uppercase border border-green-500 rounded px-1">Завершен</span>}
+        {pollData.is_resolved === 1 && !isVoid && <span className="ml-2 text-xs text-green-500 font-bold uppercase border border-green-500 rounded px-1">Завершен</span>}
+        {/* Серый, а не зелёный: «без результата» — это не успех и не ошибка, а отсутствие исхода. */}
+        {isVoid && <span className="ml-2 text-xs text-zinc-500 font-bold uppercase border border-zinc-400 dark:border-zinc-600 rounded px-1">Без результата</span>}
+        {/* Пометка про срок: опрос с закрытым голосованием внешне ничем не отличался от идущего —
+            варианты на месте, «Завершен» ещё нет. Читатель понимал, что голосовать нельзя, только
+            дойдя до неактивной кнопки внизу карточки. */}
+        {votingClosedByDeadline && <span className="ml-2 text-xs text-amber-600 dark:text-amber-500 font-bold uppercase border border-amber-500 rounded px-1">Приём голосов закрыт</span>}
       </h4>
 
       {pollData.ends_at && !pollData.is_resolved ? (
         // Срок голосования — то, по чему читатель решает, успевает он или нет, и то, по чему
         // редакция ищет опросы к завершению. Раньше он терялся серой мелочью наравне со всем
         // остальным, поэтому сама дата теперь заметно плотнее подписи.
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+        <div className={`flex items-center gap-1.5 text-xs mb-3 ${votingClosedByDeadline ? 'text-amber-700 dark:text-amber-500' : 'text-zinc-500 dark:text-zinc-400'}`}>
           <Clock size={14} className="shrink-0" />
           <span>
-            Голосование до{' '}
-            <span className="font-bold text-sm text-zinc-800 dark:text-zinc-100 tabular-nums">
-              {formatPollDate(pollData.ends_at)}
-            </span>
+            {votingClosedByDeadline ? (
+              <>
+                Голосование закрылось{' '}
+                <span className="font-bold text-sm tabular-nums">{formatPollDate(pollData.ends_at)}</span>
+                {' '}— результат объявят позже
+              </>
+            ) : (
+              <>
+                Голосование до{' '}
+                <span className="font-bold text-sm text-zinc-800 dark:text-zinc-100 tabular-nums">
+                  {formatPollDate(pollData.ends_at)}
+                </span>
+              </>
+            )}
           </span>
         </div>
       ) : (
@@ -364,8 +397,8 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
           </span>
           {pollData.created_at && <span>Создан {formatDateOnly(pollData.created_at)}</span>}
           {pollData.is_resolved === 1 && (
-            <span className="text-green-600 dark:text-green-500">
-              Завершён {formatDateTime(pollData.resolved_at, '—')}
+            <span className={isVoid ? 'text-zinc-500' : 'text-green-600 dark:text-green-500'}>
+              {isVoid ? 'Закрыт без результата' : 'Завершён'} {formatDateTime(pollData.resolved_at, '—')}
               {pollData.resolved_by && ` · ${pollData.resolved_by.name || pollData.resolved_by.username}`}
             </span>
           )}
@@ -383,11 +416,11 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  if (!hasVoted && !pollData.is_resolved) {
+                  if (canVote) {
                     setSelectedOption(option.id);
                   }
                 }}
-                className={`relative group/option cursor-pointer rounded-xl transition-all duration-300 overflow-hidden ${hasVoted || pollData.is_resolved ? 'cursor-default' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
+                className={`relative group/option cursor-pointer rounded-xl transition-all duration-300 overflow-hidden ${canVote ? 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50' : 'cursor-default'
                   } ${isCorrect ? 'ring-2 ring-green-500' : ''}`}
               >
                 {/* Заливка всегда в DOM: пока результатов нет, она стоит на scaleX(0) и прозрачна,
@@ -416,7 +449,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                 <div className="relative z-10 flex items-start gap-3 px-3 py-2.5">
                   <div className={`mt-0.5 shrink-0 transition-colors duration-200 ${selectedOption === option.id
                     ? 'text-blue-500 scale-110'
-                    : (hasVoted || !!pollData.is_resolved)
+                    : !canVote
                       ? 'text-zinc-300 dark:text-zinc-600'
                       : 'text-zinc-400 group-hover/option:text-blue-500'
                     }`}>
@@ -539,7 +572,7 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
         )}
 
         <div className="flex-1 flex justify-end">
-          {!hasVoted && !pollData.is_resolved ? (
+          {canVote ? (
             <Button
               onClick={handleVote}
               disabled={selectedOption === null || isVoting || !user}
@@ -557,7 +590,13 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
           ) : (
             <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-sm font-medium animate-in fade-in duration-500">
               {hasVoted && <span className="w-2 h-2 rounded-full bg-green-500" />}
-              {hasVoted ? 'Ваш голос учтен' : 'Голосование завершено'}
+              {isVoid
+                ? 'Результат не был объявлен'
+                : hasVoted
+                  ? 'Ваш голос учтен'
+                  : votingClosedByDeadline
+                    ? 'Голосование закрыто — ждём результат'
+                    : 'Голосование завершено'}
             </div>
           )}
         </div>

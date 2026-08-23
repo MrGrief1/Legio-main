@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { LEVELS, getLevel, getCategoryIcon } from '../constants';
-import { LevelsModal } from './LevelsModal';
+import { getCategoryIcon } from '../constants';
+import { LevelProgress } from './LevelProgress';
 import { SettingsModal } from './SettingsModal';
 import { AuthModal } from './AuthModal';
 import { Avatar } from './Avatar';
@@ -20,11 +20,19 @@ export type SidebarNavKey = string;
 // 'never'  – the mobile menu already shows the full auth card above the nav.
 export type SidebarAccountVisibility = 'auto' | 'always' | 'never';
 
+// Где показывать виджет «Прогресс». Он же живёт в правой панели под карточкой профиля, но панель
+// рендерится только с xl и не на всех экранах приложения — там, где её нет, виджет должен остаться
+// в боковом меню, иначе уровень негде посмотреть.
+// 'auto'   – скрыт с xl: правая панель показывает его сама.
+// 'always' – правой панели тут нет вовсе, меню показывает виджет на любой ширине.
+export type SidebarLevelVisibility = 'auto' | 'always';
+
 interface SidebarProps {
   className?: string;
   showHeader?: boolean;
   activeKey?: SidebarNavKey;
   accountVisibility?: SidebarAccountVisibility;
+  levelVisibility?: SidebarLevelVisibility;
   onAdminClick?: () => void;
   onCreatePollClick?: () => void;
   onManagePollsClick?: () => void;
@@ -124,11 +132,10 @@ const SidebarAccount: React.FC = () => {
   );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ className = '', showHeader = true, activeKey = 'feed', accountVisibility = 'auto', onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onOpenPollsClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ className = '', showHeader = true, activeKey = 'feed', accountVisibility = 'auto', levelVisibility = 'auto', onAdminClick, onCreatePollClick, onManagePollsClick, onFeedClick, onOpenPollsClick, onLeaderboardClick, onStatisticsClick, onErrorReportsClick, onChatsClick, onInfoClick, onCategorySelect, onSearch }) => {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [categories, setCategories] = React.useState<SidebarCategory[]>([]);
-  const [isLevelsModalOpen, setIsLevelsModalOpen] = React.useState(false);
 
   // The sidebar used to fetch /api/leaders here and never render the result — a wasted request on
   // every mount, and the sidebar mounts twice (desktop column + mobile menu). The leaderboard lives
@@ -279,39 +286,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', showHeader = t
         </button>
       </div>
 
-      {/* Progress Widget */}
-      {user && (
-        <div
-          className="mb-6 bg-zinc-100 dark:bg-zinc-800/50 rounded-2xl p-3.5 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
-          onClick={() => setIsLevelsModalOpen(true)}
-        >
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 shrink-0 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                <Trophy size={16} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Прогресс</div>
-                <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">{getLevel(user.points || 0).name}</div>
-              </div>
-            </div>
-            <div className="text-sm font-mono font-medium text-zinc-500 shrink-0">
-              {user.points?.toLocaleString() || 0}
-            </div>
-          </div>
-
-          <div className="h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
-            <div
-              // transition-[width], not transition-all: only the width animates, and `all` over a
-              // full second made this bar the last thing to vanish when the mobile menu closed.
-              className="h-full bg-blue-500 rounded-full transition-[width] duration-1000"
-              style={{
-                width: `${Math.min(100, Math.max(0, ((user.points || 0) - getLevel(user.points || 0).minPoints) / ((LEVELS[getLevel(user.points || 0).id]?.minPoints || (getLevel(user.points || 0).minPoints * 2)) - getLevel(user.points || 0).minPoints) * 100))}%`
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Progress Widget — та же карточка, что и в правой панели; здесь она нужна только там,
+          где правой панели нет (мобильное меню и ширины ниже xl). */}
+      <LevelProgress className={`mb-6 ${levelVisibility === 'auto' ? 'xl:hidden' : ''}`} />
 
       {/* Search */}
       <div className="mb-6">
@@ -349,7 +326,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', showHeader = t
         })}
       </div>
 
-      <LevelsModal isOpen={isLevelsModalOpen} onClose={() => setIsLevelsModalOpen(false)} />
     </aside>
   );
 };

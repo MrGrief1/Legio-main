@@ -52,6 +52,9 @@ interface ManagePoll {
     created_at: string | null;
     ends_at: string | null;
     is_resolved: number;
+    // Закрыт без победителя. Такой опрос можно завершить по-настоящему позже, если исход
+    // всё-таки стал известен, — поэтому он не «просто завершённый».
+    is_void?: boolean;
     correct_option_id: number | null;
     resolved_at: string | null;
     author: PollAuthor | null;
@@ -118,7 +121,12 @@ const isOverdue = (endsAt: string | null): boolean => {
     if (!match) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) < today;
+    // `<=`, а не `<`: срок — это момент закрытия приёма голосов (день матча, о котором опрос),
+    // поэтому в сам этот день голосование уже закрыто. Сервер считает так же — и когда отклоняет
+    // голос, и когда отбирает опросы во вкладку «требуют завершения». Со строгим `<` эта вкладка
+    // показывала бы на день меньше, чем сервер, а завершение в день срока спрашивало бы лишнее
+    // подтверждение досрочности.
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) <= today;
 };
 
 // Голосование уже закрылось? От этого зависит только текст подтверждения: пока срок не вышел,
@@ -861,7 +869,8 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                             // Незавершённый опрос можно закрыть с любой вкладки; на «ещё идут»
                             // это досрочное завершение, и подпись под вопросом об этом предупреждает,
                             // а сам клик упирается в отдельное подтверждение со сроком.
-                            const canPick = poll.is_resolved === 0;
+                            const isVoid = !!poll.is_void;
+                            const canPick = poll.is_resolved === 0 || isVoid;
                             const busy = resolvingId === poll.id;
                             const expanded = density === 'expanded' || expandedIds.has(poll.id);
                             const authorName = poll.author?.name || poll.author?.username || t.managePolls.unknownAuthor;
@@ -872,7 +881,7 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                     key={poll.id}
                                     className={`rounded-2xl border transition-colors ${overdue
                                         ? 'border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/5'
-                                        : poll.is_resolved === 1
+                                        : poll.is_resolved === 1 && !isVoid
                                             ? 'border-zinc-200 dark:border-zinc-800 bg-green-50/30 dark:bg-green-500/[0.03]'
                                             : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40'
                                         }`}
@@ -896,9 +905,14 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                 <h3 className="font-semibold text-zinc-900 dark:text-white text-[15px] leading-snug break-words">
                                                     {headline}
                                                 </h3>
-                                                {poll.is_resolved === 1 && (
+                                                {poll.is_resolved === 1 && !isVoid && (
                                                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-green-600 dark:text-green-400 border border-green-500/40 rounded px-1.5 py-0.5">
                                                         {t.managePolls.resolvedBadge}
+                                                    </span>
+                                                )}
+                                                {isVoid && (
+                                                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border border-zinc-400/50 dark:border-zinc-600 rounded px-1.5 py-0.5">
+                                                        {t.managePolls.voidBadge}
                                                     </span>
                                                 )}
                                             </div>
@@ -916,9 +930,9 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                 )}
 
                                                 {poll.is_resolved === 1 ? (
-                                                    <span className="flex items-center gap-1.5 whitespace-nowrap text-green-600 dark:text-green-500">
+                                                    <span className={`flex items-center gap-1.5 whitespace-nowrap ${isVoid ? 'text-zinc-500' : 'text-green-600 dark:text-green-500'}`}>
                                                         <CheckCircle2 size={12} className="shrink-0" />
-                                                        {t.managePolls.resolvedAt} {formatDateTime(poll.resolved_at, '—')}
+                                                        {isVoid ? t.managePolls.voidedAt : t.managePolls.resolvedAt} {formatDateTime(poll.resolved_at, '—')}
                                                         {poll.resolved_by && ` · ${poll.resolved_by.name || poll.resolved_by.username}`}
                                                     </span>
                                                 ) : poll.ends_at ? (
@@ -979,11 +993,13 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                 </p>
 
                                                 <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">
-                                                    {poll.is_resolved === 1
-                                                        ? t.managePolls.correctAnswer
-                                                        : votingClosed(poll.ends_at)
-                                                            ? t.managePolls.pickCorrect
-                                                            : t.managePolls.pickEarly}
+                                                    {isVoid
+                                                        ? t.managePolls.voidHint
+                                                        : poll.is_resolved === 1
+                                                            ? t.managePolls.correctAnswer
+                                                            : votingClosed(poll.ends_at)
+                                                                ? t.managePolls.pickCorrect
+                                                                : t.managePolls.pickEarly}
                                                 </div>
 
                                                 <div className="space-y-2">

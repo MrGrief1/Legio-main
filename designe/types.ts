@@ -41,8 +41,14 @@ export interface PollData {
   question: string;
   options: PollOption[];
   is_resolved?: number;
+  // Закрыт без победителя: верного варианта нет и не будет, баллы не начислялись.
+  // Голос в таком опросе не считается ни верным, ни ошибочным.
+  is_void?: boolean;
   correct_option_id?: number | null;
   ends_at?: string | null;
+  // Считает сервер по своей дате: срок голосования вышел, но верный вариант ещё не проставлен.
+  // Клиент не пересчитывает это сам — у читателя часы могут расходиться с серверными.
+  voting_closed?: boolean;
   user_voted_option_id?: number | null;
   author?: PollAuthor | null;
   created_at?: string | null;

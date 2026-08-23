@@ -3,7 +3,7 @@ import { Button, Input } from './UI';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Loader2, Trash, Plus, Check, Upload, X, ChevronLeft, ChevronRight, Link as LinkIcon, Calendar, Clock, FileText } from 'lucide-react';
+import { Loader2, Trash, Plus, Check, Upload, X, ArrowLeft, ChevronLeft, ChevronRight, Link as LinkIcon, Calendar, Clock, FileText } from 'lucide-react';
 import { CATEGORIES, getCategoryIcon } from '../constants';
 import { getApiUrl } from '../config';
 
@@ -401,6 +401,21 @@ export const CreatePoll: React.FC<CreatePollProps> = ({ editingNewsId = null, on
 
     return (
         <div className="bg-white dark:bg-[#121212] rounded-2xl lg:rounded-[32px] p-4 lg:p-8 border border-zinc-200 dark:border-zinc-800 w-full">
+            {/* Выход из правки. Такая же кнопка есть внизу, но она живёт на пятом шаге мастера:
+                чтобы просто передумать на первом шаге, редактору приходилось пролистать всю форму
+                до конца. Здесь — над заголовком, то есть там, где кнопку «назад» и ищут. */}
+            {isEditing && onCancelEdit && (
+                <button
+                    type="button"
+                    onClick={() => onCancelEdit()}
+                    disabled={creating}
+                    className="inline-flex items-center gap-1.5 -ml-1 mb-3 px-2 py-1.5 rounded-lg text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                >
+                    <ArrowLeft size={16} className="shrink-0" />
+                    {t.wizard.backToPolls}
+                </button>
+            )}
+
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <h2 className="text-2xl font-bold dark:text-white">
                     {isEditing ? t.wizard.editTitle : t.wizard.title}
@@ -634,7 +649,7 @@ export const CreatePoll: React.FC<CreatePollProps> = ({ editingNewsId = null, on
                             </Button>
                         </div>
 
-                        {/* Poll end date (okonchanie_oprosa) */}
+                        {/* Poll end date (okonchanie_oprosa) — срок приёма голосов, не срок опроса. */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
                                 <Calendar size={16} /> {t.wizard.pollEndDateLabel} <span className="text-zinc-400 font-normal">({t.wizard.optional})</span>
@@ -646,6 +661,11 @@ export const CreatePoll: React.FC<CreatePollProps> = ({ editingNewsId = null, on
                                 className="w-full p-3 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
                             />
                             <p className="text-xs text-zinc-400">{t.wizard.pollEndDateHint}</p>
+                            {/* Дата закрывает голосование, но не завершает опрос — разница неочевидная,
+                                и без объяснения редактор ставил срок, ожидая, что опрос закроется сам. */}
+                            <p className="text-xs leading-relaxed text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-2xl px-4 py-3">
+                                {t.wizard.pollEndDateNote}
+                            </p>
                         </div>
                     </div>
                 )}

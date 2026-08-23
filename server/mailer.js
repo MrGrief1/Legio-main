@@ -157,6 +157,181 @@ const renderCodeText = ({ eyebrow, title, description, code, ttlMinutes, footerN
         'legio.news',
     ].join('\n');
 
+// Письмо об итогах опроса.
+//
+// Приходит участнику, когда редакция проставила верный вариант. Главное, ради чего его открывают, —
+// «угадал или нет», поэтому это первое, что видно: цветная плашка с вердиктом, под ней свой ответ
+// и верный ответ рядом, чтобы их можно было сравнить, не вспоминая, за что голосовал месяц назад.
+//
+// Вёрстка та же, что и у писем с кодами: таблицы и inline-стили, потому что почтовые клиенты
+// вырезают <style> и не поддерживают flex.
+const renderPollResultEmail = ({ isWinner, question, userAnswer, correctAnswer, points, newsUrl }) => {
+    // Зелёный для верного прогноза, серый для неверного. Красный сюда не годится: неугаданный
+    // прогноз — это не ошибка пользователя и не сбой, а обычный исход.
+    const accent = isWinner ? '#16a34a' : '#71717a';
+    const verdict = isWinner ? 'Вы угадали' : 'В этот раз мимо';
+    const eyebrow = 'Опрос завершён';
+
+    return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>Legio</title>
+  <style>${EMAIL_STYLES}</style>
+</head>
+<body class="lg-page" style="margin:0;padding:0;width:100%;background-color:#f4f4f5;">
+
+  <!-- Строка предпросмотра: исход виден ещё в списке входящих. -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0;">
+    ${escapeHtml(verdict)}${isWinner && points > 0 ? ` — начислено ${escapeHtml(points)} баллов` : ''}. Верный ответ: ${escapeHtml(correctAnswer)}
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="lg-page" style="background-color:#f4f4f5;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" class="lg-card" style="width:100%;max-width:520px;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:24px;">
+
+          <!-- Шапка -->
+          <tr>
+            <td class="lg-pad" style="padding:36px 40px 0;">
+              <div class="lg-brand" style="font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-style:italic;font-size:30px;font-weight:500;letter-spacing:-0.5px;color:#18181b;line-height:1.1;">Legio</div>
+              <div class="lg-muted" style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:#a1a1aa;padding-top:6px;">Проверь свою интуицию</div>
+            </td>
+          </tr>
+          <tr>
+            <td class="lg-pad" style="padding:24px 40px 0;">
+              <div class="lg-rule" style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;">&nbsp;</div>
+            </td>
+          </tr>
+
+          <!-- Вердикт и вопрос -->
+          <tr>
+            <td class="lg-pad" style="padding:28px 40px 0;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:${accent};">${escapeHtml(eyebrow)}</div>
+              <h1 class="lg-title" style="margin:10px 0 0;font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-size:26px;font-weight:600;line-height:1.25;color:#18181b;">${escapeHtml(verdict)}</h1>
+              <p class="lg-text" style="margin:12px 0 0;font-size:15px;line-height:1.6;color:#52525b;">${escapeHtml(question)}</p>
+            </td>
+          </tr>
+
+          <!-- Свой ответ и верный ответ -->
+          <tr>
+            <td class="lg-pad" style="padding:24px 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="lg-panel" style="background-color:#fafafa;border:1px solid #e4e4e7;border-radius:16px;">
+                <tr>
+                  <td style="padding:18px 20px 14px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+                    <div class="lg-muted" style="font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:#a1a1aa;">Ваш ответ</div>
+                    <div class="lg-code" style="font-size:15px;font-weight:600;line-height:1.5;color:#18181b;padding-top:5px;">${escapeHtml(userAnswer)}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 20px;">
+                    <div class="lg-rule" style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;">&nbsp;</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 20px 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+                    <div class="lg-muted" style="font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:#a1a1aa;">Верный ответ</div>
+                    <div style="font-size:15px;font-weight:600;line-height:1.5;color:${accent};padding-top:5px;">${escapeHtml(correctAnswer)}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          ${isWinner && points > 0 ? `<!-- Начисление -->
+          <tr>
+            <td class="lg-pad" style="padding:16px 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:16px;">
+                <tr>
+                  <td align="center" style="padding:18px 12px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+                    <div style="font-size:26px;font-weight:700;color:#16a34a;line-height:1.1;">+${escapeHtml(points)}</div>
+                    <div style="font-size:12px;color:#15803d;padding-top:6px;">баллов начислено за верный прогноз</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>` : ''}
+
+          <!-- Ссылка на опрос -->
+          <tr>
+            <td class="lg-pad" style="padding:24px 40px 0;" align="center">
+              <a href="${escapeHtml(newsUrl)}" style="display:inline-block;background-color:#18181b;color:#ffffff;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:999px;">Посмотреть результаты</a>
+            </td>
+          </tr>
+
+          <!-- Подвал -->
+          <tr>
+            <td class="lg-pad" style="padding:28px 40px 32px;">
+              <div class="lg-rule" style="border-top:1px solid #e4e4e7;font-size:0;line-height:0;">&nbsp;</div>
+              <div class="lg-muted" style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#a1a1aa;padding-top:16px;">
+                Письмо пришло, потому что вы голосовали в этом опросе.<br>
+                <a href="https://legio.news" style="color:#a1a1aa;text-decoration:none;">legio.news</a>
+                &nbsp;·&nbsp; © ${new Date().getFullYear()} Legio
+              </div>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+};
+
+const renderPollResultText = ({ isWinner, question, userAnswer, correctAnswer, points, newsUrl }) =>
+    [
+        'LEGIO',
+        '',
+        `Опрос завершён — ${isWinner ? 'вы угадали' : 'в этот раз мимо'}`,
+        '',
+        question,
+        '',
+        `Ваш ответ:    ${userAnswer}`,
+        `Верный ответ: ${correctAnswer}`,
+        ...(isWinner && points > 0 ? ['', `Начислено баллов: +${points}`] : []),
+        '',
+        `Результаты: ${newsUrl}`,
+        '',
+        'Письмо пришло, потому что вы голосовали в этом опросе.',
+        'legio.news',
+    ].join('\n');
+
+/**
+ * Письмо об итогах опроса одному участнику.
+ *
+ * @param {string} to             адрес получателя
+ * @param {object} payload        { isWinner, question, userAnswer, correctAnswer, points, newsUrl }
+ */
+const sendPollResultEmail = async (to, payload) => {
+    const data = {
+        isWinner: Boolean(payload.isWinner),
+        question: String(payload.question || 'Опрос'),
+        userAnswer: String(payload.userAnswer || '—'),
+        correctAnswer: String(payload.correctAnswer || '—'),
+        points: Number(payload.points) || 0,
+        newsUrl: String(payload.newsUrl || 'https://legio.news'),
+    };
+
+    // Тема письма отвечает на главный вопрос прямо в списке входящих: открывать письмо, чтобы
+    // узнать «угадал или нет», не нужно.
+    const subject = data.isWinner
+        ? `Вы угадали — опрос завершён${data.points > 0 ? ` (+${data.points} баллов)` : ''} — Legio`
+        : 'Опрос завершён — результат — Legio';
+
+    return sendRawEmail({
+        to,
+        subject,
+        html: renderPollResultEmail(data),
+        text: renderPollResultText(data),
+    });
+};
+
 /**
  * Низкоуровневая отправка. Не бросает: вызывающему важно отличить «письмо ушло» от «не ушло»,
  * а не ловить исключение в каждом обработчике.
@@ -293,4 +468,4 @@ const sendCodeEmail = async (to, purpose, code, ttlMinutes) => {
     });
 };
 
-module.exports = { sendCodeEmail, sendRawEmail, isMailerConfigured, CODE_TEMPLATES };
+module.exports = { sendCodeEmail, sendPollResultEmail, sendRawEmail, isMailerConfigured, CODE_TEMPLATES };

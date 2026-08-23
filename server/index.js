@@ -1125,6 +1125,147 @@ const getUserIdFromToken = (req) => {
     return user ? user.id : null;
 };
 
+// --- Письма об итогах опроса -------------------------------------------------------------
+//
+// Когда редакция проставляет верный вариант, участник узнаёт об этом, только если сам вернётся на
+// сайт и найдёт тот же опрос. Между голосом и результатом проходят недели, поэтому почти никто не
+// возвращался — начисленные баллы приходили молча. Письмо закрывает именно этот разрыв: «опрос
+// завершён, вы ответили так, верный ответ такой, баллы такие».
+//
+// Рассылка идёт после COMMIT и не влияет на ответ HTTP: завершение опроса — это операция с
+// баллами, и она не должна ни падать, ни ждать из-за почты. Отсюда же порядок в обработчике:
+// сперва res.json(), потом рассылка.
+
+// Публичный адрес сайта — для ссылки «Посмотреть результаты» в письме. Берётся из окружения,
+// потому что в письме нельзя использовать адрес из заголовков запроса: его подставляет клиент.
+const PUBLIC_SITE_URL = String(process.env.PUBLIC_SITE_URL || 'https://legio.news').trim().replace(/\/+$/, '');
+
+// Resend по умолчанию принимает 2 запроса в секунду. Опрос с сотней проголосовавших упрётся в этот
+// предел за несколько секунд, и часть писем вернётся с 429. Пауза между отправками держит темп
+// ниже лимита; рассылка идёт в фоне, поэтому её длительность никого не задерживает.
+const POLL_EMAIL_DELAY_MS = 600;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Рассылает участникам опроса письма с результатом. Не бросает: почта не должна влиять на то,
+ * считается ли опрос завершённым.
+ *
+ * @param {object} params
+ * @param {number} params.pollId
+ * @param {number} params.newsId
+ * @param {number} params.correctOptionId
+ * @param {number} params.pointsAwarded  сколько начислено угадавшим (0, если не начислялось)
+ */
+const notifyPollResolved = async ({ pollId, newsId, correctOptionId, pointsAwarded }) => {
+    if (!mailer.isMailerConfigured()) {
+        console.warn(`[poll-result] RESEND_API_KEY не задан — письма по опросу ${pollId} не отправлены`);
+        return { sent: 0, failed: 0, skipped: 0, reason: 'not-configured' };
+    }
+
+    const stats = { sent: 0, failed: 0, skipped: 0 };
+
+    try {
+        const poll = await dbGetAsync('SELECT question FROM polls WHERE id = ?', [pollId]);
+        const correctOption = await dbGetAsync('SELECT text FROM poll_options WHERE id = ?', [correctOptionId]);
+
+        // Один запрос на всех: адрес, выбранный вариант и его текст. `username` берётся тоже —
+        // у перенесённых из WordPress аккаунтов почта иногда лежит именно в нём.
+        const recipients = await dbAllAsync(
+            `SELECT u.id, u.email, u.username, v.option_id, o.text AS option_text
+               FROM votes v
+               JOIN users u ON u.id = v.user_id
+               LEFT JOIN poll_options o ON o.id = v.option_id
+              WHERE v.poll_id = ?`,
+            [pollId]
+        );
+
+        const question = poll?.question || 'Опрос';
+        const correctAnswer = correctOption?.text || '—';
+        const newsUrl = `${PUBLIC_SITE_URL}/?news=${newsId}`;
+
+        for (const recipient of recipients) {
+            const to = getContactEmail(recipient);
+            if (!to) {
+                // Аккаунт без почты — писать некуда. Это не ошибка: у большинства перенесённых
+                // из WordPress пользователей адреса нет вовсе.
+                stats.skipped += 1;
+                continue;
+            }
+
+            const isWinner = Number(recipient.option_id) === Number(correctOptionId);
+
+            try {
+                const result = await mailer.sendPollResultEmail(to, {
+                    isWinner,
+                    question,
+                    userAnswer: recipient.option_text || '—',
+                    correctAnswer,
+                    points: isWinner ? pointsAwarded : 0,
+                    newsUrl,
+                });
+
+                if (result.ok) stats.sent += 1;
+                else stats.failed += 1;
+            } catch (error) {
+                // Одно неудачное письмо не должно останавливать рассылку остальным.
+                stats.failed += 1;
+                console.error(`[poll-result] Письмо пользователю ${recipient.id} не ушло:`, error.message);
+            }
+
+            await sleep(POLL_EMAIL_DELAY_MS);
+        }
+
+        console.log(`[poll-result] Опрос ${pollId}: отправлено ${stats.sent}, ошибок ${stats.failed}, без почты ${stats.skipped}`);
+    } catch (error) {
+        console.error(`[poll-result] Рассылка по опросу ${pollId} не выполнена:`, error.message);
+    }
+
+    return stats;
+};
+
+// --- Срок голосования ------------------------------------------------------------------
+//
+// `polls.ends_at` — это момент, когда голосование закрывается, а не когда опрос завершается.
+// Пример из редакции: опрос «кто выиграет матч» со сроком в день начала матча. До этого дня люди
+// делают выбор; в день матча голосование закрыто, но результат ещё неизвестен, поэтому опрос
+// висит открытым и его завершают вручную, когда матч сыгран.
+//
+// Отсюда строгое сравнение: в сам день, указанный в сроке, голосовать уже нельзя. Инклюзивное
+// `>=` означало бы, что в день матча ставки ещё принимаются.
+//
+// NULLIF обязателен: у части перенесённых из WordPress опросов срок лежит пустой строкой, а не
+// NULL, и без свёртки такой опрос считался бы просроченным с датой ''.
+//
+// Одно выражение на три места (голосование, завершение, выдача) — иначе «срок вышел» значит в
+// каждом из них своё, и клиент показывает открытый опрос, на который сервер отвечает отказом.
+const VOTING_CLOSED_SQL = "(NULLIF(TRIM(ends_at), '') IS NOT NULL AND ends_at <= date('now'))";
+// Тот же предикат для запросов с JOIN, где колонку нужно назвать через псевдоним таблицы.
+const VOTING_CLOSED_SQL_P = VOTING_CLOSED_SQL.replace(/ends_at/g, 'p.ends_at');
+
+// «Опрос ещё идёт» — не то же самое, что «голосование не закрыто», и это не опечатка.
+// Голосование в опросе без срока открыто бессрочно, но завершать такой опрос можно когда угодно:
+// подтверждение досрочности защищает объявленный людям срок, а когда срока нет — защищать нечего.
+// Поэтому здесь дополнительное требование, чтобы срок вообще был проставлен. Наивное отрицание
+// VOTING_CLOSED_SQL считало бы все перенесённые из WordPress опросы без срока вечно идущими, и
+// закрыть их без флага `early` стало бы невозможно.
+const POLL_STILL_RUNNING_SQL = "(NULLIF(TRIM(ends_at), '') IS NOT NULL AND ends_at > date('now'))";
+
+// То же правило для уже прочитанной строки: сравниваем строки в формате YYYY-MM-DD, поэтому
+// лексикографическое сравнение совпадает с хронологическим.
+const isVotingClosed = (endsAt) => {
+    const deadline = String(endsAt || '').trim();
+    if (!deadline) return false;
+    return deadline <= new Date().toISOString().slice(0, 10);
+};
+
+// Срок голосования хранится как YYYY-MM-DD; в тексте отказа он должен читаться так же, как в
+// интерфейсе, иначе редактор сверяет дату из сообщения с датой на экране и видит два разных вида.
+const formatDeadlineRu = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+    return match ? `${match[3]}.${match[2]}.${match[1]}` : String(value || '').trim();
+};
+
 const CATEGORY_LABELS_RU = {
     avto: 'Авто',
     'bankovskij-sektor': 'Банковский сектор',
@@ -1141,6 +1282,9 @@ const CATEGORY_LABELS_RU = {
     ekologiya: 'Экология',
     ekonomika: 'Экономика',
     blagoustrojstvo: 'Благоустройство',
+    obrazovanie: 'Образование',
+    nauka: 'Наука',
+    'shou-biznes': 'Шоу-бизнес',
     'bez-rubriki': 'Без рубрики',
     general: 'Общее',
     auto: 'Авто',
@@ -1156,6 +1300,9 @@ const CATEGORY_LABELS_RU = {
     tourism: 'Туризм',
     ecology: 'Экология',
     economy: 'Экономика',
+    education: 'Образование',
+    science: 'Наука',
+    showbiz: 'Шоу-бизнес',
 };
 
 const formatCategoryLabel = (categoryId) => {
@@ -2737,8 +2884,15 @@ async function buildFeedItem(row, userId, showVoters, showAuthor = false) {
         question: row.question,
         options: formattedOptions,
         is_resolved: row.is_resolved,
+        // Закрыт без победителя: карточка показывает расклад голосов, но не объявляет верный
+        // вариант — его нет.
+        is_void: Number(row.is_void) === 1,
         correct_option_id: row.correct_option_id,
         ends_at: row.ends_at || null,
+        // Считает сервер, а не клиент: срок сравнивается с серверной датой. У читателя часы могут
+        // отставать или спешить, и тогда кнопка «Голосовать» показывалась бы там, где сервер уже
+        // отвечает отказом (или пряталась там, где голос ещё принимается).
+        voting_closed: isVotingClosed(row.ends_at),
         user_voted_option_id: userVotedOptionId, // Flag for frontend
         // Автор и дата создания дублируются сюда из новости: опрос показывается и внутри карточки,
         // и в модалке, и оба раза админу нужно видеть, чей это опрос, не выходя из него.
@@ -2799,7 +2953,7 @@ app.get('/api/feed', (req, res) => {
 
     let query = `
         SELECT n.*,
-               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
+               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.is_void, p.ends_at,
                p.resolved_at, p.resolved_by,
                au.username as author_username, au.name as author_name,
                ru.username as resolver_username, ru.name as resolver_name,
@@ -3056,7 +3210,7 @@ app.get('/api/news/:id', (req, res) => {
     // card always show the same poll instead of whichever row SQLite happens to return.
     const query = `
         SELECT n.*,
-               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.ends_at,
+               p.id as poll_id, p.question, p.correct_option_id, p.is_resolved, p.is_void, p.ends_at,
                p.resolved_at, p.resolved_by,
                au.username as author_username, au.name as author_name,
                ru.username as resolver_username, ru.name as resolver_name,
@@ -3406,7 +3560,13 @@ app.delete('/api/news/:id', authenticateToken, requireCreatorOrAdmin, (req, res)
 });
 
 // Vote
-app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
+//
+// Раньше здесь не было ни одной проверки, кроме UNIQUE в базе: голос принимался и в завершённый
+// опрос, и после срока голосования. Первое означало, что баллы уже начислены, а голоса всё ещё
+// приходят и меняют проценты задним числом; второе делало срок голосования просто подписью на
+// карточке. Обе проверки — на сервере: клиент уже прячет кнопку, но это подсказка интерфейса,
+// а не ограничение.
+app.post('/api/polls/:id/vote', authenticateToken, async (req, res) => {
     let pollId;
     let optionId;
 
@@ -3419,26 +3579,52 @@ app.post('/api/polls/:id/vote', authenticateToken, (req, res) => {
 
     const userId = req.user.id;
 
-    db.run("INSERT INTO votes (user_id, poll_id, option_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-        [userId, pollId, optionId],
-        function (err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ message: "Already voted" });
-                }
-                return sendServerError(res, err);
-            }
-            res.json({ message: "Vote registered" });
+    try {
+        const poll = await dbGetAsync(
+            `SELECT id, is_resolved, ends_at, ${VOTING_CLOSED_SQL} AS voting_closed
+               FROM polls WHERE id = ?`,
+            [pollId]
+        );
+
+        if (!poll) {
+            return res.status(404).json({ message: "Poll not found" });
         }
-    );
+
+        if (Number(poll.is_resolved) === 1) {
+            return res.status(400).json({ message: 'Опрос уже завершён — голосование закрыто.' });
+        }
+
+        if (Number(poll.voting_closed) === 1) {
+            return res.status(400).json({
+                message: `Голосование закрыто ${formatDeadlineRu(poll.ends_at)} — результат ещё не объявлен.`,
+            });
+        }
+
+        // Вариант должен принадлежать этому опросу: без проверки можно было проголосовать чужим
+        // option_id и попасть в «победители» опроса, в котором такого варианта нет.
+        const option = await dbGetAsync(
+            "SELECT id FROM poll_options WHERE id = ? AND poll_id = ?",
+            [optionId, pollId]
+        );
+
+        if (!option) {
+            return res.status(400).json({ message: "Option does not belong to this poll" });
+        }
+
+        await dbRunAsync(
+            "INSERT INTO votes (user_id, poll_id, option_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            [userId, pollId, optionId]
+        );
+
+        res.json({ message: "Vote registered" });
+    } catch (error) {
+        if (String(error && error.message).includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ message: "Already voted" });
+        }
+        sendServerError(res, error);
+    }
 });
 
-// Срок голосования хранится как YYYY-MM-DD; в тексте отказа он должен читаться так же, как в
-// интерфейсе, иначе редактор сверяет дату из сообщения с датой на экране и видит два разных вида.
-const formatDeadlineRu = (value) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
-    return match ? `${match[3]}.${match[2]}.${match[1]}` : String(value || '').trim();
-};
 
 // Resolve Poll (Admin/Creator only)
 app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
@@ -3453,13 +3639,12 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
     }
 
     try {
-        // `still_open` считается ровно тем же выражением, что и вкладка «требуют завершения» в
-        // админке, — иначе «срок вышел» означало бы в двух местах разное. NULLIF обязателен: у
-        // части перенесённых из WordPress опросов срок лежит пустой строкой, а не NULL, и без
-        // свёртки такой опрос считался бы вечно идущим и не завершался бы никогда.
+        // `still_open` берётся из общего выражения — то же правило, по которому отклоняется голос
+        // и по которому вкладка «требуют завершения» отбирает опросы. Держать его в одном месте
+        // обязательно: иначе «срок ещё не вышел» означает в трёх местах разное.
         const poll = await dbGetAsync(
-            `SELECT id, is_resolved, ends_at,
-                    (NULLIF(TRIM(ends_at), '') IS NOT NULL AND ends_at >= date('now')) AS still_open
+            `SELECT id, news_id, is_resolved, is_void, ends_at,
+                    ${POLL_STILL_RUNNING_SQL} AS still_open
                FROM polls WHERE id = ?`,
             [pollId]
         );
@@ -3468,7 +3653,11 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
             return res.status(404).json({ message: "Poll not found" });
         }
 
-        if (Number(poll.is_resolved) === 1) {
+        // Аннулированный опрос — единственное закрытое состояние, из которого можно вернуться:
+        // событие, о котором спрашивали, могло разрешиться позже, чем опрос закрыли. Голоса в нём
+        // заморожены с момента закрытия, поэтому формула начисления работает без изменений.
+        // Обычный завершённый опрос по-прежнему не переигрывается: баллы уже начислены.
+        if (Number(poll.is_resolved) === 1 && Number(poll.is_void) !== 1) {
             return res.status(400).json({ message: "Poll already resolved" });
         }
 
@@ -3479,7 +3668,9 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
         // интерфейс сначала показывает срок и спрашивает подтверждение и лишь потом присылает
         // `early`. Это защита от промаха, а не право доступа — права уже проверил
         // requireCreatorOrAdmin выше; смысл флага в том, что случайный клик его не ставит.
-        if (Number(poll.still_open) === 1 && req.body.early !== true) {
+        // Для аннулированного опроса подтверждение досрочности не нужно: голосование в нём уже
+        // закрыто самим аннулированием, обрывать нечего.
+        if (Number(poll.still_open) === 1 && Number(poll.is_void) !== 1 && req.body.early !== true) {
             return res.status(400).json({
                 message: `Опрос ещё идёт: голосование открыто до ${formatDeadlineRu(poll.ends_at)}. Завершить его досрочно можно только с подтверждением.`,
             });
@@ -3518,7 +3709,7 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
         await dbRunAsync('BEGIN TRANSACTION');
         try {
             await dbRunAsync(
-                "UPDATE polls SET correct_option_id = ?, is_resolved = 1, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE polls SET correct_option_id = ?, is_resolved = 1, is_void = 0, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [correctOptionId, req.user.id, pollId]
             );
 
@@ -3561,6 +3752,18 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
             winners: winnersCount,
             totalVotes
         });
+
+        // Рассылка — после ответа и вне транзакции. Опрос уже завершён и баллы начислены: почта
+        // ничего из этого не отменяет, поэтому её ошибки только логируются. Ждать её здесь нельзя —
+        // на опросе с сотней участников это минута с лишним под открытым HTTP-запросом.
+        notifyPollResolved({
+            pollId,
+            newsId: poll.news_id,
+            correctOptionId,
+            pointsAwarded: pointsToAward,
+        }).catch((error) => {
+            console.error('[poll-result] Непредвиденная ошибка рассылки:', error);
+        });
     } catch (error) {
         console.error('Failed to resolve poll:', error);
         sendServerError(res, error);
@@ -3576,12 +3779,12 @@ app.post('/api/polls/:id/resolve', authenticateToken, requireCreatorOrAdmin, asy
 
 // Наборы, между которыми переключается вкладка «Опросы» в админке.
 const POLL_MANAGE_STATUSES = new Map([
-    // Требуют решения: срок голосования вышел, верный вариант не проставлен.
-    // NULLIF: у части перенесённых опросов срок лежит пустой строкой, а не NULL — без свёртки
-    // такой опрос попал бы в «просроченные», потому что '' сортируется раньше любой даты.
-    ['overdue', "p.is_resolved = 0 AND NULLIF(TRIM(p.ends_at), '') IS NOT NULL AND p.ends_at < date('now')"],
+    // Требуют решения: голосование закрылось, верный вариант не проставлен. Условие — то же
+    // VOTING_CLOSED_SQL, что отклоняет голоса и разрешает завершение без подтверждения; префикс
+    // таблицы нужен потому, что здесь запрос с JOIN.
+    ['overdue', `p.is_resolved = 0 AND ${VOTING_CLOSED_SQL_P}`],
     // Ещё идут: голосование открыто.
-    ['active', "p.is_resolved = 0 AND (NULLIF(TRIM(p.ends_at), '') IS NULL OR p.ends_at >= date('now'))"],
+    ['active', `p.is_resolved = 0 AND NOT ${VOTING_CLOSED_SQL_P}`],
     // Всё незавершённое разом.
     ['pending', 'p.is_resolved = 0'],
     // Завершённые — только для просмотра и перепроверки.
@@ -3651,6 +3854,7 @@ const buildManagePollRow = (poll, options) => ({
     created_at: poll.news_created_at || null,
     ends_at: poll.ends_at || null,
     is_resolved: Number(poll.is_resolved) || 0,
+    is_void: Number(poll.is_void) === 1,
     correct_option_id: poll.correct_option_id || null,
     resolved_at: poll.resolved_at || null,
     author: poll.author_id
@@ -3796,7 +4000,7 @@ app.get('/api/polls/manage', authenticateToken, requireCreatorOrAdmin, async (re
         const offset = (page - 1) * limit;
 
         const polls = await dbAllAsync(
-            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved,
+            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved, p.is_void,
                     p.correct_option_id, p.resolved_at, p.resolved_by,
                     n.title as news_title, n.image as news_image, n.category as news_category,
                     n.created_at as news_created_at, n.author_id,
@@ -3899,7 +4103,7 @@ app.get('/api/polls/manage/authors', authenticateToken, requireCreatorOrAdmin, a
 app.get('/api/polls/pending', authenticateToken, requireCreatorOrAdmin, async (req, res) => {
     try {
         const polls = await dbAllAsync(
-            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved,
+            `SELECT p.id as poll_id, p.question, p.ends_at, p.news_id, p.is_resolved, p.is_void,
                     p.correct_option_id, p.resolved_at, p.resolved_by,
                     n.title as news_title, n.image as news_image, n.category as news_category,
                     n.created_at as news_created_at, n.author_id,
@@ -4003,6 +4207,7 @@ app.get('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
             votesTotal,
             votesCorrect,
             votesResolved,
+            votesPending,
             likesGiven,
             likesReceivedOnVotedNews,
             reportsSubmitted,
@@ -4020,11 +4225,25 @@ app.get('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
                   WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id = v.option_id`,
                 [userId]
             ),
+            // Знаменатель точности: только опросы с объявленным победителем. Аннулированный опрос
+            // сюда не входит — иначе голос в нём считался бы ошибкой, хотя человек не ошибался,
+            // результата просто нет.
             scalar(
                 `SELECT COUNT(*) AS value
                    FROM votes v
                    JOIN polls p ON p.id = v.poll_id
-                  WHERE v.user_id = ? AND p.is_resolved = 1`,
+                  WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id IS NOT NULL`,
+                [userId]
+            ),
+            // «Ждут результата» считается прямым запросом, а не как votesTotal - votesResolved.
+            // Вычитание давало бы неверное: после того как аннулированные опросы вышли из
+            // votesResolved, они бы все всплыли здесь — человек видел бы сотни «ожидающих»
+            // опросов, которые на самом деле закрыты навсегда.
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v
+                   JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 0`,
                 [userId]
             ),
             scalar('SELECT COUNT(*) AS value FROM likes WHERE user_id = ?', [userId]),
@@ -4092,7 +4311,7 @@ app.get('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
                 votesTotal,
                 votesCorrect,
                 votesWrong: Math.max(0, votesResolved - votesCorrect),
-                votesPending: Math.max(0, votesTotal - votesResolved),
+                votesPending,
                 votesResolved,
                 accuracy: votesResolved > 0 ? Math.round((votesCorrect / votesResolved) * 100) : null,
                 likesGiven,
@@ -4593,7 +4812,11 @@ app.get('/api/admin/statistics', authenticateToken, requireAdmin, async (req, re
             SELECT
                 SUM(CASE WHEN p.is_resolved = 1 AND p.correct_option_id IS NOT NULL AND v.option_id = p.correct_option_id THEN 1 ELSE 0 END) as correct,
                 SUM(CASE WHEN p.is_resolved = 1 AND p.correct_option_id IS NOT NULL AND v.option_id <> p.correct_option_id THEN 1 ELSE 0 END) as incorrect,
-                SUM(CASE WHEN p.is_resolved = 0 OR p.correct_option_id IS NULL THEN 1 ELSE 0 END) as pending
+                -- Ждут результата — только по-настоящему открытые опросы. Прежнее условие
+                -- "correct_option_id IS NULL" затягивало сюда и аннулированные: они закрыты
+                -- навсегда, но на графике держались бы в «ожидании» вечно.
+                SUM(CASE WHEN p.is_resolved = 0 THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN p.is_resolved = 1 AND p.correct_option_id IS NULL THEN 1 ELSE 0 END) as voided
             FROM votes v JOIN polls p ON v.poll_id = p.id
         `);
         const correct = Number(predRow.correct) || 0;
@@ -5385,18 +5608,26 @@ app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
             return Number(row?.value) || 0;
         };
 
-        const [votesTotal, votesResolved, votesCorrect, monthlyPoints, allTimeRank] = await Promise.all([
+        const [votesTotal, votesResolved, votesCorrect, votesPending, monthlyPoints, allTimeRank] = await Promise.all([
             scalar('SELECT COUNT(*) AS value FROM votes WHERE user_id = ?', [userId]),
+            // См. комментарий в /api/users/:id/profile: аннулированные опросы вне знаменателя.
             scalar(
                 `SELECT COUNT(*) AS value
                    FROM votes v JOIN polls p ON p.id = v.poll_id
-                  WHERE v.user_id = ? AND p.is_resolved = 1`,
+                  WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id IS NOT NULL`,
                 [userId]
             ),
             scalar(
                 `SELECT COUNT(*) AS value
                    FROM votes v JOIN polls p ON p.id = v.poll_id
                   WHERE v.user_id = ? AND p.is_resolved = 1 AND p.correct_option_id = v.option_id`,
+                [userId]
+            ),
+            // Прямой подсчёт, а не вычитание — см. комментарий в /api/users/:id/profile.
+            scalar(
+                `SELECT COUNT(*) AS value
+                   FROM votes v JOIN polls p ON p.id = v.poll_id
+                  WHERE v.user_id = ? AND p.is_resolved = 0`,
                 [userId]
             ),
             scalar(
@@ -5423,7 +5654,7 @@ app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
                 votesResolved,
                 votesCorrect,
                 votesWrong: Math.max(0, votesResolved - votesCorrect),
-                votesPending: Math.max(0, votesTotal - votesResolved),
+                votesPending,
                 accuracy: votesResolved > 0 ? Math.round((votesCorrect / votesResolved) * 100) : null,
                 monthlyPoints,
                 allTimeRank,

@@ -17,6 +17,9 @@ import {
   Users,
   Newspaper,
   Gavel,
+  GraduationCap,
+  Atom,
+  Mic2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Category, User, NewsItem } from './types';
@@ -38,6 +41,9 @@ export const CATEGORY_NAMES = {
     tourism: 'Туризм',
     ecology: 'Экология',
     economy: 'Экономика',
+    obrazovanie: 'Образование',
+    nauka: 'Наука',
+    'shou-biznes': 'Шоу-бизнес',
   },
   en: {
     auto: 'Auto',
@@ -54,6 +60,9 @@ export const CATEGORY_NAMES = {
     tourism: 'Tourism',
     ecology: 'Ecology',
     economy: 'Economy',
+    obrazovanie: 'Education',
+    nauka: 'Science',
+    'shou-biznes': 'Show business',
   }
 };
 
@@ -95,6 +104,14 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   crypto: Bitcoin,
   'torgi-aukcion': Gavel,
   auctions: Gavel,
+  obrazovanie: GraduationCap,
+  education: GraduationCap,
+  nauka: Atom,
+  science: Atom,
+  // Микрофон, а не хлопушка: Clapperboard уже занят рубрикой «Кино», и две рубрики
+  // с одной иконкой в боковом меню не отличить друг от друга.
+  'shou-biznes': Mic2,
+  showbiz: Mic2,
 };
 
 export const getCategoryIcon = (id: string): LucideIcon =>
@@ -113,11 +130,14 @@ export const CATEGORIES: Category[] = [
   { id: 'kino', name: 'Кино' },
   { id: 'kriptovalyuta', name: 'Криптовалюта' },
   { id: 'obshhestvo', name: 'Общество' },
+  { id: 'nauka', name: 'Наука' },
+  { id: 'obrazovanie', name: 'Образование' },
   { id: 'politika', name: 'Политика' },
   { id: 'semya', name: 'Семья' },
   { id: 'sport', name: 'Спорт' },
   { id: 'torgi-aukcion', name: 'Торги/аукцион' },
   { id: 'turizm', name: 'Туризм' },
+  { id: 'shou-biznes', name: 'Шоу-бизнес' },
   { id: 'ekologiya', name: 'Экология' },
   { id: 'ekonomika', name: 'Экономика' },
   { id: 'bez-rubriki', name: 'Без рубрики' },

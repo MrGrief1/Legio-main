@@ -290,6 +290,19 @@ function initDb() {
         console.error('Error adding resolved_at column to polls:', err);
       }
     });
+    // Опрос, закрытый без результата. Такое бывает, когда объявить верный вариант уже невозможно:
+    // событие прошло и не разрешилось однозначно, либо опрос приехал с прежнего сайта, где его
+    // так и не завершили. Отдельный флаг нужен, потому что `is_resolved = 1` при пустом
+    // correct_option_id иначе не отличить от испорченной строки.
+    //
+    // Инвариант: is_resolved = 1 — голосование закрыто; correct_option_id IS NOT NULL — есть
+    // победитель; is_void = 1 — закрыт намеренно и без победителя. Голоса в таком опросе не
+    // считаются ни верными, ни ошибочными: человек не проигрывал, результата просто нет.
+    db.run(`ALTER TABLE polls ADD COLUMN is_void INTEGER DEFAULT 0`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Error adding is_void column to polls:', err);
+      }
+    });
     db.run(`CREATE INDEX IF NOT EXISTS idx_polls_is_resolved ON polls(is_resolved)`);
 
     // Poll Options table

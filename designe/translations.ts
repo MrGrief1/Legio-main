@@ -106,6 +106,9 @@ export interface Translations {
         resolvedAt: string;
         correctAnswer: string;
         resolvedBadge: string;
+        voidBadge: string;
+        voidedAt: string;
+        voidHint: string;
         loadMore: string;
         loadingMore: string;
         shown: string;
@@ -319,6 +322,7 @@ export interface Translations {
         sourcePlaceholder: string;
         pollEndDateLabel: string;
         pollEndDateHint: string;
+        pollEndDateNote: string;
         optional: string;
         reviewHeading: string;
         reviewCategory: string;
@@ -335,6 +339,7 @@ export interface Translations {
         saved: string;
         saveChanges: string;
         cancelEdit: string;
+        backToPolls: string;
         loadFailed: string;
         pollLockedHint: string;
         // Черновики и отложенная публикация
@@ -570,6 +575,9 @@ export const translations: Record<Language, Translations> = {
             resolvedAt: 'Завершён',
             correctAnswer: 'Верный ответ',
             resolvedBadge: 'Завершён',
+            voidBadge: 'Без результата',
+            voidedAt: 'Закрыт без результата',
+            voidHint: 'Опрос закрыт без результата — победителя нет, баллы не начислялись. Если исход всё-таки известен, выберите верный вариант: опрос завершится по-настоящему и баллы уйдут угадавшим.',
             loadMore: 'Показать ещё',
             loadingMore: 'Загружаем...',
             shown: 'Показано',
@@ -775,8 +783,9 @@ export const translations: Record<Language, Translations> = {
             selectCategoryHint: 'Выберите категорию для новости',
             sourceLabel: 'Источник (ссылка)',
             sourcePlaceholder: 'https://example.com/article',
-            pollEndDateLabel: 'Окончание опроса',
-            pollEndDateHint: 'Необязательно — показывается пользователям как срок голосования',
+            pollEndDateLabel: 'Окончание голосования',
+            pollEndDateHint: 'Необязательно. Без даты голосование остаётся открытым, пока опрос не завершат вручную.',
+            pollEndDateNote: 'Как это работает: до указанной даты люди голосуют. В сам этот день приём голосов закрывается — опрос остаётся открытым, на карточке появляется пометка «Приём голосов закрыт», и виден только расклад голосов. Верный вариант вы проставляете позже, вручную; тогда и начисляются баллы. Пример: опрос «кто выиграет матч» со сроком в день матча — ставки принимаются до начала игры, а завершаете вы опрос после неё.',
             optional: 'необязательно',
             reviewHeading: 'Проверьте и опубликуйте',
             reviewCategory: 'Категория',
@@ -792,6 +801,7 @@ export const translations: Record<Language, Translations> = {
             saved: 'Изменения сохранены',
             saveChanges: 'Сохранить изменения',
             cancelEdit: 'Отменить правку',
+            backToPolls: 'К списку опросов',
             loadFailed: 'Не удалось загрузить публикацию для редактирования',
             pollLockedHint: 'Опрос уже завершён — вопрос и варианты изменить нельзя, баллы за него начислены. Остальные поля правятся свободно.',
             saveDraft: 'Сохранить черновик',
@@ -1022,6 +1032,9 @@ export const translations: Record<Language, Translations> = {
             resolvedAt: 'Resolved',
             correctAnswer: 'Correct answer',
             resolvedBadge: 'Resolved',
+            voidBadge: 'No result',
+            voidedAt: 'Closed with no result',
+            voidHint: 'This poll was closed without a result — no winner, no points awarded. If the outcome is known after all, pick the correct option: the poll resolves properly and points go to whoever got it right.',
             loadMore: 'Load more',
             loadingMore: 'Loading...',
             shown: 'Showing',
@@ -1227,8 +1240,9 @@ export const translations: Record<Language, Translations> = {
             selectCategoryHint: 'Choose a category for the article',
             sourceLabel: 'Source (link)',
             sourcePlaceholder: 'https://example.com/article',
-            pollEndDateLabel: 'Poll end date',
-            pollEndDateHint: 'Optional — shown to users as the voting deadline',
+            pollEndDateLabel: 'Voting deadline',
+            pollEndDateHint: 'Optional. With no date, voting stays open until the poll is resolved manually.',
+            pollEndDateNote: 'How it works: people vote up until the date you set. On that day voting closes — the poll stays open, the card gets a "voting closed" mark, and only the current split is visible. You pick the correct option later, by hand; that is when points are awarded. Example: a "who wins the match" poll dated on match day — bets close before kick-off, and you resolve the poll afterwards.',
             optional: 'optional',
             reviewHeading: 'Review & publish',
             reviewCategory: 'Category',
@@ -1244,6 +1258,7 @@ export const translations: Record<Language, Translations> = {
             saved: 'Changes saved',
             saveChanges: 'Save changes',
             cancelEdit: 'Cancel editing',
+            backToPolls: 'Back to polls',
             loadFailed: 'Could not load the publication for editing',
             pollLockedHint: 'This poll is already resolved — its question and options are locked because points have been awarded. Everything else stays editable.',
             saveDraft: 'Save draft',

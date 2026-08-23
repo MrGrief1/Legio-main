@@ -217,7 +217,11 @@ const AppContent: React.FC = () => {
   const rightPanelVisible = !isWideView;
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white font-sans selection:bg-blue-100 dark:selection:bg-zinc-700 selection:text-blue-900 dark:selection:text-white transition-colors duration-300 overflow-x-hidden">
+    // overflow-x-clip, а не -hidden: `hidden` по спецификации делает элемент скролл-контейнером,
+    // и тогда position: sticky внутри него отсчитывается от этого контейнера, который сам никогда
+    // не прокручивается, — боковые колонки просто уезжали вверх вместе со страницей. `clip`
+    // подрезает так же, но контейнера прокрутки не создаёт, поэтому липкие колонки работают.
+    <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white font-sans selection:bg-blue-100 dark:selection:bg-zinc-700 selection:text-blue-900 dark:selection:text-white transition-colors duration-300 overflow-x-clip">
 
       {/* Background Light Effect (Spotlight) */}
       <div className="fixed inset-0 z-0 pointer-events-none flex justify-center overflow-hidden">
@@ -344,6 +348,7 @@ const AppContent: React.FC = () => {
               showHeader={false}
               activeKey={activeNavKey}
               accountVisibility="never"
+              levelVisibility="always"
               onAdminClick={() => goTo('admin')}
               onCreatePollClick={() => goTo('create')}
               onManagePollsClick={() => goTo('manage')}
@@ -362,14 +367,18 @@ const AppContent: React.FC = () => {
 
         {/* Desktop Sidebar — from md up, so narrow laptops keep the nav instead of falling back
             to the mobile burger menu.
-            No h-screen/sticky/overflow-y-auto here on purpose: pinning the column to the viewport
-            height gave it a second scrollbar and clipped whatever didn't fit — including the Legio
-            logo at the top. The column now sizes to its content and scrolls with the page, so
-            everything in it is reachable. */}
-        <div className="hidden md:block w-60 lg:w-72 shrink-0">
+
+            Колонка прокручивается сама: sticky + собственный overflow-y. Раньше все три колонки
+            ехали одной страницей, и чтобы дойти до рубрик в конце меню, приходилось листать ленту.
+            Ключевое отличие от прошлой (сломанной) попытки — h-screen идёт вместе с
+            overflow-y-auto: без него колонка обрезалась по высоте экрана и верх меню вместе с
+            логотипом становился недоступен. Прокрутка появляется только когда содержимое реально
+            не помещается. */}
+        <div className="hidden md:block w-60 lg:w-72 shrink-0 md:sticky md:top-0 md:h-screen md:overflow-y-auto md:overscroll-contain">
           <Sidebar
             activeKey={activeNavKey}
             accountVisibility={rightPanelVisible ? 'auto' : 'always'}
+            levelVisibility={rightPanelVisible ? 'auto' : 'always'}
             onAdminClick={() => goTo('admin')}
             onCreatePollClick={() => goTo('create')}
             onManagePollsClick={() => goTo('manage')}

@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AuthCard } from './AuthCard';
 import { Avatar } from './Avatar';
+import { LevelProgress } from './LevelProgress';
 import { Trophy, Crown, CalendarClock } from 'lucide-react';
 import { User } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -77,12 +78,19 @@ export const RightPanel: React.FC = () => {
     : `${MONTHS_EN[monthIndex]} ${t.rightPanel.prizeWinner}`;
 
   return (
-    // Sized to its content and scrolling with the page — a viewport-height column with its own
-    // overflow cut off whatever sat below the fold.
-    <aside className="hidden xl:block w-80 shrink-0 pt-8 pb-6 pl-6">
+    // Колонка прокручивается отдельно от ленты: sticky держит её на месте, а собственный
+    // overflow-y даёт добраться до нижних блоков, когда панель длиннее экрана. h-screen без
+    // overflow-y-auto как раз и обрезал бы всё, что не поместилось, — поэтому они всегда вместе.
+    <aside className="hidden xl:block w-80 shrink-0 pt-8 pb-6 pl-6 xl:sticky xl:top-0 xl:h-screen xl:overflow-y-auto xl:overscroll-contain">
 
       {/* Auth Card */}
-      <AuthCard className="mb-8" />
+      <AuthCard className="mb-4" />
+
+      {/* Статус уровня — сразу под профилем: он про того же человека, что и карточка выше, и
+          читается как её продолжение. В левом меню, где виджет стоял раньше, он был оторван от
+          профиля и терялся между навигацией и рубриками. Ниже xl правой панели нет — там виджет
+          по-прежнему показывает Sidebar (levelVisibility). Гостю компонент ничего не рисует. */}
+      <LevelProgress className="mb-8" />
 
       {/* Promo Text */}
       <div className="mb-8 px-2">
