@@ -38,7 +38,7 @@ export interface Translations {
         empty: string;
         votes: string;
         pickCorrect: string;
-        pickBlocked: string;
+        pickEarly: string;
         resolving: string;
         searchPlaceholder: string;
         noResults: string;
@@ -110,6 +110,7 @@ export interface Translations {
         loadingMore: string;
         shown: string;
         confirmResolve: string;
+        confirmResolveEarly: string;
         resolveSuccess: string;
         resolveFailed: string;
         networkError: string;
@@ -507,7 +508,7 @@ export const translations: Record<Language, Translations> = {
             empty: 'Все опросы завершены',
             votes: 'голосов',
             pickCorrect: 'Выберите правильный ответ:',
-            pickBlocked: 'Голосование ещё идёт — завершить опрос можно после окончания срока',
+            pickEarly: 'Голосование ещё идёт — завершить можно досрочно, но только с подтверждением',
             resolving: 'Завершаем...',
             searchPlaceholder: 'Поиск по заголовку, вопросу или автору...',
             noResults: 'Ничего не найдено',
@@ -515,7 +516,7 @@ export const translations: Record<Language, Translations> = {
             tabActive: 'Ещё идут',
             tabResolved: 'Завершённые',
             tabHintOverdue: 'Срок голосования вышел, верный вариант ещё не выбран.',
-            tabHintActive: 'Голосование открыто — завершать пока рано.',
+            tabHintActive: 'Голосование открыто — завершить можно досрочно, с подтверждением.',
             tabHintResolved: 'Уже завершённые опросы: видно, кто и когда проставил верный вариант.',
             emptyOverdue: 'Просроченных опросов нет — всё разобрано',
             emptyActive: 'Открытых опросов нет',
@@ -573,6 +574,7 @@ export const translations: Record<Language, Translations> = {
             loadingMore: 'Загружаем...',
             shown: 'Показано',
             confirmResolve: 'Отметить вариант «{option}» верным и завершить опрос? Это действие нельзя отменить.',
+            confirmResolveEarly: 'Голосование идёт до {deadline}. Отметить вариант «{option}» верным и завершить опрос досрочно? Баллы начислятся сразу, отменить нельзя.',
             resolveSuccess: 'Опрос завершён. Начислено {points} баллов победителям ({winners}).',
             resolveFailed: 'Не удалось завершить опрос.',
             networkError: 'Ошибка сети. Попробуйте ещё раз.',
@@ -958,7 +960,7 @@ export const translations: Record<Language, Translations> = {
             empty: 'All polls are resolved',
             votes: 'votes',
             pickCorrect: 'Pick the correct answer:',
-            pickBlocked: 'Voting is still open — the poll can be resolved after its deadline',
+            pickEarly: 'Voting is still open — resolving now closes the poll early and needs a confirmation',
             resolving: 'Resolving...',
             searchPlaceholder: 'Search by headline, question or author...',
             noResults: 'Nothing found',
@@ -966,7 +968,7 @@ export const translations: Record<Language, Translations> = {
             tabActive: 'Still running',
             tabResolved: 'Resolved',
             tabHintOverdue: 'Voting has closed and no correct option has been picked yet.',
-            tabHintActive: 'Voting is still open — too early to resolve.',
+            tabHintActive: 'Voting is still open — resolving is possible early, with a confirmation.',
             tabHintResolved: 'Already resolved polls: who picked the answer, and when.',
             emptyOverdue: 'Nothing overdue — everything is resolved',
             emptyActive: 'No open polls',
@@ -1024,6 +1026,7 @@ export const translations: Record<Language, Translations> = {
             loadingMore: 'Loading...',
             shown: 'Showing',
             confirmResolve: 'Mark "{option}" as the correct answer and close the poll? This cannot be undone.',
+            confirmResolveEarly: 'Voting runs until {deadline}. Mark "{option}" as the correct answer and close the poll early? Points are awarded immediately and this cannot be undone.',
             resolveSuccess: 'Poll resolved. {points} points awarded to the winners ({winners}).',
             resolveFailed: 'Could not resolve the poll.',
             networkError: 'Network error. Please try again.',

@@ -121,10 +121,11 @@ const isOverdue = (endsAt: string | null): boolean => {
     return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) < today;
 };
 
-// Завершать опрос можно, только когда голосование уже закрылось: завершение начисляет баллы и
-// не отменяется. Пустой срок (наследие переноса из WordPress) означает «срока нет» — такой опрос
-// завершается в любой момент. Условие повторяет проверку на сервере, чтобы список не предлагал
-// кнопку, которую сервер всё равно отклонит.
+// Голосование уже закрылось? От этого зависит только текст подтверждения: пока срок не вышел,
+// завершение считается досрочным и спрашивается отдельно, потому что оно начисляет баллы и не
+// отменяется. Пустой срок (наследие переноса из WordPress) означает «срока нет» — такой опрос
+// завершается в любой момент как обычный. Условие повторяет проверку на сервере, чтобы клиент и
+// сервер одинаково понимали, какое завершение досрочное.
 const votingClosed = (endsAt: string | null): boolean => {
     const value = String(endsAt || '').trim();
     return !value || isOverdue(value);
@@ -416,7 +417,15 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
     };
 
     const handleResolve = async (poll: ManagePoll, option: ManageOption) => {
-        const confirmed = await showConfirm(fillTemplate(t.managePolls.confirmResolve, { option: option.text }));
+        // До конца срока это досрочное завершение: спрашиваем отдельным текстом, который называет
+        // дату окончания, и только после согласия шлём `early` — сервер без этого флага откажет.
+        const early = !votingClosed(poll.ends_at);
+        const confirmed = await showConfirm(early
+            ? fillTemplate(t.managePolls.confirmResolveEarly, {
+                option: option.text,
+                deadline: formatDeadline(poll.ends_at) || String(poll.ends_at || ''),
+            })
+            : fillTemplate(t.managePolls.confirmResolve, { option: option.text }));
         if (!confirmed) return;
 
         setResolvingId(poll.id);
@@ -427,7 +436,7 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${localStorage.getItem('token')}`,
                 },
-                body: JSON.stringify({ correctOptionId: option.id }),
+                body: JSON.stringify({ correctOptionId: option.id, early }),
             });
 
             if (res.ok) {
@@ -849,10 +858,10 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                             );
                         }) : polls.map((poll) => {
                             const overdue = poll.is_resolved === 0 && isOverdue(poll.ends_at);
-                            // Вкладка «ещё идут» показывает опросы с открытым голосованием — там
-                            // варианты остаются некликабельными, иначе список сам предлагал бы
-                            // закрыть опрос за месяцы до срока.
-                            const canPick = poll.is_resolved === 0 && votingClosed(poll.ends_at);
+                            // Незавершённый опрос можно закрыть с любой вкладки; на «ещё идут»
+                            // это досрочное завершение, и подпись под вопросом об этом предупреждает,
+                            // а сам клик упирается в отдельное подтверждение со сроком.
+                            const canPick = poll.is_resolved === 0;
                             const busy = resolvingId === poll.id;
                             const expanded = density === 'expanded' || expandedIds.has(poll.id);
                             const authorName = poll.author?.name || poll.author?.username || t.managePolls.unknownAuthor;
@@ -972,9 +981,9 @@ export const ManagePolls: React.FC<ManagePollsProps> = ({ onEditNews }) => {
                                                 <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">
                                                     {poll.is_resolved === 1
                                                         ? t.managePolls.correctAnswer
-                                                        : canPick
+                                                        : votingClosed(poll.ends_at)
                                                             ? t.managePolls.pickCorrect
-                                                            : t.managePolls.pickBlocked}
+                                                            : t.managePolls.pickEarly}
                                                 </div>
 
                                                 <div className="space-y-2">

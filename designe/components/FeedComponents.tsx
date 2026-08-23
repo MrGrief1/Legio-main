@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Button } from './UI';
-import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X, User as UserIcon, Pencil } from 'lucide-react';
+import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X, User as UserIcon, Pencil, Flag } from 'lucide-react';
 import { PollData, PollOption, NewsItem, User } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
@@ -270,8 +270,27 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
     }
   };
 
+  // Завершение опроса необратимо и начисляет баллы, а кнопка для него стоит под каждым вариантом
+  // вплотную к «Голосовать» — и читалась редакцией как «выбрать этот вариант», то есть как способ
+  // проголосовать. Так за август закрылись десять опросов со сроками вплоть до 2027 года, причём
+  // каждый раз «верным» оказывался вариант, за который не голосовал никто, — то есть тот, который
+  // нажимавший считал своим прогнозом. Поэтому до конца срока кнопка выглядит иначе и открывает
+  // подтверждение с датой: закрыть идущий опрос по-прежнему можно, но не одним промахом мышью.
+  // Пустая строка в ends_at (наследие переноса из WordPress) — это «срока нет», а не «срок пуст».
+  const deadline = String(pollData.ends_at || '').trim();
+  const votingClosed = !deadline || deadline < new Date().toISOString().slice(0, 10);
+  const canResolve = !!user
+    && (user.role === 'admin' || user.role === 'creator')
+    && !pollData.is_resolved;
+
   const handleResolve = async (optionId: number) => {
-    const confirmed = await showConfirm("Вы уверены, что это правильный ответ? Это действие нельзя отменить.");
+    // Пока срок не вышел, это досрочное завершение: спрашиваем отдельно и называем дату, до
+    // которой идёт голосование, — иначе «вы уверены?» ничем не отличается от обычного закрытия
+    // просроченного опроса. Флаг `early` сервер требует явно: без него он такой запрос отклонит.
+    const early = !votingClosed;
+    const confirmed = await showConfirm(early
+      ? `Голосование идёт до ${formatPollDate(deadline)}. Завершить опрос досрочно? Баллы начислятся сразу, отменить нельзя.`
+      : "Вы уверены, что это правильный ответ? Это действие нельзя отменить.");
     if (!confirmed) return;
 
     try {
@@ -281,31 +300,24 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ correctOptionId: optionId })
+        body: JSON.stringify({ correctOptionId: optionId, early })
       });
 
       if (res.ok) {
         showAlert("Опрос завершен!");
         onPollChange?.();
+      } else {
+        // Причина отказа (чужой опрос, уже завершён, срок) приходит текстом от сервера — молчать
+        // о ней нельзя: кнопка просто не срабатывала бы, и это читалось бы как поломка.
+        const err = await res.json().catch(() => ({} as { message?: string }));
+        showAlert(err.message || "Не удалось завершить опрос.");
       }
     } catch (e) {
       console.error(e);
+      showAlert("Не удалось завершить опрос.");
     }
   };
 
-  // Завершение опроса необратимо и начисляет баллы, а кнопка для него стояла под каждым вариантом
-  // вплотную к «Голосовать» — и читалась редакцией как «выбрать этот вариант», то есть как способ
-  // проголосовать. Так за август закрылись десять опросов со сроками вплоть до 2027 года, причём
-  // каждый раз «верным» оказывался вариант, за который не голосовал никто, — то есть тот, который
-  // нажимавший считал своим прогнозом. Теперь кнопка появляется только после конца голосования:
-  // до этого момента завершать нечего, а сервер такой запрос всё равно отклонит.
-  // Пустая строка в ends_at (наследие переноса из WordPress) — это «срока нет», а не «срок пуст».
-  const deadline = String(pollData.ends_at || '').trim();
-  const votingClosed = !deadline || deadline < new Date().toISOString().slice(0, 10);
-  const canResolve = !!user
-    && (user.role === 'admin' || user.role === 'creator')
-    && !pollData.is_resolved
-    && votingClosed;
   // Who voted for what is admin-only: creators can resolve polls but must not see the names
   // behind the votes. The server also withholds `option.voters` from everyone else.
   const canSeeVoters = !!user && user.role === 'admin';
@@ -450,12 +462,25 @@ export const Poll: React.FC<PollProps> = React.memo(({ data, onPollChange }) => 
                     {canResolve && (
                       // Подпись называет последствие, а не действие: «Выбрать» стояло рядом с
                       // «Голосовать» и читалось как выбор своего варианта, а нажатие закрывало опрос.
+                      // До конца срока кнопка ещё и другого цвета — жёлтая рядом с зелёной
+                      // «Голосовать» сама по себе говорит, что это не голос.
+                      // Флажок вместо галочки: галочка в этой карточке уже занята — ей помечены
+                      // выбранный и верный варианты, и на кнопке она читалась бы как «отметить».
                       <button
                         onClick={(e) => { e.stopPropagation(); handleResolve(option.id); }}
-                        title="Завершить опрос: этот вариант станет верным ответом"
-                        className="mt-2 text-xs whitespace-nowrap border border-green-500/50 text-green-700 dark:text-green-400 hover:bg-green-500 hover:text-white hover:border-green-500 px-2 py-1 rounded transition-colors"
+                        title={votingClosed
+                          ? 'Завершить опрос: этот вариант станет верным ответом'
+                          : `Завершить опрос досрочно: голосование идёт до ${formatPollDate(deadline)}`}
+                        className={`group/resolve mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1
+                          text-[11px] font-semibold leading-none tracking-tight
+                          transition-all duration-200 ease-out active:scale-[0.97] motion-reduce:transition-none
+                          focus:outline-none focus-visible:ring-2 ${votingClosed
+                          ? 'border-green-500/25 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500 hover:border-green-500 hover:text-white hover:shadow-sm hover:shadow-green-500/30 focus-visible:ring-green-500/40'
+                          : 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500 hover:border-amber-500 hover:text-white hover:shadow-sm hover:shadow-amber-500/30 focus-visible:ring-amber-500/40'
+                          }`}
                       >
-                        Это верный ответ — завершить
+                        <Flag size={11} className="shrink-0 opacity-60 transition-opacity duration-200 group-hover/resolve:opacity-100" />
+                        <span>{votingClosed ? 'Это верный ответ — завершить' : 'Это верный ответ — завершить досрочно'}</span>
                       </button>
                     )}
                   </div>
