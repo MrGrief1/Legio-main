@@ -455,6 +455,13 @@ export interface Translations {
         close: string;
     };
 
+    // Кнопка «поделиться»: подсказка всплывает рядом с самой кнопкой, поэтому текст короткий.
+    share: {
+        title: string;
+        copied: string;
+        failed: string;
+    };
+
     // Categories (будут взяты из constants)
     categories: {
         all: string;
@@ -913,6 +920,12 @@ export const translations: Record<Language, Translations> = {
             close: 'Закрыть',
         },
 
+        share: {
+            title: 'Поделиться',
+            copied: 'Ссылка скопирована',
+            failed: 'Не удалось скопировать',
+        },
+
         // Categories
         categories: {
             all: 'Все',
@@ -1368,6 +1381,12 @@ export const translations: Record<Language, Translations> = {
         // News Modal
         newsModal: {
             close: 'Close',
+        },
+
+        share: {
+            title: 'Share',
+            copied: 'Link copied',
+            failed: 'Could not copy',
         },
 
         // Categories

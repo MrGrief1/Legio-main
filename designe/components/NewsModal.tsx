@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Heart, Share2, AlertTriangle, Link as LinkIcon } from 'lucide-react';
+import { X, Heart, AlertTriangle, Link as LinkIcon } from 'lucide-react';
 import { NewsItem, PollData } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { ReportModal } from './ReportModal';
+import { ShareButton } from './ShareButton';
 import { getApiUrl } from '../config';
 import { useScrollLock } from '../hooks/useScrollLock';
 import { useBackClose } from '../hooks/useBackClose';
@@ -71,16 +72,6 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
     } finally {
       setLikeLoading(false);
     }
-  };
-
-  const handleShare = () => {
-    const url = `${window.location.origin}/?news=${item.id}`;
-    navigator.clipboard.writeText(url).then(() => {
-      showAlert('Ссылка скопирована!');
-    }).catch(err => {
-      console.error('Failed to copy:', err);
-      showAlert('Не удалось скопировать ссылку');
-    });
   };
 
   if (!isOpen) return null;
@@ -188,12 +179,7 @@ export const NewsModal: React.FC<NewsModalProps> = ({ item, isOpen, onClose, chi
                   <Heart size={20} className={`transition-transform duration-200 ${isLiked ? 'fill-current' : 'group-hover/btn:scale-110'}`} />
                 </button>
 
-                <button
-                  onClick={handleShare}
-                  className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full group/btn"
-                >
-                  <Share2 size={20} className="group-hover/btn:scale-110 transition-transform" />
-                </button>
+                <ShareButton url={`${window.location.origin}/?news=${item.id}`} />
 
                 <button
                   onClick={() => {

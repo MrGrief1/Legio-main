@@ -1,11 +1,12 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Button } from './UI';
-import { Heart, Share2, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X, User as UserIcon, Pencil, Flag } from 'lucide-react';
+import { Heart, AlertTriangle, Circle, CheckCircle2, Loader2, Check, Trash2, Clock, Link as LinkIcon, Users, X, User as UserIcon, Pencil, Flag } from 'lucide-react';
 import { PollData, PollOption, NewsItem, User } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../context/DialogContext';
 import { NewsModal } from './NewsModal';
 import { ReportModal } from './ReportModal';
+import { ShareButton } from './ShareButton';
 import { UserProfileModal } from './UserProfileModal';
 import { Avatar } from './Avatar';
 import { getApiUrl } from '../config';
@@ -809,30 +810,7 @@ export const NewsCard: React.FC<{
                 <Heart size={20} className={`${isLiked ? 'fill-current' : ''}`} />
               </button>
 
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const url = `${window.location.origin}/?news=${item.id}`;
-                  const button = e.currentTarget as HTMLButtonElement;
-                  const originalHTML = button.innerHTML;
-
-                  navigator.clipboard.writeText(url).then(() => {
-                    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                    button.classList.add('!text-green-500', '!bg-green-50', 'dark:!bg-green-900/20');
-
-                    setTimeout(() => {
-                      button.innerHTML = originalHTML;
-                      button.classList.remove('!text-green-500', '!bg-green-50', 'dark:!bg-green-900/20');
-                    }, 1500);
-                  }).catch(err => {
-                    console.error('Failed to copy:', err);
-                    showAlert('Не удалось скопировать ссылку');
-                  });
-                }}
-                className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full group/btn"
-              >
-                <Share2 size={20} className="group-hover/btn:scale-110 transition-transform" />
-              </button>
+              <ShareButton url={`${window.location.origin}/?news=${item.id}`} />
 
               <button
                 onClick={(e) => {

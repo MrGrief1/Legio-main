@@ -95,12 +95,71 @@ input[type="search"]::-webkit-search-results-decoration {
   animation: poll-sheen 1100ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Подсказка «Ссылка скопирована» у кнопки «поделиться»: выезжает от кнопки вверх,
+   поэтому origin внизу — движение читается как «выросло из кнопки», а не «прилетело». */
+@keyframes share-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Уход — то же движение назад: подсказка «складывается» обратно в кнопку, а не пропадает рывком.
+   forwards удерживает конечный кадр, пока элемент ждёт размонтирования. */
+@keyframes share-tip-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+}
+
+.share-tip,
+.share-tip-leaving {
+  transform-origin: bottom right;
+}
+
+.share-tip {
+  animation: share-tip-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.share-tip-leaving {
+  animation: share-tip-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* Тот же уход для reduced-motion: гашение без движения. Объявлением transform его не заменить —
+   значение из @keyframes перебивает обычное свойство. */
+@keyframes share-tip-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .animate-popover,
   .animate-popover-up,
-  .animate-calendar-view {
+  .animate-calendar-view,
+  .share-tip {
     animation: none;
+  }
+
+  /* Уход остаётся: без него подсказка пропадала бы рывком. Гашение — не движение. */
+  .share-tip-leaving {
+    animation: share-tip-fade-out 220ms linear forwards;
   }
 
   .poll-sheen {
