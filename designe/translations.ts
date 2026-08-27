@@ -376,6 +376,8 @@ export interface Translations {
         eventClosed: string;
         currentWinner: string;
         noMonthlyLeaders: string;
+        // Подпись вместо имени, если у аккаунта нет ни имени, ни безопасного для показа хэндла.
+        anonymous: string;
         monthlyPointsLabel: string;
         totalPointsLabel: string;
         winsLabel: string;
@@ -842,6 +844,7 @@ export const translations: Record<Language, Translations> = {
             eventClosed: 'Ивент завершён',
             currentWinner: 'Текущий призёр',
             noMonthlyLeaders: 'В этом месяце ещё никто не заработал баллы',
+            anonymous: 'Участник',
             monthlyPointsLabel: 'за месяц',
             totalPointsLabel: 'всего',
             winsLabel: 'побед',
@@ -1305,6 +1308,7 @@ export const translations: Record<Language, Translations> = {
             eventClosed: 'Event closed',
             currentWinner: 'Current winner',
             noMonthlyLeaders: 'Nobody has earned points this month yet',
+            anonymous: 'Participant',
             monthlyPointsLabel: 'this month',
             totalPointsLabel: 'total',
             winsLabel: 'wins',

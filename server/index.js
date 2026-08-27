@@ -801,6 +801,10 @@ const getContactEmail = (user) => {
     return looksLikeEmail(login) ? login : null;
 };
 
+// Публичный @-хэндл. У новых аккаунтов `username` — это email (логин), и в открытых таблицах
+// его показывать нельзя; у перенесённых из WordPress это обычный ник, он остаётся как есть.
+const toPublicHandle = (username) => (looksLikeEmail(username) ? null : (username || null));
+
 const PHPASS_ITOA64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 const phpPassEncode64 = (inputBuffer, count) => {
@@ -4592,9 +4596,9 @@ const settleFinishedMonthsThrottled = async () => {
 
 const toMonthlyLeader = (row, index) => ({
     id: row.id,
-    username: row.username,
+    username: toPublicHandle(row.username),
     name: row.name,
-    displayName: row.name || row.username,
+    displayName: row.name || toPublicHandle(row.username),
     avatar: row.avatar,
     rank: index + 1,
     // `points` stays the monthly score so the leaderboard can render one shape for
@@ -5032,7 +5036,8 @@ app.get('/api/leaders', async (req, res) => {
             points: Number(row.points) || 0,
             monthlyPoints: Number(row.monthly_points) || 0,
             rank: index + 1,
-            displayName: row.name || row.username,
+            username: toPublicHandle(row.username),
+            displayName: row.name || toPublicHandle(row.username),
         })));
     } catch (error) {
         console.error('Failed to load leaders:', error);

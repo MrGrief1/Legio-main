@@ -95,6 +95,9 @@ export const Leaderboard: React.FC = () => {
     // replaces the visible table with a spinner.
     useAutoRefresh(() => load(true));
 
+    // Сервер отдаёт displayName без хэндла-email, поэтому у аккаунта без имени он может быть пустым.
+    const winnerName = monthly?.winner?.displayName || t.leaderboard.anonymous;
+
     const monthIndex = monthly?.monthIndex ?? new Date().getMonth();
     const eventHeading = language === 'ru'
         ? `${t.leaderboard.monthlyTitle} — ${MONTHS_GENITIVE_RU[monthIndex]}`
@@ -103,7 +106,9 @@ export const Leaderboard: React.FC = () => {
     const rows: Array<{
         id: number | string;
         displayName: string;
-        username: string;
+        // Логин у новых аккаунтов — это email, поэтому сервер отдаёт хэндл только когда его
+        // безопасно показать; иначе строка под именем остаётся без «@...».
+        username: string | null;
         avatar: string;
         primary: number;
         secondary?: number;
@@ -111,8 +116,8 @@ export const Leaderboard: React.FC = () => {
     }> = tab === 'month'
             ? (monthly?.leaders || []).map(user => ({
                 id: user.id,
-                displayName: user.displayName || user.name || user.username,
-                username: user.username,
+                displayName: user.displayName || user.name || user.username || t.leaderboard.anonymous,
+                username: user.username || null,
                 avatar: user.avatar,
                 primary: user.monthlyPoints,
                 secondary: user.totalPoints,
@@ -120,8 +125,8 @@ export const Leaderboard: React.FC = () => {
             }))
             : leaders.map(user => ({
                 id: user.id,
-                displayName: user.name || user.username,
-                username: user.username,
+                displayName: user.name || user.username || t.leaderboard.anonymous,
+                username: user.username || null,
                 avatar: user.avatar,
                 primary: user.points,
                 secondary: user.monthlyPoints,
@@ -187,10 +192,10 @@ export const Leaderboard: React.FC = () => {
                                     <div className="relative shrink-0">
                                         <Avatar
                                             src={monthly.winner.avatar}
-                                            alt={monthly.winner.displayName}
+                                            alt={winnerName}
                                             size={48}
                                             className="rounded-full ring-2 ring-yellow-300 dark:ring-yellow-500/40"
-                                            fallbackText={monthly.winner.displayName}
+                                            fallbackText={winnerName}
                                         />
                                         <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-white p-1 rounded-full shadow-sm">
                                             <Crown size={10} fill="currentColor" />
@@ -198,7 +203,7 @@ export const Leaderboard: React.FC = () => {
                                     </div>
                                     <div className="min-w-0">
                                         <div className="font-bold text-zinc-900 dark:text-white truncate group-hover:text-yellow-700 dark:group-hover:text-yellow-500 transition-colors">
-                                            {monthly.winner.displayName}
+                                            {winnerName}
                                         </div>
                                         {/* The reward is the flat prize; the score below is only why
                                             this person is in front. */}
@@ -296,8 +301,10 @@ export const Leaderboard: React.FC = () => {
                                 {index === 0 && <Crown size={14} className="text-yellow-500 flex-shrink-0 hidden lg:block" />}
                             </div>
                             <div className="text-xs text-zinc-500 truncate font-medium">
-                                @{row.username}
-                                {tab === 'month' && row.wins ? ` · ${row.wins} ${t.leaderboard.winsLabel}` : ''}
+                                {row.username ? `@${row.username}` : ''}
+                                {tab === 'month' && row.wins
+                                    ? `${row.username ? ' · ' : ''}${row.wins} ${t.leaderboard.winsLabel}`
+                                    : ''}
                             </div>
                         </div>
 
